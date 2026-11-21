@@ -4,7 +4,8 @@
 ``TTL_S`` seconds; a database error keeps the last good value for ``STALE_S`` seconds, then
 falls back to the core appearance. Every write calls ``reset_appearance_cache()`` after its
 commit, so the process that writes sees the change at once and the others within the TTL.
-``cached_appearance()`` never touches the database: it is what the error pages use.
+``cached_appearance()`` never touches the database: it is what the error pages use. Setup
+mode, which has no database, always answers the core appearance.
 ``pin_appearance()`` fixes the value in tests (``tests/conftest.py`` pins the default).
 """
 
@@ -64,8 +65,10 @@ def current_appearance() -> Appearance:
     if _CACHE["pinned"] is not None:
         return _CACHE["pinned"]
     from django.apps import apps
+    from django.conf import settings
 
-    if not apps.ready:
+    # Setup mode runs with the dummy database backend (#146): its pages keep the core theme.
+    if not apps.ready or getattr(settings, "SKELETON_SETUP_MODE", False):
         return DEFAULT
     now = time.monotonic()
     if _CACHE["value"] is not None and now - _CACHE["at"] < TTL_S:
@@ -88,10 +91,14 @@ def _version(key: str) -> str:
 
 
 def _load() -> Appearance:
+    from django.db import transaction
+
     from .models import InstanceBrand
     from .themes import BUILTIN_THEMES, ThemeValues, theme_css, theme_css_tokens, theme_digest
 
-    brand = InstanceBrand.objects.select_related("active_theme").filter(slot="instance").first()
+    # A savepoint: a failed read never breaks the transaction of the request that renders the page.
+    with transaction.atomic():
+        brand = InstanceBrand.objects.select_related("active_theme").filter(slot="instance").first()
     if brand is None:
         return DEFAULT
     values: ThemeValues | None = None

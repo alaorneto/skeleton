@@ -98,3 +98,11 @@ def test_cached_appearance_only_reads_memory(clock, monkeypatch):
     current_appearance()
     assert cached_appearance().product_name == "Banco"
     assert len(calls) == 1
+
+
+def test_setup_mode_is_the_default_without_touching_the_database(clock, monkeypatch, settings):
+    """Setup pages render through the same shell, with the dummy backend (found in the browser check)."""
+    calls = loader(monkeypatch, Appearance(product_name="Banco"))
+    settings.SKELETON_SETUP_MODE = True
+    assert current_appearance() == DEFAULT
+    assert calls == []
