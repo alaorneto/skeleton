@@ -24,6 +24,7 @@ from skeleton.api.openapi import (
     DedicatedRoutes,
     Operation,
     TableRoutes,
+    array,
     model_label_fields,
     nullable,
     obj,
@@ -177,6 +178,8 @@ AUDIT_EVENT = obj(
         "changes": OBJECT,
     }
 )
+SEARCH_HIT = obj({"sysid": UUID, "label": string()})
+SEARCH_GROUP = obj({"table_key": string(), "label": string(), "has_more": BOOLEAN, "items": array(SEARCH_HIT)})
 
 
 def me_data(me):
@@ -407,6 +410,54 @@ class CatalogView(TenantAPI):
                 "description": row.description,
                 "scope": row.scope,
             },
+        )
+
+
+class GlobalSearchView(TenantAPI):
+    """``GET /api/v1/o/<org>/search/``: one term over every searchable table the actor reads (#582)."""
+
+    token_methods = ("GET",)
+    openapi = {
+        "GET": Operation(
+            "Busca global nas tabelas pesquisáveis que o ator lê",
+            results(SEARCH_GROUP),
+            query=(
+                (
+                    "q",
+                    string(minLength=2, maxLength=200),
+                    "Texto de 2 a 200 caracteres; a última palavra casa por prefixo.",
+                ),
+                ("limit", INTEGER, "Resultados por tabela, de 1 a 20 (padrão 5)."),
+            ),
+            description=(
+                "Um grupo por tabela marcada com global_search em que há resultado. has_more indica que a "
+                "lista da tabela, com o mesmo q, tem mais registros."
+            ),
+        )
+    }
+
+    def get(self, request, organization_id):
+        from skeleton.records.search import global_search, parse_request
+
+        try:
+            term, limit = parse_request(request.query_params)
+            groups = global_search(user=request.user, term=term, limit=limit)
+        except ValidationError:
+            raise BoundaryError(
+                "invalid_filter", gettext("Busca inválida: envie q com 2 a 200 caracteres e limit de 1 a 20.")
+            ) from None
+        return Response(
+            {
+                "results": [
+                    {
+                        "table_key": group.table_key,
+                        "label": group.label,
+                        "has_more": group.has_more,
+                        "items": [{"sysid": hit.sysid, "label": hit.label} for hit in group.hits],
+                    }
+                    for group in groups
+                ]
+            }
         )
 
 

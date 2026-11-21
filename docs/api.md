@@ -18,6 +18,7 @@ Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do coo
 | `o/<org>/join-links/`, `join-links/<id>/revoke/` | GET, POST; POST com If-Match | Capacidade `invitations.manage`. A lista nunca traz token nem resumo. POST `{label, role, mode, days, max_uses}` (exatamente esses campos) cria e devolve a `url` com o token uma única vez (201, `Cache-Control: no-store`); papel com capacidade pedido pelo gestor de pessoas responde 403 `privileged_role`. Revogar exige If-Match (412 se stale) |
 | `o/<org>/join-requests/`, `join-requests/<id>/` | GET; POST decisão com If-Match | Capacidade `admission.decide`; só pedidos abertos da organização. POST `{"decision": "approve"\|"reject"}` (sem outros campos); revisão stale 412, pedido já decidido ou expirado 409 `not_pending`; o gestor de pessoas recebe 403 num pedido com papel que carrega capacidade |
 | `o/<org>/catalog/` | GET | Apenas tabelas legíveis; não inventário técnico global |
+| `o/<org>/search/` | GET | [Busca global](#busca-global) nas tabelas marcadas com `global_search` que o ator lê; `q` e `limit`; sessão ou token |
 | `o/<org>/audit/`, `audit/<event>/` | GET | Eventos autorizados; filtros `record_sysid`, `model_label`, `from`, `to` (data ou ISO 8601), `actor`, `operation` e `request_id` na lista (#184); filtro desconhecido ou inválido é 400 `invalid_filter`; `table_name` e `db_principal` vêm vazios para quem não administra a organização (#324) |
 | `o/<org>/membership/` | GET | O próprio vínculo do ator nesta organização (sysid, revisão) com ETag; 404 sem vínculo ativo |
 | `o/<org>/membership/leave/` | POST | O ator sai da organização; exige `If-Match` com a revisão do próprio vínculo (428 sem ele, 412 se mudou), corpo vazio; 204; 409 `last_administrator` para o último administrador |
@@ -80,6 +81,21 @@ Apps podem registrar `RecordOperations` em código para impor serviços próprio
 
 Somente JSON é aceito na API. `SKELETON_JSON_MAX_BYTES` limita bytes efetivamente lidos antes da decodificação (default 1048576), inclusive stream sem Content-Length confiável; excesso é 413 `request_too_large`, sem escrita parcial. Alinhe um limite de corpo igual ou menor no proxy. Paginação HTML preserva filtros já validados ao trocar page, com URL encoding. As respostas também são sempre JSON: a interface HTML do DRF (Browsable API) fica desligada, e um `Accept` que não admite JSON recebe 406 com corpo JSON (#230).
 
+
+## Busca global
+
+`GET /api/v1/o/<org>/search/?q=<termo>&limit=<n>` busca um termo em todas as tabelas marcadas com `TableSpec.global_search` ([extensão](extending.md#busca-global), [#582](https://github.com/alaorneto/skeleton/issues/582)) que o ator lê nesta organização. Aceita sessão ou token (só `GET`).
+
+- **Parâmetros:** só `q` (2 a 200 caracteres, a mesma busca textual de `?q=` na lista da tabela, com a última palavra por prefixo) e `limit` (resultados por tabela, de 1 a 20, padrão 5), cada um uma vez. Sem `q`, termo fora do tamanho, `limit` fora da faixa ou não numérico, parâmetro desconhecido ou repetido: 400 `invalid_filter`.
+- **Resposta:** `{"results": [...]}` com um grupo por tabela em que há resultado, na ordem de `GlobalSearchPolicy.order` e depois do rótulo da tabela. Cada grupo traz `table_key`, `label` (rótulo da tabela), `items` (`sysid` e `label`, o campo de título do registro, nunca `__str__`) e `has_more`, que diz que a lista da tabela com o mesmo `q` tem mais registros que `limit`. Não há contagem total nem paginação dentro do grupo: para ver todos, use `tables/<table_key>/records/?q=...`.
+
+```json
+{"results": [{"table_key": "example_notes.note", "label": "Anotações", "has_more": false,
+  "items": [{"sysid": "6f1c…", "label": "Contrato de locação"}]}]}
+```
+
+- **Autorização:** as mesmas da lista de cada tabela: `TablePermission` de leitura, escopos do token, app ativa e `authorized_queryset` por registro. Uma tabela que o ator não lê não gera grupo, igual a uma tabela sem resultado; sem nenhuma, a resposta é `{"results": []}`. Pessoa sem vínculo com a organização da URL recebe 404. Só `sysid` e o título (em `read_fields`) saem; `sensitive_fields` nunca.
+- **Custo:** uma consulta por tabela marcada que o ator lê, cada uma no índice GIN da tabela.
 
 ## Concorrência e erros
 
