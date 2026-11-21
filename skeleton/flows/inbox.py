@@ -48,3 +48,22 @@ def open_tasks(user: Any) -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+
+
+def organization_open_tasks(user: Any, organization_id: Any, *, limit: int = 5) -> list[dict[str, Any]]:
+    """The person's open tasks in one organization, most urgent first (the internal home, #624).
+
+    The same query as ``open_tasks``, limited to ``organization_id`` and to ``limit`` rows.
+    """
+    rows = _open(user, [organization_id]).order_by("due_at", "created_at", "sysid")[:limit]
+    return [
+        {
+            "sysid": row.pk,
+            "organization_id": row.organization_id,
+            "step_key": row.step_key,
+            "kind": row.kind,
+            "due_at": row.due_at,
+            "created_at": row.created_at,
+        }
+        for row in rows
+    ]

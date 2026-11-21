@@ -449,15 +449,17 @@ def organization_home(request, organization_id):
 
 @tenant_page()
 def dashboard(request, organization_id):
-    from skeleton.service_api.organizations import OrganizationService
+    """The internal home (#624): the published home page, or the default apps, tasks and notifications.
 
-    organization = OrganizationService().current(actor=request.user)
-    # Tables and the administration moved to the settings area (#621); the home keeps the apps.
-    return render(
-        request,
-        "skeleton/web/dashboard.html",
-        {"organization": organization, "organization_id": organization_id},
-    )
+    Tables and the administration live in the settings area (#621); "your membership" stays below.
+    """
+    from skeleton.common.page_blocks import DEFAULT_ORGANIZATION_HOME
+    from skeleton.tenancy.pages import organization_page
+    from skeleton.web.home import render_home
+
+    page = organization_page("home")
+    document = page.document if page.published and page.blocks else DEFAULT_ORGANIZATION_HOME
+    return render_home(request, organization_id, document)
 
 
 @tenant_page(capability=access_capability)

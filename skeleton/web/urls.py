@@ -61,6 +61,7 @@ urlpatterns = [
     # The settings area of the organization (#621): the hub; the entries keep their own routes.
     path(f"{ORG}admin/", settings_views.organization_admin, name="organization-admin"),
     *editor_urls(f"{ORG}admin/pages/public/", "organization-page-public", settings_views.organization_public_page),
+    *editor_urls(f"{ORG}admin/pages/home/", "organization-page-home", settings_views.organization_home_page),
     path(f"{ORG}admission/", admission_views.admission_policy, name="admission"),
     # External people of the portal (#532).
     path(f"{ORG}admin/external/", external_views.external_admin, name="external"),

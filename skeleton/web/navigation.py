@@ -106,6 +106,14 @@ SETTINGS_GROUPS: tuple[tuple[str, Any, tuple[SettingsItem, ...]], ...] = (
                 "organization_admin",
                 editor_route_names("organization-page-public", "web"),
             ),
+            # The configurable internal home (#624).
+            SettingsItem(
+                "web:organization-page-home",
+                gettext_lazy("Página inicial"),
+                "home",
+                "organization_admin",
+                editor_route_names("organization-page-home", "web"),
+            ),
         ),
     ),
     (

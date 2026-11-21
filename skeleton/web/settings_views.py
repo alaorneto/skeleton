@@ -12,7 +12,13 @@ from django.utils.translation import gettext
 from skeleton.web.navigation import can_open_settings, settings_navigation_for
 from skeleton.web.views import tenant_page
 
-__all__ = ["organization_admin", "organization_public_page", "public_page_editor"]
+__all__ = [
+    "home_page_editor",
+    "organization_admin",
+    "organization_home_page",
+    "organization_public_page",
+    "public_page_editor",
+]
 
 
 @tenant_page()
@@ -117,3 +123,53 @@ def organization_public_page(request, organization_id, operation, index=None):
 
     _require_admin(request)
     return dispatch(request, public_page_editor(request, organization_id), operation, index=index)
+
+
+def _home_preview(request, state, organization_id):
+    from django.urls import reverse
+
+    from skeleton.web.home import render_home
+
+    return render_home(
+        request,
+        organization_id,
+        state.document,
+        preview=True,
+        published=state.published,
+        back_url=reverse("web:organization-page-home", kwargs={"organization_id": organization_id}),
+    )
+
+
+def home_page_editor(request, organization_id):
+    from skeleton.common.page_blocks import ORGANIZATION_HOME
+    from skeleton.system.dashboard_widgets import visible_widgets
+    from skeleton.web.page_editor import PageEditor
+
+    # The administrator chooses among the widgets they see; any registered name stays valid (#624).
+    choices = tuple((widget.name, widget.label) for widget in visible_widgets(request.user))
+    return PageEditor(
+        kind=ORGANIZATION_HOME,
+        store=_OrganizationPageStore(request.user, "home"),
+        url_name="web:organization-page-home",
+        url_kwargs={"organization_id": organization_id},
+        base_template="skeleton/web/base.html",
+        title=gettext("Página inicial"),
+        eyebrow=gettext("Organização"),
+        description=gettext(
+            "O início que os membros veem ao entrar na organização: textos, contatos, links, os aplicativos, "
+            "as tarefas e as notificações de cada pessoa e os quadros dos aplicativos. Sem página publicada, "
+            "vale o padrão: aplicativos, minhas tarefas e notificações. Cada pessoa só vê o que já pode ver."
+        ),
+        widget_choices=choices,
+        preview=lambda request, state: _home_preview(request, state, organization_id),
+        extra_context={"organization_id": organization_id},
+    )
+
+
+@tenant_page()
+def organization_home_page(request, organization_id, operation, index=None):
+    """``/o/<org>/admin/pages/home/``: the shared block editor (#619) over the internal home (#624)."""
+    from skeleton.web.page_editor import dispatch
+
+    _require_admin(request)
+    return dispatch(request, home_page_editor(request, organization_id), operation, index=index)

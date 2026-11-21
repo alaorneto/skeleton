@@ -1,23 +1,18 @@
 {% extends 'skeleton/web/base.html' %}
-{% load i18n %}{% block title %}{{ organization.name }} · {{ site_name }}{% endblock %}
+{% load i18n %}{% comment %}
+Início interno da organização (#624): os blocos publicados em Configuração › Página inicial ou o
+padrão (aplicativos, minhas tarefas, notificações). "Seu vínculo" fica sempre no rodapé.
+{% endcomment %}{% block title %}{{ organization.name }} · {{ site_name }}{% endblock %}
 {% block content %}
+{% if preview %}<div class="message warning mb-6" role="status">{% include "skeleton/web/components/icon.html" with name="info" %}<div class="min-w-0">{% if published %}{% translate "Pré-visualização do início publicado." %}{% else %}{% translate "Pré-visualização: este início ainda não está publicado; os membros veem o padrão." %}{% endif %} <a href="{{ back_url }}">{% translate "Voltar ao editor" %}</a></div></div>{% endif %}
 <div class="page-header">
   <div class="min-w-0">
     <p class="page-eyebrow">{% translate "Início" %}</p>
     <h1>{{ organization.name }}</h1>
-    <p class="page-description">{% translate "Aplicativos que você pode usar nesta organização." %}{% if can_open_settings %} {% translate "Pessoas, dados e as demais configurações ficam na área de configuração, pela engrenagem ao lado do nome da organização." %}{% endif %}</p>
+    {% if can_open_settings %}<p class="page-description">{% translate "Pessoas, dados e as demais configurações ficam na área de configuração, pela engrenagem ao lado do nome da organização." %}</p>{% endif %}
   </div>
 </div>
-{% if application_navigation %}
-<nav aria-labelledby="dashboard-apps">
-  <h2 id="dashboard-apps" class="section-heading">{% translate "Aplicativos" %}</h2>
-  <ul class="cards grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-    {% for entry in application_navigation %}<li><a class="link-card" href="{{ entry.url }}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="cube" %}</span><span class="min-w-0"><span class="link-card-title">{{ entry.label }}</span><span class="link-card-text">{% translate "Abrir aplicativo" %}</span></span></a></li>{% endfor %}
-  </ul>
-</nav>
-{% else %}
-<p class="text-sm/6 text-body-subtle">{% translate "Nenhum aplicativo disponível." %}</p>
-{% endif %}
+{% include "skeleton/web/pages/blocks.html" %}
 <section class="mt-10" aria-labelledby="dashboard-membership">
   <h2 id="dashboard-membership" class="section-heading">{% translate "Seu vínculo" %}</h2>
   <p class="text-sm/6 text-body-subtle">{% translate "Você pode deixar esta organização quando quiser; quem a administra sozinho precisa antes designar outra pessoa." %}</p>
