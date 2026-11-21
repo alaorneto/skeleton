@@ -85,8 +85,25 @@ def current_appearance() -> Appearance:
 
 def _load() -> Appearance:
     from .models import InstanceBrand
+    from .themes import BUILTIN_THEMES, ThemeValues, theme_css, theme_css_tokens, theme_digest
 
-    brand = InstanceBrand.objects.filter(slot="instance").first()
+    brand = InstanceBrand.objects.select_related("active_theme").filter(slot="instance").first()
     if brand is None:
         return DEFAULT
-    return Appearance(product_name=brand.product_name, footer_text=brand.footer_text)
+    values: ThemeValues | None = None
+    theme = brand.active_theme
+    if theme is not None and theme.deleted_at is None:
+        values = ThemeValues(theme.name, theme.brand_color, theme.radius, theme.font, theme.custom_css)
+    elif brand.builtin_theme:
+        values = BUILTIN_THEMES.get(brand.builtin_theme)  # An unknown slug is the core theme, never an error.
+    css = theme_css(values) if values is not None else ""
+    tokens = theme_css_tokens(values) if values is not None else ""
+    return Appearance(
+        product_name=brand.product_name,
+        footer_text=brand.footer_text,
+        theme_css=css,
+        theme_css_tokens=tokens,
+        theme_version=theme_digest(css),
+        theme_safe_version=theme_digest(tokens),
+        brand_color=values.brand_color.lower() if values is not None else "",
+    )
