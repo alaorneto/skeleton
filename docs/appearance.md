@@ -49,6 +49,18 @@ O contrato estável para o CSS livre são os tokens `--color-*`, `--radius-*`, `
 
 `skeleton/appearance/images.py` guarda o logo e o logo para o modo escuro (PNG, JPEG ou WebP até 512 KB) e o ícone (PNG quadrado de 512 × 512 até 256 KB), com os mesmos verificadores das imagens de organização (`checked_logo` e `checked_icon` de `skeleton.tenancy.branding`): o conteúdo decide o tipo, nunca o nome. SVG e GIF são recusados. A chave é `platform/branding/<uuid4>`, gerada pelo servidor, no armazenamento privado ([arquivos](files.md)). Os bytes são gravados antes da linha; falhar a linha apaga o objeto na hora, o objeto substituído sai depois do commit, e um rollback do chamador deixa um órfão que o job global `appearance.orphans` remove depois da carência ([jobs](jobs.md)). A variante escura só aparece junto com o logo.
 
+### Logos em SVG
+
+Só dentro de um [pacote de tema](#pacote-de-tema) o logo e o logo para o modo escuro podem ser SVG; o envio avulso desta tela continua PNG, JPEG ou WebP, e o ícone é sempre PNG. `skeleton/appearance/svg_validation.py` (`svg_problem(conteúdo)`, Python puro, #632) aceita um subconjunto estático e recusa o resto, sem reescrever o arquivo:
+
+- até 256 KiB, UTF-8 (com ou sem BOM), raiz `svg` no namespace SVG com `viewBox` ou `width` e `height`, até 32 níveis e 5 000 elementos;
+- elementos permitidos: `svg`, `g`, `defs`, `title`, `desc`, `path`, `rect`, `circle`, `ellipse`, `line`, `polyline`, `polygon`, `text`, `tspan`, `linearGradient`, `radialGradient`, `stop`, `clipPath`, `mask`, `pattern`, `symbol` e `use`. Qualquer outro é recusado: `script`, `style`, `foreignObject`, `image`, `a`, animações (`animate*`, `set`), filtros e elementos de editores (`sodipodi:*`, `inkscape:*`);
+- recusados antes do parse: `<!DOCTYPE`, `<!ENTITY`, `<![CDATA[` e instruções de processamento além da declaração `<?xml …?>` inicial (sem DOCTYPE não há entidade nem bomba de expansão);
+- atributos `on*` recusados; `href`/`xlink:href` só em `use`, gradientes e `pattern`, e só `#id`; nenhum valor com `javascript:`, `data:`, `vbscript:` ou `url(` que não seja `url(#id)`; `style` sem `@`, `expression`, `\` nem `<`; atributos só sem namespace, `xlink:href`, `xml:space` e `xml:lang`;
+- texto só em `title`, `desc`, `text` e `tspan`.
+
+O problema (`SvgProblem(code, item)`) cita o elemento ou o atributo, nunca o valor. Exporte o logo do editor como "SVG simples" ou "SVG otimizado". O SVG só aparece em `<img>` e é servido com `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox` e `nosniff`.
+
 ## Rotas públicas
 
 | Rota | Resposta |
