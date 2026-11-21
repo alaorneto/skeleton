@@ -2,6 +2,60 @@
 
 As versões a partir da primeira, `v0.1.0`, são escritas pelo workflow de release (`release.py run`, skill dev-workflow): não edite este arquivo à mão. O nível de cada versão e os PRs e issues incluídos seguem [docs/workflow.md](docs/workflow.md#versão).
 
+## [0.2.0](https://github.com/alaorneto/skeleton/compare/v0.1.0...v0.2.0) — 2026-11-21
+
+### ⚠ Mudanças incompatíveis
+
+- **records:** fence writes to global tables declared by apps (PR [#609](https://github.com/alaorneto/skeleton/pull/609)) — Tabelas globais declaradas por apps (SystemRecord sem organização, label fora de sk_) só aceitam escrita em contexto de sistema sem organização: o modelo levanta SystemContextRequired e, depois de regenerar a infraestrutura (record_infrastructure --write, W043), o guard do banco também recusa. Uma app que gravava essas tabelas de uma view, serviço ou consumidor deixa de funcionar; o caminho é command_context(reason=...) num comando de gerenciamento ou um job global. Em 0.x a quebra sobe o minor (zero_major = breaking-is-minor).
+
+### Funcionalidades
+
+- Criar o pacote de aparência da instância com a marca (nome e rodapé) e o cache de leitura ([#592](https://github.com/alaorneto/skeleton/issues/592)) — PR [#610](https://github.com/alaorneto/skeleton/pull/610)
+- Gerar o CSS de um tema a partir de cor, raio e fonte, com contraste AA nos dois modos ([#593](https://github.com/alaorneto/skeleton/issues/593)) — PR [#610](https://github.com/alaorneto/skeleton/pull/610)
+- Validar o CSS personalizado de um tema ([#594](https://github.com/alaorneto/skeleton/issues/594)) — PR [#610](https://github.com/alaorneto/skeleton/pull/610)
+- Criar, editar, excluir e ativar temas da instância ([#595](https://github.com/alaorneto/skeleton/issues/595)) — PR [#610](https://github.com/alaorneto/skeleton/pull/610)
+- Guardar logo, logo para o modo escuro e ícone da instância ([#596](https://github.com/alaorneto/skeleton/issues/596)) — PR [#610](https://github.com/alaorneto/skeleton/pull/610)
+- Servir a folha de estilo do tema e as imagens da instância em `/brand/` ([#597](https://github.com/alaorneto/skeleton/issues/597)) — PR [#610](https://github.com/alaorneto/skeleton/pull/610)
+- Aplicar o nome, o logo e o tema da instância em todas as páginas ([#598](https://github.com/alaorneto/skeleton/issues/598)) — PR [#610](https://github.com/alaorneto/skeleton/pull/610)
+- Administrar a marca e os temas da instância em `/platform/appearance/` ([#599](https://github.com/alaorneto/skeleton/issues/599)) — PR [#610](https://github.com/alaorneto/skeleton/pull/610)
+- Marcar tabelas para a busca global e buscar em todas pelo gateway ([#581](https://github.com/alaorneto/skeleton/issues/581)) — PR [#611](https://github.com/alaorneto/skeleton/pull/611)
+- Expor a busca global na API REST ([#582](https://github.com/alaorneto/skeleton/issues/582)) — PR [#611](https://github.com/alaorneto/skeleton/pull/611)
+- Publicar o SearchService na API de serviços do núcleo ([#583](https://github.com/alaorneto/skeleton/issues/583)) — PR [#611](https://github.com/alaorneto/skeleton/pull/611)
+- Página de busca e caixa de busca no cabeçalho ([#584](https://github.com/alaorneto/skeleton/issues/584)) — PR [#611](https://github.com/alaorneto/skeleton/pull/611)
+- Habilitar o provedor OIDC para clientes nativos ([#603](https://github.com/alaorneto/skeleton/issues/603)) — PR [#614](https://github.com/alaorneto/skeleton/pull/614)
+- Aceitar access tokens OIDC na API `/api/v1/` ([#604](https://github.com/alaorneto/skeleton/issues/604)) — PR [#614](https://github.com/alaorneto/skeleton/pull/614)
+- Expor endpoints de descoberta para clientes nativos ([#605](https://github.com/alaorneto/skeleton/issues/605)) — PR [#614](https://github.com/alaorneto/skeleton/pull/614)
+- Distribuir atualizações de clientes nativos ([#606](https://github.com/alaorneto/skeleton/issues/606)) — PR [#614](https://github.com/alaorneto/skeleton/pull/614)
+- Validar e renderizar páginas em blocos estruturados, com editor SSR compartilhado ([#619](https://github.com/alaorneto/skeleton/issues/619)) — PR [#627](https://github.com/alaorneto/skeleton/pull/627)
+- Permitir que apps registrem widgets do painel da organização ([#620](https://github.com/alaorneto/skeleton/issues/620)) — PR [#627](https://github.com/alaorneto/skeleton/pull/627)
+- Levar a configuração da organização para uma área própria e deixar no menu só o início e os apps ([#621](https://github.com/alaorneto/skeleton/issues/621)) — PR [#627](https://github.com/alaorneto/skeleton/pull/627)
+- Publicar uma página inicial pública da plataforma ([#622](https://github.com/alaorneto/skeleton/issues/622)) — PR [#627](https://github.com/alaorneto/skeleton/pull/627)
+- Publicar uma página pública da organização no endereço próprio ([#623](https://github.com/alaorneto/skeleton/issues/623)) — PR [#627](https://github.com/alaorneto/skeleton/pull/627)
+- Configurar o início interno da organização com blocos e widgets ([#624](https://github.com/alaorneto/skeleton/issues/624)) — PR [#627](https://github.com/alaorneto/skeleton/pull/627)
+
+### Melhorias
+
+- Casar a última palavra da busca textual por prefixo ([#580](https://github.com/alaorneto/skeleton/issues/580)) — PR [#601](https://github.com/alaorneto/skeleton/pull/601)
+- Oferecer no kit de testes helpers públicos para pessoas, organizações e grupos ([#572](https://github.com/alaorneto/skeleton/issues/572)) — PR [#608](https://github.com/alaorneto/skeleton/pull/608)
+- Cercar a escrita de tabelas globais declaradas por apps ([#576](https://github.com/alaorneto/skeleton/issues/576)) — PR [#609](https://github.com/alaorneto/skeleton/pull/609)
+- Usar a marca da instância nos e-mails sem marca de organização ([#600](https://github.com/alaorneto/skeleton/issues/600)) — PR [#610](https://github.com/alaorneto/skeleton/pull/610)
+- Aceitar colunas imutáveis em seal_fields no kit de selo, ou documentar a restrição ([#575](https://github.com/alaorneto/skeleton/issues/575)) — PR [#615](https://github.com/alaorneto/skeleton/pull/615)
+- Rodar a fixture de banco distribuída em paralelo e sem migrar a cada teste ([#573](https://github.com/alaorneto/skeleton/issues/573)) — PR [#613](https://github.com/alaorneto/skeleton/pull/613)
+- Permitir que consumidores de evento numerem registros e leiam títulos do livro ([#577](https://github.com/alaorneto/skeleton/issues/577)) — PR [#612](https://github.com/alaorneto/skeleton/pull/612)
+
+### Correções
+
+- Gerar a documentação da app sem links relativos para o núcleo ([#574](https://github.com/alaorneto/skeleton/issues/574)) — PR [#607](https://github.com/alaorneto/skeleton/pull/607)
+- Tratar SIGTERM do agente de deployment desde a criação do socket ([#616](https://github.com/alaorneto/skeleton/issues/616)) — PR [#617](https://github.com/alaorneto/skeleton/pull/617)
+
+### Documentação
+
+- Atualizar a tag de base citada no CHANGELOG e no docs/workflow.md para a v0.1.0 ([#589](https://github.com/alaorneto/skeleton/issues/589)) — PR [#590](https://github.com/alaorneto/skeleton/pull/590)
+
+### Manutenção
+
+- Atualizar o skill dev-workflow para a 1.2.1 ([#625](https://github.com/alaorneto/skeleton/issues/625)) — PR [#626](https://github.com/alaorneto/skeleton/pull/626)
+
 ## [0.1.0](https://github.com/alaorneto/skeleton/releases/tag/v0.1.0) — 2026-11-20
 
 ### ⚠ Mudanças incompatíveis
