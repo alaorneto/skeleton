@@ -234,3 +234,40 @@ def test_a_committed_standalone_tree_passes_the_doctor(tmp_path):
         subprocess.run(["git", *identity, *arguments], cwd=root, check=True, capture_output=True)
     report = run_command({"operation": "doctor", "app_root": str(root), "git_ref": "HEAD"})
     assert report["ok"] is True, report["problems"]
+
+
+MARKDOWN_LINK = r"\]\(([^)\s]+)\)"
+
+
+@pytest.mark.parametrize("standalone", [False, True], ids=["in-core", "standalone"])
+def test_generated_docs_never_link_outside_the_app(tmp_path, standalone):
+    """#574: a relative link out of the app resolves only inside a core checkout; use the core tag."""
+    import re
+
+    from skeleton.system.app_scaffold import core_docs_url
+    from skeleton.versioning import core_version
+
+    startapp(tmp_path, standalone=standalone)
+    root = (tmp_path / "project_tasks").resolve()
+    core_docs = core_docs_url(core_version()["version"])
+    external = []
+    for document in sorted(root.rglob("*.md")):
+        for target in re.findall(MARKDOWN_LINK, document.read_text(encoding="utf-8")):
+            if "://" in target:
+                external.append(target)
+                continue
+            path = target.split("#", 1)[0]
+            resolved = (document.parent / path).resolve() if path else document
+            assert resolved.is_relative_to(root), f"{document.relative_to(root)}: {target}"
+            assert resolved.is_file(), f"{document.relative_to(root)}: {target}"
+    assert external, "the generated docs cite the core docs"
+    for target in external:
+        assert target.startswith(f"{core_docs}/"), target
+    assert f"{core_docs}/service-api.md" in external
+
+
+def test_core_docs_url_points_at_the_version_tag():
+    from skeleton.system.app_scaffold import core_docs_url
+
+    assert core_docs_url("1.2.3") == "https://github.com/alaorneto/skeleton/blob/v1.2.3/docs"
+    assert core_docs_url(None) == "https://github.com/alaorneto/skeleton/blob/main/docs"
