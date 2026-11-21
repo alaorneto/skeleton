@@ -144,4 +144,7 @@ def test_a_token_sees_only_its_scopes_and_token_methods(access):
 
 def test_an_administrator_token_never_sees_the_administration(access):
     paths = schema_of(bearer(access.admin, [f"{NOTE}:read"]))["paths"]
-    assert not [path for path in paths if "/roles/" in path or "/webhooks/" in path or "/apps/" in path]
+    # The active apps list (#605) is a member read, not administration: the only /apps/ path a token sees.
+    administration = [path for path in paths if path != "/api/v1/o/{organization_id}/apps/active/"]
+    assert not [path for path in administration if "/roles/" in path or "/webhooks/" in path or "/apps/" in path]
+    assert "/api/v1/o/{organization_id}/apps/active/" in paths
