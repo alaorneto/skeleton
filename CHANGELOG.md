@@ -2,6 +2,32 @@
 
 As versões a partir da primeira, `v0.1.0`, são escritas pelo workflow de release (`release.py run`, skill dev-workflow): não edite este arquivo à mão. O nível de cada versão e os PRs e issues incluídos seguem [docs/workflow.md](docs/workflow.md#versão).
 
+## [0.3.0](https://github.com/alaorneto/skeleton/compare/v0.2.0...v0.3.0) — 2026-11-21
+
+### Funcionalidades
+
+- Validar logos SVG de pacotes de tema ([#632](https://github.com/alaorneto/skeleton/issues/632)) — PR [#646](https://github.com/alaorneto/skeleton/pull/646)
+- Definir o formato do pacote de tema e o leitor que o valida ([#633](https://github.com/alaorneto/skeleton/issues/633)) — PR [#646](https://github.com/alaorneto/skeleton/pull/646)
+- Validar e montar um pacote de tema pelo console (comandos de autor) ([#634](https://github.com/alaorneto/skeleton/issues/634)) — PR [#646](https://github.com/alaorneto/skeleton/pull/646)
+- Instalar, atualizar e remover pacotes de tema (modelo e serviços) ([#635](https://github.com/alaorneto/skeleton/issues/635)) — PR [#646](https://github.com/alaorneto/skeleton/pull/646)
+- Aplicar nome, rodapé, imagens e fontes do tema ativo ([#636](https://github.com/alaorneto/skeleton/issues/636)) — PR [#646](https://github.com/alaorneto/skeleton/pull/646)
+- Enviar, atualizar e remover pacotes de tema em `/platform/appearance/` e pelo console ([#637](https://github.com/alaorneto/skeleton/issues/637)) — PR [#646](https://github.com/alaorneto/skeleton/pull/646)
+- Exportar um tema da instância como pacote ([#638](https://github.com/alaorneto/skeleton/issues/638)) — PR [#646](https://github.com/alaorneto/skeleton/pull/646)
+- Publicar o manifesto PWA e o favicon da instância no domínio principal ([#639](https://github.com/alaorneto/skeleton/issues/639)) — PR [#646](https://github.com/alaorneto/skeleton/pull/646)
+- Avisar quando o projeto sobrescreve um template do shell do núcleo (W045) ([#640](https://github.com/alaorneto/skeleton/issues/640)) — PR [#646](https://github.com/alaorneto/skeleton/pull/646)
+- Declarar temas da instância no manifesto da app e validá-los no build e na carga ([#642](https://github.com/alaorneto/skeleton/issues/642)) — PR [#647](https://github.com/alaorneto/skeleton/pull/647)
+- Disponibilizar e ativar os temas das apps instaladas ([#643](https://github.com/alaorneto/skeleton/issues/643)) — PR [#647](https://github.com/alaorneto/skeleton/pull/647)
+- Mostrar a origem dos temas de apps e avisar na desinstalação ([#644](https://github.com/alaorneto/skeleton/issues/644)) — PR [#647](https://github.com/alaorneto/skeleton/pull/647)
+- Exemplo, scaffold, kit de testes e documentação do tema trazido por app ([#645](https://github.com/alaorneto/skeleton/issues/645)) — PR [#647](https://github.com/alaorneto/skeleton/pull/647)
+
+### Melhorias
+
+- Separar a checagem do CSS personalizado do Django e indicar a linha do erro ([#631](https://github.com/alaorneto/skeleton/issues/631)) — PR [#646](https://github.com/alaorneto/skeleton/pull/646)
+
+### Documentação
+
+- Documentar como criar e publicar um tema, com skill para agentes ([#641](https://github.com/alaorneto/skeleton/issues/641)) — PR [#646](https://github.com/alaorneto/skeleton/pull/646)
+
 ## [0.2.0](https://github.com/alaorneto/skeleton/compare/v0.1.0...v0.2.0) — 2026-11-21
 
 ### ⚠ Mudanças incompatíveis
