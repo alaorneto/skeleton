@@ -34,7 +34,7 @@ O caminho é sempre o mesmo: o proxy passa a responder uma página de manutenç�
 - **nginx:** `error_page 502 503 504 /maintenance.html;` com a página num `location = /maintenance.html` interno; para fechar de propósito, `return 503;` no `server`.
 - **Jobs:** para que nada rode durante a janela, pare `worker` e `scheduler`. A fila acumula e é drenada quando eles voltam: webhooks, e-mails e notificações chegam atrasados.
 
-Num cluster de vários nós, faça isso no balanceador (que atende todos os nós), não em cada nó.
+Num cluster de vários nós, faça isso no balanceador (que atende todos os nós), não em cada nó ([alta disponibilidade](high-availability.md)).
 
 ## Limites
 

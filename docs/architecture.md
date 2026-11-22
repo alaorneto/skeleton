@@ -149,6 +149,10 @@ Todo deployment roda o agente (#649). Nos containers ele é um serviço próprio
 
 Uma resposta de entrega perdida não autoriza refazer o plano como uma nova operação. O reenvio explícito conserva o vínculo da aprovação original; a nova tentativa de HTTP continua auditada com seu próprio ID. Só um status coerente do journal confirma o resultado. Veja [provisionamento e recuperação](deployment.md#agente-independente-de-deployment).
 
+## Topologia em alta disponibilidade
+
+Com alta demanda, a instância roda em vários nós de app atrás de um balanceador, com o PostgreSQL e o Redis num servidor de dados à parte, um cluster por instância. Os nós não guardam estado: a configuração vem do ambiente, igual em todos (modo cluster), os anexos ficam no S3 ou num volume compartilhado, e as sessões, os jobs e a coordenação dos agentes ficam no PostgreSQL. Um agente primário, escolhido por uma trava do PostgreSQL, migra e coordena as atualizações; os outros agentes trocam o release do próprio nó. O guia é [alta disponibilidade](high-availability.md).
+
 ## Segurança: o que a arquitetura não promete
 
 - **PostgreSQL:** runtime não é owner/superuser/BYPASSRLS. Owner offline e audit writer são separados. RLS/FORCE protege filtros tenant esquecidos, não uma credencial runtime maliciosa capaz de `set_config` ou SQL injection arbitrária.
