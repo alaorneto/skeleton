@@ -286,9 +286,11 @@ def install_initial(
         releases_root.mkdir(parents=True, exist_ok=True)
         _discard_partial(releases_root)
         package = _release_package(service, release_file=release_file, version=version, source_id=source_id)
-        release = releases_root / f"{BOOTSTRAP_PREFIX}-{uuid4().hex}"
+        # The first start is an operation of its own: its command logs go under its id (a UUID).
+        operation = uuid4()
+        release = releases_root / f"{BOOTSTRAP_PREFIX}-{operation.hex}"
         backend = service.backend
-        with backend.logging_to(release.name):
+        with backend.logging_to(str(operation)):
             inventory = _build(service, package["core"]["digest"], release)
             infrastructure = release / "infrastructure.json"
             backend.export_infrastructure(release, infrastructure)

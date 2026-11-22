@@ -149,6 +149,9 @@ class Backend:
         self.fail_on = fail_on
 
     def logging_to(self, operation_id):
+        from deployment_agent.storage import identifier
+
+        identifier(operation_id)  # The real backend refuses anything but a UUID (invalid_uuid).
         return nullcontext()
 
     def target_environment(self):
