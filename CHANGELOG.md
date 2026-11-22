@@ -2,6 +2,16 @@
 
 As versões a partir da primeira, `v0.1.0`, são escritas pelo workflow de release (`release.py run`, skill dev-workflow): não edite este arquivo à mão. O nível de cada versão e os PRs e issues incluídos seguem [docs/workflow.md](docs/workflow.md#versão).
 
+## [0.3.1](https://github.com/alaorneto/skeleton/compare/v0.3.0...v0.3.1) — 2026-11-22
+
+### Correções
+
+- Recusar a faixa de origem vazia do core e corrigir o earliest_source da receita de release ([#650](https://github.com/alaorneto/skeleton/issues/650)) — PR [#657](https://github.com/alaorneto/skeleton/pull/657)
+
+### Documentação
+
+- Revisar a documentação e remover as versões de desenvolvimento anteriores à v0.1.0 ([#658](https://github.com/alaorneto/skeleton/issues/658)) — PR [#657](https://github.com/alaorneto/skeleton/pull/657)
+
 ## [0.3.0](https://github.com/alaorneto/skeleton/compare/v0.2.0...v0.3.0) — 2026-11-21
 
 ### Funcionalidades
