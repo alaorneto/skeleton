@@ -300,6 +300,16 @@ def _safe_members(tar: tarfile.TarFile, name: str) -> list[tarfile.TarInfo]:
     return members
 
 
+def _force_remove(function: Any, path: str, error: BaseException) -> None:
+    """Remove a refused copy even where its frozen modes forbid it (read-only files on some systems)."""
+    try:
+        os.chmod(os.path.dirname(path), 0o700)  # A frozen parent forbids removing its entries.
+        os.chmod(path, 0o700)
+        function(path)
+    except OSError:
+        pass
+
+
 def install_release(service: DeploymentService, name: str, release_digest: str) -> Path:
     """Fetch the primary's frozen release and keep it only if it is, file by file, the planned one."""
     from .releases import freeze, owned_snapshot
@@ -321,6 +331,13 @@ def install_release(service: DeploymentService, name: str, release_digest: str) 
         with tarfile.open(archive, "r") as tar:
             tar.extractall(incoming, members=_safe_members(tar, name), filter="tar")
         extracted = incoming / name
+        # The primary's release is frozen (0555 directories): moving a directory to another parent
+        # needs write permission on it, and so does removing a refused one. freeze() closes it again.
+        for directory in (
+            extracted,
+            *(path for path in extracted.rglob("*") if path.is_dir() and not path.is_symlink()),
+        ):
+            os.chmod(directory, 0o755)
         owned = load_json(extracted / "owned-files.json")
         if digest(owned) != release_digest or owned_snapshot(extracted) != owned:
             raise AgentError("follower_release_mismatch", 409)
@@ -329,7 +346,7 @@ def install_release(service: DeploymentService, name: str, release_digest: str) 
         return target
     finally:
         archive.unlink(missing_ok=True)
-        shutil.rmtree(incoming, ignore_errors=True)
+        shutil.rmtree(incoming, onexc=_force_remove)
 
 
 # --------------------------------------------------------------------------- the follower

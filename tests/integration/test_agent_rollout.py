@@ -13,7 +13,7 @@ import pytest
 
 from deployment_agent import execution, rollout
 from deployment_agent.coordination import ClusterSettings, Coordinator
-from deployment_agent.releases import owned_snapshot
+from deployment_agent.releases import freeze, owned_snapshot
 from deployment_agent.storage import AgentError, atomic_json, digest
 
 OWNER = os.environ.get("TEST_MIGRATION_DATABASE_URL", "")
@@ -98,7 +98,8 @@ def cluster(tmp_path, monkeypatch):
     monkeypatch.setattr(rollout, "POLL_S", 0.05)
     monkeypatch.setattr(execution, "health", lambda service, inventory: service.log.append(("health", "ok")))
     releases = tmp_path / "primary-releases"
-    new, release_digest = make_release(releases, "2-plan", {"manage.py": "print('new')\n"})
+    new, release_digest = make_release(releases, "2-plan", {"manage.py": "print('new')\n", "pkg/mod.py": "x = 1\n"})
+    freeze(new)  # As the primary keeps it: the follower receives 0555 directories (CI caught the rename).
     old_dir = tmp_path / "node-b-old"
     old_dir.mkdir()
     primary, follower_node = coordinator("node-a", tmp_path), coordinator("node-b", tmp_path)
@@ -220,9 +221,11 @@ def test_a_node_that_missed_the_update_installs_the_cluster_release_before_start
 
 def test_a_tampered_archive_is_refused(cluster, tmp_path):
     primary, service, new, release_digest = cluster
+    os.chmod(new / "manage.py", 0o644)
     (new / "manage.py").write_text("print('tampered')\n", encoding="utf-8")
     with pytest.raises(AgentError, match="follower_release_mismatch"):
         rollout.install_release(service, "2-plan", release_digest)
+    assert list(Path(service.config["releases_root"]).iterdir()) == []  # The refused copy is removed.
 
 
 def test_unsafe_archive_members_are_refused(tmp_path):
