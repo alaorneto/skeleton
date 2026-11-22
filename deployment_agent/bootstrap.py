@@ -53,7 +53,12 @@ OFFICIAL_PUBLISHER = "skeleton"
 OFFICIAL_PUBLISHER_KEY = "/opt/agent/publishers/skeleton.pub.pem"
 OFFICIAL_SOURCE = "alaorneto/skeleton"
 CORE = "django-skeleton"
-FEATURE_VARIABLES = ("SKELETON_BUNDLED_APPS", "SKELETON_ENABLE_EXAMPLE_APP", "SKELETON_BILLING_ENABLED")
+# The switches that change INSTALLED_APPS go to every profile, so the build, the migrations and the
+# runtime see the same apps. Billing only turns a feature on: its keyring (E037) exists only in the
+# runtime configuration, so it goes only there; the build and migration checks would refuse it.
+APP_VARIABLES = ("SKELETON_BUNDLED_APPS", "SKELETON_ENABLE_EXAMPLE_APP")
+RUNTIME_VARIABLES = ("SKELETON_BILLING_ENABLED",)
+FEATURE_VARIABLES = APP_VARIABLES + RUNTIME_VARIABLES
 
 
 # --------------------------------------------------------------------------- configuration
@@ -85,7 +90,8 @@ def container_config(environ: Mapping[str, str]) -> tuple[JSON, dict[str, str]]:
     ``SKELETON_AGENT_SOURCE`` (``alaorneto/skeleton`` on GitHub, pinned to that publisher;
     ``none`` for no source). Optional:
     ``SKELETON_HEALTH_URL`` (``http://web:8000``), ``SKELETON_PUBLIC_HOST`` (the Host of the
-    health checks), the instance paths and the feature switches, passed to every profile.
+    health checks), the instance paths and the feature switches (the app switches in every profile,
+    billing only at runtime, where its keyring is).
     """
     private = Path(environ.get("SKELETON_AGENT_PRIVATE", "/agent/private"))
     state = Path(environ.get("SKELETON_AGENT_STATE", "/agent/state"))
@@ -104,7 +110,8 @@ def container_config(environ: Mapping[str, str]) -> tuple[JSON, dict[str, str]]:
         _required({name: value}, name)
     if not Path(publisher_key).is_absolute():
         raise AgentError("invalid_bootstrap_path")
-    features = "".join(_env_line(name, environ[name]) for name in FEATURE_VARIABLES if environ.get(name))
+    apps = "".join(_env_line(name, environ[name]) for name in APP_VARIABLES if environ.get(name))
+    runtime_only = "".join(_env_line(name, environ[name]) for name in RUNTIME_VARIABLES if environ.get(name))
     instance = "".join(
         _env_line(name, environ[name])
         for name in ("SKELETON_INSTANCE_DB", "SKELETON_INSTANCE_KEY_FILE")
@@ -114,11 +121,12 @@ def container_config(environ: Mapping[str, str]) -> tuple[JSON, dict[str, str]]:
         "runtime.env": _env_line("DJANGO_SETTINGS_MODULE", "config.settings.production")
         + _env_line("DATABASE_URL", runtime_url)
         + instance
-        + features,
+        + apps
+        + runtime_only,
         "migration.env": _env_line("DJANGO_SETTINGS_MODULE", "config.settings.migrate")
         + _env_line("MIGRATION_DATABASE_URL", owner_url)
-        + features,
-        "build.env": _env_line("DJANGO_SETTINGS_MODULE", "config.settings.build") + features,
+        + apps,
+        "build.env": _env_line("DJANGO_SETTINGS_MODULE", "config.settings.build") + apps,
     }
     agent = [sys.executable, "-m", "deployment_agent", "--config", str(private / "agent.json")]
     project_paths = environ.get("SKELETON_AGENT_PROJECT_PATHS", "manage.py,config,applications,examples").split(",")

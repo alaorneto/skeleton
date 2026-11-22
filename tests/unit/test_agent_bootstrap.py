@@ -63,6 +63,10 @@ def test_the_configuration_comes_from_the_variables(tmp_path):
     assert "owner-secret" in files["migration.env"] and "runtime-secret" not in files["migration.env"]
     for name in ("runtime.env", "migration.env", "build.env"):
         assert "SKELETON_BUNDLED_APPS=calendar,ledger" in files[name]
+    # Billing only at runtime, where its keyring lives; the build and migration checks would fail E037.
+    with_billing = container_config(environ(tmp_path, SKELETON_BILLING_ENABLED="true"))[1]
+    assert "SKELETON_BILLING_ENABLED=true" in with_billing["runtime.env"]
+    assert "BILLING" not in with_billing["migration.env"] + with_billing["build.env"]
     assert "SKELETON_INSTANCE_DB=/instance/instance.sqlite3" in files["runtime.env"]
 
 
