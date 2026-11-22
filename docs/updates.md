@@ -115,7 +115,7 @@ Apps continuam em pacotes de componente. Uma app publica o próprio índice no p
 
 O agente consulta as fontes sozinho a cada `update_check_interval` segundos (padrão 6 horas; `0` desliga; a primeira consulta, 2 minutos depois de subir). Quem tem `updates.operate` vê nas páginas de `/platform/` uma faixa com o link "Ver o passo a passo"; o atraso máximo é o intervalo do agente mais 5 minutos de cache. Nada é baixado nem aplicado sozinho.
 
-Sem agente, com o opt-in `SKELETON_UPDATE_REPOSITORY`, o job `system.update_check` consulta o release mais recente e mostra um aviso **só informativo** com o link para o release ([aviso sem agente](deployment.md#sandbox-no-coolify-369)).
+Todo deployment roda o agente (#649), que mostra as versões em "Novas versões". Fora dele (só desenvolvimento local), com o opt-in `SKELETON_UPDATE_REPOSITORY`, o job `system.update_check` consulta o release mais recente e mostra um aviso **só informativo** com o link para o release ([aviso sem agente](deployment.md#sandbox-no-coolify-369)).
 
 ## Dependências do projeto derivado
 
@@ -242,5 +242,5 @@ Num servidor de teste Linux com systemd e PostgreSQL, com um repositório de tes
 6. Atualize o agente pela tela; confira a versão nova em "Versões instaladas".
 7. Conclua os dois passos; confira que a página da operação oferece o passo seguinte e que a faixa de aviso some no fim. Com três releases em linhas seguidas, escolha em "Atualizar até a versão" a do meio, conclua os passos até ela e confira que, ao chegar, nenhum passo do núcleo é oferecido (#653).
 8. Rode `agent-rollback` e reinicie; confira a versão anterior do agente.
-9. Numa instalação sem agente (`compose.sandbox.yaml`), defina `SKELETON_UPDATE_REPOSITORY`, rode o job e veja a faixa informativa.
+9. No sandbox (`compose.sandbox.yaml`, [sandbox no Coolify](deployment.md#sandbox-no-coolify-369)) recriado do zero: confira que a primeira partida instalou o release publicado mais novo, que `/platform/updates/` mostra o agente, o core e a fonte oficial, que a agenda, o livro contábil e a app de exemplo aparecem instaladas e que a cobrança sobe sem `skeleton.E037`; depois de um release novo, escolha-o como alvo e conclua os passos.
 10. Confira nos logs do agente e do web que nenhum token, chave ou URL de download assinada aparece.

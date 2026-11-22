@@ -145,6 +145,8 @@ A administração da plataforma fica em `/platform/`, com views explícitas (`sk
 
 `/platform/updates/` valida o ator e solicita uma operação ao agente independente. O agente guarda journal privado, valida assinatura/conteúdo, prepara release separado, faz backup, migrations, checks runtime/configuração persistida e reinício. A request web nunca executa pip/DDL nem recebe a credencial owner. A prévia é preparada pelo agente em segundo plano: o web recebe o identificador do plano e acompanha o estado por consulta, sem prender worker nem transação (#298).
 
+Todo deployment roda o agente (#649). Nos containers ele é um serviço próprio, o único com a credencial owner: na primeira partida instala o release publicado (`deployment_agent/bootstrap.py`), e o web, o worker e o agendador rodam o release ativo pelo inicializador (`deployment_agent/launcher.py`, só biblioteca padrão), que obedece aos pedidos de parar e reiniciar gravados pelo agente num volume de controle; nenhum serviço monta o socket Docker. Com systemd, o agente usa os hooks de `systemctl`. Só releases publicados e assinados chegam à instalação; o operador escolhe a versão do core, um passo e uma confirmação por vez.
+
 Uma resposta de entrega perdida não autoriza refazer o plano como uma nova operação. O reenvio explícito conserva o vínculo da aprovação original; a nova tentativa de HTTP continua auditada com seu próprio ID. Só um status coerente do journal confirma o resultado. Veja [provisionamento e recuperação](deployment.md#agente-independente-de-deployment).
 
 ## Segurança: o que a arquitetura não promete
