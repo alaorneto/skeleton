@@ -130,6 +130,8 @@ O núcleo declara também `appearance.orphans` ([#596](https://github.com/alaorn
 
 O núcleo declara também `system.update_check` (#502): global (`scope="global"`, `per_organization=False`), uma tentativa por janela, a cada `SKELETON_UPDATE_CHECK_HOURS` horas, agendado só quando `SKELETON_UPDATE_REPOSITORY` está definido e não há agente de deployment ([aviso sem agente](deployment.md#sandbox-no-coolify-369)). O payload é vazio e o job não lê nem escreve tabelas: o resultado vai para o cache.
 
+`accounts.clear_sessions` (#677) é global e diário (03:30 UTC): apaga de `django_session` as sessões com `expire_date` no passado, em lotes de 1 000 chaves e no máximo 100 000 por execução (o resto fica para o dia seguinte). As sessões ficam no banco, e o Django só apaga as vencidas quando alguém roda `clearsessions`; com muito acesso, a tabela cresceria sem limite.
+
 ## Operar a fila: `/platform/jobs/`
 
 A administração da plataforma tem uma tela da fila (#40), com contagens por estado, atraso do job vencido mais antigo, workers vivos e a lista dos jobs filtrável por estado, fila e tipo. A tela mostra tipo, fila, organização, estado, tentativas, código e classe do erro e datas; **nunca o payload**.
