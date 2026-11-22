@@ -114,7 +114,14 @@ SKIPPED = "skipped"
 logger = logging.getLogger("skeleton.setup")
 MAX_FAILURES = 5
 FAILURE_WINDOW = 15 * 60
-KEYRINGS = ("mfa_encryption_keys", "identity_provider_encryption_keys", "integration_encryption_keys")
+# Generated once by the instance step, whether or not the feature is on: turning billing on later
+# never meets an instance without its keyring (skeleton.E037, #654).
+KEYRINGS = (
+    "mfa_encryption_keys",
+    "identity_provider_encryption_keys",
+    "integration_encryption_keys",
+    "billing_encryption_keys",
+)
 
 
 def _store():
@@ -373,6 +380,8 @@ def instance(request):
         # The address the operator is using right now, without the port.
         "allowed_hosts": request.get_host().split(":")[0],
         "trust_proxy": "HTTP_X_FORWARDED_PROTO" in request.META,
+        # Its origin, as the public URL that links and payment providers need (W037, #654).
+        "public_url": f"{request.scheme}://{request.get_host()}",
     }
     initial.update(_initial("instance"))  # A stored value wins over the suggestion.
     form = forms.InstanceForm(request.POST or None, initial=initial)

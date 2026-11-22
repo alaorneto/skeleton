@@ -321,7 +321,7 @@ jobs:
         run: |
           docker build --target project-assets --tag django-skeleton:assets .
           docker run --rm django-skeleton:assets sh -c '! test -e /project-source'
-      - name: Validar o compose do sandbox (#369)
+      - name: Validar o compose do sandbox (#369, #654)
         env:
           SANDBOX_HOST: sandbox.example.test
           POSTGRES_PASSWORD: ci
@@ -332,9 +332,13 @@ jobs:
           config=$(docker compose -f compose.sandbox.yaml config --format json)
           # Nenhuma porta no host: o proxy do Coolify chega ao web pela rede interna.
           echo "$config" | jq -e '[.services[] | select(.ports)] == []'
-          # A URL owner só no migrate; a senha owner só no migrate e no init do PostgreSQL.
-          echo "$config" | jq -e '[.services | to_entries[] | select(.value.environment.MIGRATION_DATABASE_URL) | .key] == ["migrate"]'
+          # A URL owner só no agente (#654); a senha owner só no init do PostgreSQL; ninguém com o socket Docker.
+          echo "$config" | jq -e '[.services | to_entries[] | select(.value.environment | tostring | test("skeleton_owner")) | .key] == ["agent"]'
           echo "$config" | jq -e '[.services | to_entries[] | select(.value.environment.SKELETON_OWNER_DB_PASSWORD) | .key] == ["postgres"]'
+          echo "$config" | jq -e '[.services[] | .volumes[]? | .source // "" | select(test("docker.sock"))] == []'
+          echo "$config" | jq -e '(.services | has("migrate") | not) and (.services.agent.build.target == "agent")'
+          # Tudo ligado no sandbox (#649).
+          echo "$config" | jq -e '.services.web.environment.SKELETON_BILLING_ENABLED == "true" and .services.web.environment.SKELETON_BUNDLED_APPS == "calendar,ledger"'
           # Em modo setup o healthcheck manda Host: localhost; sem ele o web nunca fica saudável (#436).
           echo "$config" | jq -e '.services.web.environment.SKELETON_SETUP_ALLOWED_HOSTS | split(",") | index("localhost") != null'
           # Atrás do TLS do Coolify o setup confia no X-Forwarded-Proto, sem origem CSRF no ambiente (#442).
@@ -350,11 +354,117 @@ jobs:
           name: core-wheel
           path: dist/*.whl
 
+  compose-stack:
+    name: Stack Compose com o agente
+    # #654: a stack real a partir de um pacote de release de ensaio (chave efêmera, sem rede para
+    # o release): primeira partida pelo agente, setup por comandos e as fronteiras da credencial owner.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      COMPOSE_FILE: compose.yaml:${{ runner.temp }}/compose.ci.yaml
+      POSTGRES_PASSWORD: cipostgres
+      SKELETON_OWNER_DB_PASSWORD: ciowner
+      SKELETON_RUNTIME_DB_PASSWORD: ciruntime
+      REDIS_PASSWORD: ciredis
+      KEYCLOAK_ADMIN_PASSWORD: unused
+      SKELETON_AGENT_RELEASE_FILE: /rehearsal/release.skapp
+      SKELETON_AGENT_PUBLISHER: ephemeral
+      SKELETON_AGENT_PUBLISHER_KEY: /rehearsal/publisher.pub.pem
+      SKELETON_AGENT_SOURCE: none
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14"
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES
+      - name: Pacote de release de ensaio
+        run: |
+          python -m pip install --require-hashes -r requirements-dev.txt
+          python -m pip wheel --no-deps --no-build-isolation --wheel-dir dist .
+          python -m pip wheel --no-deps --no-build-isolation --wheel-dir dist-agent ./deployment_agent
+          version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          python tools/release_artifacts.py build --ephemeral-key --version "$version" --tag "v$version" \
+            --core-wheel "dist/django_skeleton-$version-py3-none-any.whl" \
+            --agent-wheel "dist-agent/skeleton_deployment_agent-$version-py3-none-any.whl" \
+            --out "$RUNNER_TEMP/release"
+          mkdir -p "$RUNNER_TEMP/stack"
+          cp "$RUNNER_TEMP"/release/*.release.skapp "$RUNNER_TEMP/stack/release.skapp"
+          jq -r '.ephemeral' "$RUNNER_TEMP/release/trust.json" > "$RUNNER_TEMP/stack/publisher.pub.pem"
+          chmod -R a+rX "$RUNNER_TEMP/stack"
+          # Só o agente vê o pacote e a chave pública do ensaio.
+          printf 'services:\n  agent:\n    volumes:\n      - %s:/rehearsal:ro\n' "$RUNNER_TEMP/stack" > "$RUNNER_TEMP/compose.ci.yaml"
+      - name: Primeira partida pelo agente
+        run: |
+          docker compose up -d --build
+          healthy() {
+            for _ in $(seq 1 240); do
+              [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q "$1")")" = healthy ] && return 0
+              sleep 5
+            done
+            docker compose logs --no-color "$1" | tail -200
+            return 1
+          }
+          healthy agent
+          healthy web
+          # O web serve o release do agente em modo setup.
+          curl -fsS -H 'Host: localhost' http://127.0.0.1:8000/health/live/
+      - name: Setup por comandos
+        run: |
+          fernet() { python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'; }
+          docker compose exec -T \
+            -e DJANGO_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(50))')" \
+            -e DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1 \
+            -e DATABASE_URL="postgres://skeleton_runtime:$SKELETON_RUNTIME_DB_PASSWORD@postgres:5432/skeleton" \
+            -e CACHE_URL="rediscache://:$REDIS_PASSWORD@redis:6379/0" \
+            -e EMAIL_URL=consolemail:// -e DEFAULT_FROM_EMAIL=ci@example.test \
+            -e SKELETON_PUBLIC_URL=http://localhost:8000 \
+            -e MFA_ENCRYPTION_KEYS="$(fernet)" -e IDENTITY_PROVIDER_ENCRYPTION_KEYS="$(fernet)" \
+            -e INTEGRATION_ENCRYPTION_KEYS="$(fernet)" -e BILLING_ENCRYPTION_KEYS="$(fernet)" \
+            web sh -c 'cd /releases/current && SKELETON_PROJECT_ROOT=$PWD SKELETON_DEPLOYMENT_INVENTORY=$PWD/inventory.json PYTHONPATH=$PWD exec .venv/bin/python manage.py instance import-env'
+          docker compose restart web worker scheduler
+      - name: Instância pronta, apps ligadas e owner só no agente
+        run: |
+          release() {
+            docker compose exec -T web sh -c 'cd /releases/current && SKELETON_PROJECT_ROOT=$PWD SKELETON_DEPLOYMENT_INVENTORY=$PWD/inventory.json PYTHONPATH=$PWD exec .venv/bin/python "$@"' sh "$@"
+          }
+          for _ in $(seq 1 60); do
+            curl -fsS -H 'Host: localhost' http://127.0.0.1:8000/health/ready/ && break
+            sleep 5
+          done
+          curl -fsS -H 'Host: localhost' http://127.0.0.1:8000/health/ready/
+          # Sem E037 com a cobrança ligada; os erros de deploy falham o passo.
+          release manage.py check --deploy --fail-level ERROR
+          # As apps first-party e a de exemplo instaladas, e o web fala com o agente pelo socket.
+          release manage.py shell -c "
+          from django.apps import apps
+          for label in ('skeleton_calendar', 'skeleton_ledger', 'example_notes'):
+              apps.get_app_config(label)
+          from skeleton.system.releases import agent_client
+          inventory = agent_client().inventory()
+          assert inventory['core']['version'], inventory
+          print('agent', inventory.get('agent'), 'core', inventory['core']['version'])
+          "
+          # A credencial owner não chega a nenhum processo dos serviços de aplicação.
+          for service in web worker scheduler; do
+            if docker compose exec -T "$service" sh -c 'cat /proc/[0-9]*/environ 2>/dev/null | tr "\0" "\n"' | grep -E 'skeleton_owner|MIGRATION_DATABASE_URL'; then
+              echo "owner no ambiente de $service" >&2
+              exit 1
+            fi
+          done
+          # Nenhum container monta o socket Docker.
+          if docker inspect $(docker compose ps -q) --format '{{range .Mounts}}{{.Source}} {{end}}' | grep -q docker.sock; then
+            echo "socket Docker montado" >&2
+            exit 1
+          fi
+      - name: Logs da stack
+        if: failure()
+        run: docker compose logs --no-color | tail -500
+
   ci:
     name: CI
     # Um nome estável para exigir na proteção de branch, qualquer que seja a matriz acima.
     if: always()
-    needs: [lint, assets, locks, tests, coverage, typecheck, deploy-check, build]
+    needs: [lint, assets, locks, tests, coverage, typecheck, deploy-check, build, compose-stack]
     runs-on: ubuntu-24.04
     steps:
       - name: Todos os jobs passaram
@@ -365,27 +475,3 @@ jobs:
           for result in $RESULTS; do
             [ "$result" = "success" ] || exit 1
           done
-
-  deploy-sandbox:
-    name: Deploy do sandbox (Coolify)
-    # Só depois do CI verde num push para main (o merge de um PR); nunca em pull request (#369).
-    needs: ci
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-24.04
-    environment: sandbox
-    concurrency:
-      group: deploy-sandbox
-      cancel-in-progress: false
-    steps:
-      - name: Disparar o deploy no Coolify
-        env:
-          COOLIFY_DEPLOY_URL: ${{ secrets.COOLIFY_DEPLOY_URL }}
-          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
-        run: |
-          # Projetos derivados sem sandbox não configuram os secrets: o job não falha por isso.
-          if [ -z "$COOLIFY_DEPLOY_URL" ] || [ -z "$COOLIFY_TOKEN" ]; then
-            echo "::notice::Secrets COOLIFY_DEPLOY_URL/COOLIFY_TOKEN ausentes no environment sandbox; deploy não disparado."
-            exit 0
-          fi
-          curl --fail-with-body --silent --show-error --max-time 60 \
-            --header "Authorization: Bearer $COOLIFY_TOKEN" "$COOLIFY_DEPLOY_URL"

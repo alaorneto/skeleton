@@ -82,6 +82,9 @@ def test_the_official_publisher_is_the_default_and_a_fork_replaces_it(tmp_path, 
         values, _files = container_config(environ(tmp_path, SKELETON_AGENT_SOURCE="fork/repo"))
         assert values["approved_publishers"] == {PUBLISHER: str(tmp_path / "publisher.pub.pem")}
         assert values["catalogue_sources"][0]["github"] == "fork/repo"
+    with subtests.test(case="empty, as Compose passes an unset variable"):
+        values, _files = container_config(environ(tmp_path, SKELETON_AGENT_SOURCE=""))
+        assert values["catalogue_sources"][0]["github"] == OFFICIAL_SOURCE
     with subtests.test(case="no source"):
         values, _files = container_config(environ(tmp_path, SKELETON_AGENT_SOURCE="none"))
         assert "catalogue_sources" not in values

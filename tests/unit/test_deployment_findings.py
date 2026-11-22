@@ -23,6 +23,8 @@ def composition():
     env = dict(
         os.environ,
         POSTGRES_PASSWORD="disposable-pg-password",
+        SKELETON_OWNER_DB_PASSWORD="disposableowner",
+        SKELETON_RUNTIME_DB_PASSWORD="disposableruntime",
         REDIS_PASSWORD="disposable-redis-password",
         DJANGO_SECRET_KEY="disposable-settings-secret",
         DJANGO_ALLOWED_HOSTS="production.example.test",

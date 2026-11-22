@@ -112,6 +112,8 @@ def test_full_setup_never_keeps_the_owner_credential(setup_mode, caplog, tmp_pat
     owner = os.environ["TEST_MIGRATION_DATABASE_URL"]
     owner_password = owner.split(":")[2].split("@")[0]
     client = enter(store)
+    # The public URL is suggested from the address in use (W037, #654); a stored value would win.
+    assert client.get("/setup/instance/").context["form"].initial["public_url"] == "http://testserver"
     with caplog.at_level(logging.DEBUG):
         assert post(
             client,
@@ -174,7 +176,9 @@ def test_full_setup_never_keeps_the_owner_credential(setup_mode, caplog, tmp_pat
         assert owner_password not in repr(session)
         stored = store.settings()
         assert stored["database_url"][1] and os.environ["TEST_DATABASE_URL"] not in stored["database_url"][0]
-        assert {"secret_key", "mfa_encryption_keys", "integration_encryption_keys"} <= set(stored)
+        # Every keyring once, billing's too, so turning billing on never meets E037 (#654).
+        keyrings = {"mfa_encryption_keys", "integration_encryption_keys", "billing_encryption_keys"}
+        assert {"secret_key", *keyrings} <= set(stored)
         done = post(client, "/setup/finish/", {})
     assert done.status_code == 200 and "reinicie o serviço" in done.content.decode().lower()
     assert store.setup_state()["status"] == "completed"

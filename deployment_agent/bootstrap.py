@@ -156,7 +156,7 @@ def container_config(environ: Mapping[str, str]) -> tuple[JSON, dict[str, str]]:
     }
     if environ.get("SKELETON_PUBLIC_HOST"):
         values["health_host"] = environ["SKELETON_PUBLIC_HOST"]
-    source = environ.get("SKELETON_AGENT_SOURCE", OFFICIAL_SOURCE)
+    source = environ.get("SKELETON_AGENT_SOURCE") or OFFICIAL_SOURCE  # Compose passes "" when unset.
     if source and source.lower() != "none":  # "none": no catalogue source, only SKELETON_AGENT_RELEASE_FILE.
         values["catalogue_sources"] = [{"id": "official", "github": source, "publisher": publisher}]
     return values, files

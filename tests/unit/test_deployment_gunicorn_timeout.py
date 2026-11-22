@@ -9,8 +9,20 @@ DOCKERFILES = (ROOT / "Dockerfile", ROOT / "deploy" / "agent" / "Dockerfile")
 DOCUMENTED = (
     ROOT / "docs" / "deployment.md",
     ROOT / "deploy" / "systemd" / "skeleton-web.service",
-    ROOT / "compose.sandbox.yaml",  # The sandbox starts Gunicorn itself (#369).
 )
+# The Compose files start Gunicorn through the launcher (#654), in exec form.
+COMPOSE = (ROOT / "compose.yaml", ROOT / "compose.sandbox.yaml")
+
+
+def compose_commands():
+    commands = [
+        line
+        for path in COMPOSE
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if '"{venv}/bin/gunicorn", "config.wsgi:application"' in line
+    ]
+    assert len(commands) == len(COMPOSE), commands
+    return commands
 
 
 def dockerfile_commands(path):
@@ -29,7 +41,6 @@ def documented_commands():
         if re.search(r"\bgunicorn config\.wsgi:application\b", line)
     ]
     assert any(line.startswith("ExecStart=") for line in commands)
-    assert any(line.lstrip().startswith("exec gunicorn") for line in commands)
     return commands
 
 
@@ -44,6 +55,10 @@ def test_gunicorn_timeout_is_the_same_everywhere():
         found = re.findall(r"--timeout (\d+)", line)
         assert len(found) == 1, line
         values |= set(found)
+    for line in compose_commands():
+        found = re.findall(r'"--timeout", "(\d+)"', line)
+        assert len(found) == 1, line
+        values |= set(found)
     # The web never waits minutes for the agent any more: previews are prepared asynchronously.
     assert values == {"120"}
 
@@ -56,3 +71,5 @@ def test_gunicorn_never_starts_the_control_socket():
         assert '"--no-control-socket"' in command, path
     for line in documented_commands():
         assert re.search(r"--no-control-socket\b", line), line
+    for line in compose_commands():
+        assert '"--no-control-socket"' in line, line
