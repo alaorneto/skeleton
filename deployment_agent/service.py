@@ -351,8 +351,16 @@ class DeploymentService:
     def prune(self, *, plan_days: float = 7, backup_days: float | None = None, apply: bool = False) -> JSON:
         return recovery.prune(self, plan_days=plan_days, backup_days=backup_days, apply=apply)
 
-    def recover(self, operation_id: str, action: str, *, acknowledge_new_writes: bool = False) -> JSON:
-        return recovery.recover(self, operation_id, action, acknowledge_new_writes=acknowledge_new_writes)
+    def recover(
+        self, operation_id: str, action: str, *, acknowledge_new_writes: bool = False, external_restored: bool = False
+    ) -> JSON:
+        return recovery.recover(
+            self,
+            operation_id,
+            action,
+            acknowledge_new_writes=acknowledge_new_writes,
+            external_restored=external_restored,
+        )
 
     def catalogue_suggestions(self, dependency: str, required: str, target: JSON, *, limit: int = 3) -> list[JSON]:
         return catalogue.catalogue_suggestions(self, dependency, required, target, limit=limit)

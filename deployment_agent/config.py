@@ -96,6 +96,17 @@ def _valid_source(source: JSON, values: JSON) -> bool:
 
 def _validate_optional(values: JSON) -> None:
     """Shape of the optional keys at load time (#246); existence on disk is the preflight's job."""
+    backup = values.get("backup")
+    if backup is not None:
+        if (
+            not isinstance(backup, dict)
+            or set(backup) - {"mode", "acknowledge_continuous_backup", "restore_point"}
+            or backup.get("mode", "pg_dump") not in ("pg_dump", "external")
+            or not isinstance(backup.get("restore_point", True), bool)
+        ):
+            raise AgentError("invalid_backup_config")
+        if backup.get("mode") == "external" and backup.get("acknowledge_continuous_backup") is not True:
+            raise AgentError("external_backup_not_acknowledged")  # The operator owns the PITR (#683).
     if "drain_marker" in values and not _absolute(values["drain_marker"]):
         raise AgentError("invalid_drain_marker")  # The rolling update's marker (#682).
     grace = values.get("drain_grace", 20)

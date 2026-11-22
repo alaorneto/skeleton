@@ -249,3 +249,19 @@ def test_backup_refuses_relative_missing_or_symlinked_recovery_path(tmp_path, ki
     code = "recovery_path_symlink" if kind == "nested_symlink" else "invalid_recovery_path"
     with pytest.raises(AgentError, match=code):
         result.backup(tmp_path / "previous", "op-1")
+
+
+def test_abort_after_migrations_with_an_external_backup_proves_the_restore(service, tmp_path, monkeypatch):
+    """#683: after the operator's PITR, abort checks that the schema is back before reopening."""
+    events = [{"stage": "approved", "at": "t"}, {"stage": "migration_started", "at": "t"}]
+    backup = tmp_path / "backup.json"
+    atomic_json(backup, {"kind": "external", "restore_point": "skeleton-x", "lsn": "0/1"})
+    operation = journal_operation(service, tmp_path, events=events, backup=str(backup))
+    operation["plan"]["applied_migrations"] = [["app", "0001"]]
+    service.store.put("operations", operation["id"], operation)
+    monkeypatch.setattr(
+        service.backend, "probe", lambda release: {"applied": [["app", "0001"], ["app", "0002"]]}, raising=False
+    )
+    assert recovery_refused(service, operation, "abort", "database_restore_required")
+    operation = service.store.get("operations", operation["id"])
+    assert recovery_refused(service, operation, "abort", "external_restore_incomplete", external_restored=True)

@@ -39,6 +39,8 @@ ALTER ROLE skeleton_agent SET search_path TO skeleton_deploy;
 ALTER ROLE skeleton_runtime SET lock_timeout = '10s';
 ALTER ROLE skeleton_runtime SET idle_in_transaction_session_timeout = '60s';
 -- All table grants/policies are installed by reviewed migrations, not blanket DML.
+-- With an external continuous backup (#683), let the owner mark restore points:
+-- GRANT EXECUTE ON FUNCTION pg_create_restore_point(text) TO skeleton_owner;
 -- Text search (#180, #181): pg_trgm makes the reference picker tolerate typos. It is optional
 -- (a trusted contrib extension, absent from some builds); without it the picker matches
 -- prefixes and the full-text search, which needs no extension, keeps working.

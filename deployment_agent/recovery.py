@@ -198,7 +198,12 @@ def _apply_prune(service: "DeploymentService", releases: list[Path], result: JSO
 
 
 def recover(
-    service: "DeploymentService", operation_id: str, action: str, *, acknowledge_new_writes: bool = False
+    service: "DeploymentService",
+    operation_id: str,
+    action: str,
+    *,
+    acknowledge_new_writes: bool = False,
+    external_restored: bool = False,
 ) -> JSON:
     with deployment_lock(service.store.root):
         operation = service.store.get("operations", identifier(operation_id))
@@ -241,7 +246,15 @@ def recover(
                         for event in operation["events"]
                     )
                     if action == "abort" and changed_db:
-                        raise AgentError("database_restore_required", 409)
+                        if not external_restored:
+                            raise AgentError("database_restore_required", 409)
+                        # The operator restored the database to the restore point (#683): prove it.
+                        backup = load_json(operation["backup"]) if operation.get("backup") else {}
+                        if backup.get("kind") != "external":
+                            raise AgentError("external_backup_required", 409)
+                        graph = service.backend.probe(operation["previous_release"])
+                        if graph["applied"] != operation["plan"]["applied_migrations"]:
+                            raise AgentError("external_restore_incomplete", 409)
                     previous = Path(operation["previous_release"])
                     if action == "restore":
                         if not operation["backup"]:

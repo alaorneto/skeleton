@@ -62,6 +62,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Operator reviewed loss/reconciliation of writes after cutover",
     )
+    recovery.add_argument(
+        "--external-restored",
+        action="store_true",
+        help="abort after the operator restored the database to the restore point (#683)",
+    )
     commands.add_parser("revoke-status-tickets")
     commands.add_parser("selfcheck", help="Load the configuration and the agent modules; print the version")
     control = commands.add_parser(
@@ -112,7 +117,10 @@ OFFLINE = {
         service, release_file=options.release_file, version=options.version, source_id=options.source
     ),
     "recover": lambda service, options: service.recover(
-        options.operation_id, options.action, acknowledge_new_writes=options.acknowledge_new_writes
+        options.operation_id,
+        options.action,
+        acknowledge_new_writes=options.acknowledge_new_writes,
+        external_restored=options.external_restored,
     ),
     "journal": lambda service, options: {
         "operations": [service.public_operation(row) for row in service.store.operations()]
