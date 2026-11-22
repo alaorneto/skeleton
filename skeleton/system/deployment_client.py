@@ -23,6 +23,38 @@ def _bounded_text(value, maximum=200):
     return value if isinstance(value, str) and 0 < len(value) <= maximum and value.isprintable() else None
 
 
+_NODE_FIELDS = ("node_id", "role", "release", "generation", "phase", "heartbeat_age_s", "agent_version", "alive")
+_PRIMARY_FIELDS = ("node_id", "epoch", "renewed_age_s")
+
+
+def _closed(raw, fields):
+    """Only the named fields, and only text, numbers or booleans of a bounded size (#684)."""
+    result = {}
+    for key in fields:
+        value = raw.get(key)
+        if isinstance(value, bool) or (isinstance(value, int | float) and not isinstance(value, bool)):
+            result[key] = value
+        elif _bounded_text(value, 120) is not None:
+            result[key] = value
+    return result
+
+
+def sanitize_cluster(raw):
+    """The closed shape of ``GET /cluster``: no path, URL or secret ever reaches the page."""
+    if not isinstance(raw, dict) or raw.get("mode") != "cluster":
+        return {"mode": "single"}
+    primary = raw.get("primary")
+    nodes = raw.get("nodes") if isinstance(raw.get("nodes"), list) else []
+    return {
+        "mode": "cluster",
+        "node_id": raw.get("node_id") if _bounded_text(raw.get("node_id"), 40) else "",
+        "is_primary": raw.get("is_primary") is True,
+        "primary": _closed(primary, _PRIMARY_FIELDS) if isinstance(primary, dict) else None,
+        "nodes": [_closed(node, _NODE_FIELDS) for node in nodes[:64] if isinstance(node, dict)],
+        "problem": raw.get("problem") if _bounded_text(raw.get("problem"), 100) else None,
+    }
+
+
 def sanitize_details(raw):
     """Keep only the closed problem shape the agent emits; drop anything else."""
     if not isinstance(raw, list):
@@ -201,8 +233,8 @@ class AgentClient:
         return self._request("GET", "/updates/status", timeout=timeout)
 
     def cluster(self):
-        """The cluster of agents (#678): ``{"mode": "single"}`` on one node."""
-        return self._request("GET", "/cluster", timeout=5)
+        """The cluster of agents (#678), sanitized: ``{"mode": "single"}`` on one node."""
+        return sanitize_cluster(self._request("GET", "/cluster", timeout=5))
 
     def cluster_restart(self):
         """Restart every node with the same release, one at a time (#682)."""

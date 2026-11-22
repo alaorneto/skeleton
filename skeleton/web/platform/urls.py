@@ -175,5 +175,6 @@ urlpatterns = [
     path("updates/plan/add-dependency/", updates.add_dependency, name="updates-add-dependency"),
     path("updates/plan/<uuid:plan_id>/", updates.preview, name="updates-preview"),
     path("updates/operations/", updates.operations, name="updates-operations"),
+    path("updates/cluster/restart/", updates.cluster_restart, name="updates-cluster-restart"),
     path("updates/operations/<uuid:operation_id>/", updates.operation, name="updates-operation"),
 ]
