@@ -83,7 +83,7 @@ O agente recusa atualizar o núcleo pulando uma linha minor (`version_jump_forbi
 ## Usar um fork
 
 - **Dono do fork:** gera a própria chave (`python -m skeleton.system.packages keygen --private-key release.key --public-key release.pub.pem`), cria o ambiente `release` do repositório com o segredo `RELEASE_SIGNING_KEY` e a variável `RELEASE_PUBLISHER` (um id próprio, diferente do oficial), publica e divulga a chave pública ([publicação automática](deployment.md#publicação-automática-nos-releases-do-github)).
-- **Operador do servidor:** acrescenta a chave pública em `approved_publishers` do arquivo do agente e reinicia o agente. É ele quem decide em quem confiar.
+- **Operador do servidor:** acrescenta a chave pública em `approved_publishers` do arquivo do agente e reinicia o agente. É ele quem decide em quem confiar. No container do agente, cuja configuração gerada aprova só a chave oficial versionada em `deploy/release/publishers/` (#656), basta definir `SKELETON_AGENT_PUBLISHER`, `SKELETON_AGENT_PUBLISHER_KEY` (o PEM do fork, montado no container) e `SKELETON_AGENT_SOURCE` (`dono/nome` do fork) antes da primeira partida; depois dela, edite `agent.json` ([primeira partida pelo agente](deployment.md#primeira-partida-pelo-agente-containers)).
 - **Administrador da plataforma:** cadastra `dono/nome` do fork em "Fontes" e escolhe o publicador do fork.
 
 Trocar o publicador do núcleo de um para outro muda a fonte e a chave que vale; não muda o que está instalado, os dados nem o histórico de migrations. O agente só aceita do novo publicador versões que o caminho permite, e o próprio agente só se atualiza a partir do publicador do núcleo instalado (ou de um de `agent_publishers`).

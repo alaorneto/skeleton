@@ -48,6 +48,10 @@ if TYPE_CHECKING:
 __all__ = ["BOOTSTRAP_PREFIX", "container_config", "install_initial", "write_container_config"]
 
 BOOTSTRAP_PREFIX = "0-bootstrap"
+# The official publisher and source (#656): a fork sets the three variables instead.
+OFFICIAL_PUBLISHER = "skeleton"
+OFFICIAL_PUBLISHER_KEY = "/opt/agent/publishers/skeleton.pub.pem"
+OFFICIAL_SOURCE = "alaorneto/skeleton"
 CORE = "django-skeleton"
 FEATURE_VARIABLES = ("SKELETON_BUNDLED_APPS", "SKELETON_ENABLE_EXAMPLE_APP", "SKELETON_BILLING_ENABLED")
 
@@ -75,9 +79,11 @@ def container_config(environ: Mapping[str, str]) -> tuple[JSON, dict[str, str]]:
     (``/agent/private``), ``SKELETON_AGENT_STATE`` (``/agent/state``), ``SKELETON_RELEASES``
     (``/releases``), ``SKELETON_CONTROL`` (``/control``), ``SKELETON_CONTROL_STATE``
     (``/control-state``) and ``SKELETON_AGENT_PROJECT`` (``/opt/project``). Required:
-    ``SKELETON_RUNTIME_DATABASE_URL``, ``SKELETON_MIGRATION_DATABASE_URL`` and the publisher
-    (``SKELETON_AGENT_PUBLISHER`` and ``SKELETON_AGENT_PUBLISHER_KEY``, a PEM path).
-    Optional: ``SKELETON_AGENT_SOURCE`` (``owner/name`` on GitHub, pinned to that publisher),
+    ``SKELETON_RUNTIME_DATABASE_URL`` and ``SKELETON_MIGRATION_DATABASE_URL``. The publisher is the
+    official one unless a fork sets it (#656): ``SKELETON_AGENT_PUBLISHER`` (``skeleton``),
+    ``SKELETON_AGENT_PUBLISHER_KEY`` (the PEM versioned in ``deploy/release/publishers/``) and
+    ``SKELETON_AGENT_SOURCE`` (``alaorneto/skeleton`` on GitHub, pinned to that publisher;
+    ``none`` for no source). Optional:
     ``SKELETON_HEALTH_URL`` (``http://web:8000``), ``SKELETON_PUBLIC_HOST`` (the Host of the
     health checks), the instance paths and the feature switches, passed to every profile.
     """
@@ -92,8 +98,12 @@ def container_config(environ: Mapping[str, str]) -> tuple[JSON, dict[str, str]]:
             raise AgentError("invalid_bootstrap_path")
     runtime_url = _required(environ, "SKELETON_RUNTIME_DATABASE_URL")
     owner_url = _required(environ, "SKELETON_MIGRATION_DATABASE_URL")
-    publisher = _required(environ, "SKELETON_AGENT_PUBLISHER")
-    publisher_key = _required(environ, "SKELETON_AGENT_PUBLISHER_KEY")
+    publisher = environ.get("SKELETON_AGENT_PUBLISHER") or OFFICIAL_PUBLISHER
+    publisher_key = environ.get("SKELETON_AGENT_PUBLISHER_KEY") or OFFICIAL_PUBLISHER_KEY
+    for name, value in (("SKELETON_AGENT_PUBLISHER", publisher), ("SKELETON_AGENT_PUBLISHER_KEY", publisher_key)):
+        _required({name: value}, name)
+    if not Path(publisher_key).is_absolute():
+        raise AgentError("invalid_bootstrap_path")
     features = "".join(_env_line(name, environ[name]) for name in FEATURE_VARIABLES if environ.get(name))
     instance = "".join(
         _env_line(name, environ[name])
@@ -146,10 +156,9 @@ def container_config(environ: Mapping[str, str]) -> tuple[JSON, dict[str, str]]:
     }
     if environ.get("SKELETON_PUBLIC_HOST"):
         values["health_host"] = environ["SKELETON_PUBLIC_HOST"]
-    if environ.get("SKELETON_AGENT_SOURCE"):
-        values["catalogue_sources"] = [
-            {"id": "official", "github": environ["SKELETON_AGENT_SOURCE"], "publisher": publisher}
-        ]
+    source = environ.get("SKELETON_AGENT_SOURCE", OFFICIAL_SOURCE)
+    if source and source.lower() != "none":  # "none": no catalogue source, only SKELETON_AGENT_RELEASE_FILE.
+        values["catalogue_sources"] = [{"id": "official", "github": source, "publisher": publisher}]
     return values, files
 
 

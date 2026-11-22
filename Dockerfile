@@ -29,6 +29,8 @@ RUN pip install --no-cache-dir --require-hashes -r /tmp/requirements.txt && rm /
 COPY --from=core-builder /core-wheel /core-wheel
 RUN pip install --no-cache-dir --no-deps /core-wheel/*.whl && rm -rf /core-wheel
 COPY deployment_agent /opt/agent/deployment_agent
+# The official publisher's public key (#656): a fork replaces it with SKELETON_AGENT_PUBLISHER_KEY.
+COPY deploy/release/publishers /opt/agent/publishers
 COPY config /opt/project/config
 COPY applications /opt/project/applications
 COPY examples /opt/project/examples

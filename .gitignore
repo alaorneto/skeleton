@@ -13,6 +13,8 @@ coverage.xml
 .private/
 .sso-fixtures/
 *.pem
+# The official publisher's public key is versioned (#656); never a private key.
+!deploy/release/publishers/*.pub.pem
 *.key
 build/
 dist/

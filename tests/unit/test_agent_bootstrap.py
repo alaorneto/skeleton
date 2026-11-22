@@ -66,10 +66,31 @@ def test_the_configuration_comes_from_the_variables(tmp_path):
     assert "SKELETON_INSTANCE_DB=/instance/instance.sqlite3" in files["runtime.env"]
 
 
+def test_the_official_publisher_is_the_default_and_a_fork_replaces_it(tmp_path, subtests):
+    from deployment_agent.bootstrap import OFFICIAL_PUBLISHER, OFFICIAL_PUBLISHER_KEY, OFFICIAL_SOURCE
+
+    defaults = environ(tmp_path)
+    for name in ("SKELETON_AGENT_PUBLISHER", "SKELETON_AGENT_PUBLISHER_KEY"):
+        del defaults[name]
+    with subtests.test(case="official"):
+        values, _files = container_config(defaults)
+        assert values["approved_publishers"] == {OFFICIAL_PUBLISHER: OFFICIAL_PUBLISHER_KEY}
+        assert values["catalogue_sources"] == [
+            {"id": "official", "github": OFFICIAL_SOURCE, "publisher": OFFICIAL_PUBLISHER}
+        ]
+    with subtests.test(case="fork"):
+        values, _files = container_config(environ(tmp_path, SKELETON_AGENT_SOURCE="fork/repo"))
+        assert values["approved_publishers"] == {PUBLISHER: str(tmp_path / "publisher.pub.pem")}
+        assert values["catalogue_sources"][0]["github"] == "fork/repo"
+    with subtests.test(case="no source"):
+        values, _files = container_config(environ(tmp_path, SKELETON_AGENT_SOURCE="none"))
+        assert "catalogue_sources" not in values
+
+
 def test_missing_or_unsafe_variables_are_refused(tmp_path, subtests):
     for case, changes, code in (
         ("no owner", {"SKELETON_MIGRATION_DATABASE_URL": ""}, "missing_bootstrap_variable"),
-        ("no publisher key", {"SKELETON_AGENT_PUBLISHER_KEY": ""}, "missing_bootstrap_variable"),
+        ("relative publisher key", {"SKELETON_AGENT_PUBLISHER_KEY": "keys/p.pem"}, "invalid_bootstrap_path"),
         ("relative path", {"SKELETON_RELEASES": "releases"}, "invalid_bootstrap_path"),
         ("shell in a value", {"SKELETON_BUNDLED_APPS": "calendar $(id)"}, "invalid_bootstrap_value"),
     ):
