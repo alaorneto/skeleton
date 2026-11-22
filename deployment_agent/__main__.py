@@ -6,7 +6,7 @@ import sys
 import time
 from typing import Any
 
-from . import selfupdate
+from . import bootstrap, selfupdate
 from .config import Config
 from .server import StatusTickets, serve
 from .service import DeploymentService
@@ -24,6 +24,12 @@ def build_parser() -> argparse.ArgumentParser:
     initialize.add_argument("--inventory", required=True)
     initialize.add_argument("--core-package", required=True)
     initialize.add_argument("--app-package", action="append", default=[])
+    bootstrap = commands.add_parser(
+        "bootstrap", help="Install generation 0 from a signed release package, without adoption (#652)"
+    )
+    bootstrap.add_argument("--release-file", help="A local release package instead of a catalogue source")
+    bootstrap.add_argument("--version", help="The core version to install (default: the newest published)")
+    bootstrap.add_argument("--source", help="The catalogue source id to fetch from")
     commands.add_parser("inventory")
     commands.add_parser("journal")
     status = commands.add_parser("operation")
@@ -91,6 +97,9 @@ def revoke_status_tickets(service: DeploymentService) -> JSON:
 OFFLINE = {
     "initialize": lambda service, options: service.initialize(
         options.inventory, core_package=options.core_package, app_packages=options.app_package
+    ),
+    "bootstrap": lambda service, options: bootstrap.install_initial(
+        service, release_file=options.release_file, version=options.version, source_id=options.source
     ),
     "recover": lambda service, options: service.recover(
         options.operation_id, options.action, acknowledge_new_writes=options.acknowledge_new_writes

@@ -11,6 +11,7 @@
 {% include "skeleton/web/components/form-errors.html" %}
 {% if step == "storage" %}{% include "skeleton/setup/storage_fields.html" with show_optional=True show_required=True %}
 {% elif step == "email" %}{% include "skeleton/setup/email_fields.html" with show_optional=True show_required=True %}
+{% elif agent_schema %}<p class="text-sm/6 text-body">{% translate "O agente de deployment já criou as tabelas com a role dona do schema. Esta etapa só confere o banco com a role de aplicação; nenhuma senha é pedida." %}</p>
 {% elif step == "database" or step == "schema" %}{% include "skeleton/setup/database_fields.html" with show_optional=True show_required=True %}
 {% else %}{% include "skeleton/web/components/form-fields.html" with show_optional=True show_required=True %}{% endif %}
 <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Validar e salvar" %}</button>{% if previous %}<a class="btn btn-secondary" href="{% url previous %}">{% translate "Voltar" %}</a>{% endif %}</div>

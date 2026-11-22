@@ -765,3 +765,31 @@ def test_bootstrap_identity_messages_are_in_portuguese(subtests):
     with subtests.test("no password"), pytest.raises(ValidationError) as info:
         bootstrap_identity(email="new-467@example.test", organization="org-467", name="Org")
     assert info.value.messages == ["Informe uma senha para a nova conta."]
+
+
+def test_agent_managed_schema_step_only_confirms_with_the_runtime_role(setup_mode, monkeypatch):
+    """#652: the agent migrated already; the step never asks for the owner and checks as runtime."""
+    from skeleton.setup import database
+
+    monkeypatch.setenv("SKELETON_SETUP_SCHEMA", "agent")
+    seen = []
+    monkeypatch.setattr(database, "confirm_schema", lambda dsn: seen.append(dsn) or [])
+    monkeypatch.setattr(database, "migrate_schema", lambda dsn: pytest.fail("the agent migrates, not the setup"))
+    _ready_for(setup_mode, "instance", "database")
+    client = enter(setup_mode)
+    page = client.get("/setup/schema/").content.decode()
+    assert "O agente de deployment já criou as tabelas" in page and 'name="owner_password"' not in page
+    response = post(client, "/setup/schema/", {})
+    assert response.status_code == 302 and response["Location"] == reverse("setup:email")
+    assert seen == [os.environ["TEST_DATABASE_URL"]]
+    monkeypatch.setattr(database, "confirm_schema", lambda dsn: ["tabela sem trigger"])
+    refused = post(client, "/setup/schema/", {})
+    assert refused.status_code == 400 and "tabela sem trigger" in refused.content.decode()
+
+
+def test_confirm_schema_checks_the_deployed_schema_with_the_given_role(dummy_default):
+    from skeleton.setup import database
+
+    assert database.confirm_schema(os.environ["TEST_DATABASE_URL"]) == []
+    assert database.agent_manages_schema({"SKELETON_SETUP_SCHEMA": "agent"})
+    assert not database.agent_manages_schema({})

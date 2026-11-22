@@ -320,6 +320,27 @@ def django_alias(alias: str, dsn: str) -> Iterator[str]:
         connections["default"] = original
 
 
+def agent_manages_schema(environment=None) -> bool:
+    """True when the deployment agent migrated the schema already (``SKELETON_SETUP_SCHEMA=agent``, #652).
+
+    A container deployment installs the core through the agent, which applies the migrations with
+    the owner on its first start. The schema step then only confirms the schema with the runtime
+    role and never asks for the owner credential.
+    """
+    import os
+
+    environment = os.environ if environment is None else environment
+    return environment.get("SKELETON_SETUP_SCHEMA", "").lower() == "agent"
+
+
+def confirm_schema(runtime_dsn: str) -> list[str]:
+    """The deployed-schema check with the runtime role (the agent migrated); returns problems."""
+    from skeleton.system.checks import check_deployed_schema
+
+    with django_alias("default", runtime_dsn) as alias:
+        return check_deployed_schema(using=alias)
+
+
 def migrate_schema(owner_dsn: str) -> list[str]:
     """``migrate``, ``sync_table_catalog`` and the schema check as the owner; returns problems."""
     from io import StringIO
