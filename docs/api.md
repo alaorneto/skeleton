@@ -115,11 +115,11 @@ O GET de detalhe retorna um ETag forte `"<revision>"`, o marcador exato da vers�
 | Validação/mass assignment | 400 |
 | Unicidade/referência viva/conflito de último admin | 409 |
 | Coluna congelada, exclusão ou restauração de registro selado (#527) | 409 `record_sealed` |
-| Instância em manutenção (deploy ou administrativa), inclusive com token | 503 `maintenance` com `Retry-After` |
+| Instância atrás do portão do deploy, inclusive com token | 503 `maintenance` com `Retry-After` |
 
 Use os códigos para decidir a próxima ação, não como motivo para repetir cegamente a escrita. 428 pede a revisão obtida no GET; 412 pede reler o estado e conciliar a alteração com o usuário. 400 exige corrigir o corpo ou formato do header. 409 indica que a operação viola uma regra de integridade e não foi aplicada. 403 exige resolver autenticação, MFA ou permissão conforme o erro; 404 não distingue registro inexistente de registro oculto, evitando revelar dados de outra organização. Em sucesso, 201 indica criação, 200 traz a representação atualizada e 204 confirma exclusão lógica sem corpo.
 
-Erros JSON `{code,detail,fields?}`; a resposta de manutenção acrescenta `ends_at`, a previsão de término em ISO 8601 UTC ou `null`, e o cliente deve esperar o `Retry-After` antes de tentar de novo ([manutenção](maintenance.md)); X-Request-ID é gerado no servidor, sem traceback/SQL/segredo. Não use UUID do cliente como ator. Revisões são controle de concorrência, não grants.
+Erros JSON `{code,detail,fields?}`; a resposta de manutenção (o portão do deploy) acrescenta `ends_at`, sempre `null` desde o #674, e o cliente deve esperar o `Retry-After` antes de tentar de novo ([manutenção](maintenance.md)); X-Request-ID é gerado no servidor, sem traceback/SQL/segredo. Não use UUID do cliente como ator. Revisões são controle de concorrência, não grants.
 
 Criação/reenvio de convite confirma persistência, não entrega SMTP. Falha pós-commit conserva 201 e acrescenta `X-Email-Delivery: failed`; use resend com a revisão atual para gerar nova prova e invalidar a anterior. Audit de negócio apresenta somente fields de leitura do TableSpec; captura persistida não é descartada para filtrar a representação.
 
@@ -314,7 +314,7 @@ Dois endpoints deixam um cliente nativo descobrir o servidor e o que usar nele (
 {"product": "Skeleton", "core_version": "0.1.0", "api_versions": ["v1"], "oidc_issuer": "https://app.example.com"}
 ```
 
-`product` vem de `SKELETON_PRODUCT_NAME` (padrão `Skeleton`) e `oidc_issuer` é o issuer do [provedor OIDC](authentication-sso.md#provedor-oidc-para-clientes-nativos-603), ou `null` com ele desligado; num endereço de organização ele continua o do domínio base. Nenhuma organização, host interno, configuração ou segredo aparece. O GET continua aberto no modo de manutenção administrativo, para o cliente mostrar a mensagem certa (as demais rotas respondem 503); no marcador de deployment, tudo responde 503.
+`product` vem de `SKELETON_PRODUCT_NAME` (padrão `Skeleton`) e `oidc_issuer` é o issuer do [provedor OIDC](authentication-sso.md#provedor-oidc-para-clientes-nativos-603), ou `null` com ele desligado; num endereço de organização ele continua o do domínio base. Nenhuma organização, host interno, configuração ou segredo aparece. Atrás do portão do deploy, ele também responde 503 com `code: maintenance`: o cliente distingue "em atualização" de "não é um servidor" pelo código.
 
 `GET /api/v1/o/<org>/apps/active/` aceita sessão ou token (`token_methods = ("GET",)`) de qualquer membro ativo e responde `{"results": [{"app_id", "label", "version", "title"}]}`: as apps efetivas na organização (instaladas, disponíveis, ativas e com as dependências) que declaram navegação alcançável pelo papel do ator, ou nenhuma navegação. Nada de licença ou faturamento. Não membro e token de conta de serviço de outra organização recebem o 404 neutro; uma app inativa não aparece.
 

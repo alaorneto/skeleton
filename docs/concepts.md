@@ -250,7 +250,7 @@ A **geração** aumenta quando o conjunto ativo muda. O **inventário** descreve
 
 **Rollback do release** significa voltar ao software anterior; não desfaz automaticamente mudanças no banco. Se uma migration já alterou o banco, trocar apenas arquivos pode deixar código e estrutura incompatíveis.
 
-**Manutenção** fecha tráfego de aplicação, drena trabalho em andamento e permite a sequência de backup, migrations, checks e troca. Se houver falha, o gate permanece até provar um estado coerente. Essa é a **manutenção do deploy**, ligada e desligada só pelo agente. A **manutenção administrativa** é outra: um administrador da plataforma, ou a CLI, fecha a aplicação e a API com uma mensagem e um término opcional, sem deploy, e a reabre sem reinício. Os dois modos respondem 503 com a mesma página e não desligam um ao outro ([manutenção](maintenance.md)). Depois que o tráfego reabre, restaurar um backup antigo pode perder novas escritas; exige decisão explícita de recuperação/reconciliação.
+**Manutenção** fecha tráfego de aplicação, drena trabalho em andamento e permite a sequência de backup, migrations, checks e troca. Se houver falha, o gate permanece até provar um estado coerente. Essa é a **manutenção do deploy**, ligada e desligada só pelo agente. A manutenção planejada, fora de um deploy, é feita na infraestrutura (proxy, Coolify), que funciona mesmo com a aplicação instável ([manutenção](maintenance.md)). Depois que o tráfego reabre, restaurar um backup antigo pode perder novas escritas; exige decisão explícita de recuperação/reconciliação.
 
 Veja [extensão e publicação](extending.md) e [deployment](deployment.md).
 
