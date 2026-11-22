@@ -75,7 +75,9 @@ def core_wheel(directory, version="0.6.0", *, requires=("Django==6.1.3",), pytho
     )
 
 
-def core_manifest(wheel, version="0.6.0", *, publisher=PUBLISHER, from_versions=">=0.5.0,<=0.6.0"):
+def core_manifest(wheel, version="0.6.0", *, publisher=PUBLISHER, from_versions=None):
+    # A core range must contain the core version (#650): by default, from 0.5.0 up to it.
+    from_versions = from_versions or f">=0.5.0,<={version}"
     return {
         "manifest_version": 2,
         "kind": "core",

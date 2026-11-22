@@ -13,7 +13,7 @@ Escreva docs e comentários em português, como o restante do repositório; iden
 
 1. Carregue o skill `dev-workflow` e vincule o trabalho a uma issue antes da primeira edição (criar app, expor operação e integrar apps são desenvolvimento versionado). Um piso `since=` novo recebe a versão que o skill calcula para o próximo minor.
 2. Verifique o que já existe no checkout, porque partes do contrato ainda estão sendo entregues:
-   - `skeleton/service_api/` (base, DTOs, erros, `contract`, `registry`), `runtime.service_api` no manifesto (core `>=0.4.0`), os checks E018/E019/W019 e o kit `skeleton.testing.service_api` estão entregues (epic #112). Num projeto com core mais antigo, atualize o core antes; não crie uma base local paralela.
+   - `skeleton/service_api/` (base, DTOs, erros, `contract`, `registry`), `runtime.service_api` no manifesto (todo núcleo publicado o lê; o piso `SERVICE_API_CORE_MINIMUM` é 0.0.0), os checks E018/E019/W019 e o kit `skeleton.testing.service_api` estão entregues (epic #112). Num projeto com core mais antigo, atualize o core antes; não crie uma base local paralela.
    - Serviços do núcleo em `skeleton/service_api/` (#102–#109). Use os que existirem; para os demais, use as superfícies públicas listadas na especificação, nunca módulos internos do núcleo.
 3. Leia o `TableSpec` dos modelos envolvidos (`read_fields`, `write_fields`, `sensitive_fields`) e as políticas da app.
 
@@ -42,7 +42,7 @@ Exponha o mínimo que os consumidores precisam. Cada método público é comprom
 
 ## 3. Declarar
 
-- Manifesto: `runtime.service_api = {"module": "applications.<pkg>.service_api", "classes": [...]}`, com `compatibility.skeleton` `>=0.4.0`. Rode `manage.py check` (E018/E019) e `manage.py package doctor applications/<pkg>`.
+- Manifesto: `runtime.service_api = {"module": "applications.<pkg>.service_api", "classes": [...]}`, com `compatibility.skeleton` que contenha o núcleo alvo (o piso `SERVICE_API_CORE_MINIMUM` é 0.0.0). Rode `manage.py check` (E018/E019) e `manage.py package doctor applications/<pkg>`.
 - Consumir outra app: declare o `app_id` dela em `dependencies` com faixa de versão. Importe só `applications.<outra>.service_api`, nunca `models`, `services`, `forms` ou `views` dela. Trate `Unavailable` como integração desligada.
 - Do núcleo, importe só as superfícies públicas da tabela da especificação.
 

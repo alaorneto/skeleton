@@ -1,6 +1,6 @@
 {
   "name": "Skeleton",
-  "earliest_source": "0.5.0",
+  "earliest_source": "0.1.0",
   "index_validity_days": 120,
   "targets": [
     {

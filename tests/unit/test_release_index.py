@@ -1,8 +1,10 @@
 """Generated core manifest, line policy and the accumulated release index (#494)."""
 
 import json
+import tomllib
 import zipfile
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from packaging.specifiers import SpecifierSet
@@ -53,6 +55,24 @@ def test_upgrade_sources_ignores_newer_versions_and_accepts_prereleases():
     for invalid in ("0.7", "x"):
         with pytest.raises(ValueError):
             upgrade_sources(invalid)
+
+
+def test_upgrade_sources_refuses_an_earliest_source_above_the_version():
+    """Regression (#650): the floor of the first automated release cannot make an empty range."""
+    with pytest.raises(ValueError, match=r"Earliest source 0\.5\.0 is above the version 0\.3\.0\."):
+        upgrade_sources("0.3.0", (), earliest="0.5.0")
+    assert upgrade_sources("0.3.0", (), earliest="0.3.0") == ">=0.3.0,<=0.3.0"
+    # A known earlier line wins over the floor, as before.
+    assert upgrade_sources("0.3.0", ("0.2.0",), earliest="0.5.0") == ">=0.2.0,<=0.3.0"
+
+
+def test_versioned_recipe_floor_is_the_base_release():
+    """Regression (#650): the floor is the first published release, never above the project version."""
+    root = Path(__file__).resolve().parents[2]
+    recipe = json.loads((root / "deploy" / "release" / "recipe.json").read_text(encoding="utf-8"))
+    project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+    assert recipe["earliest_source"] == "0.1.0"
+    assert upgrade_sources(project, (), earliest=recipe["earliest_source"]) == f">=0.1.0,<={project}"
 
 
 def wheel(tmp_path, **options):

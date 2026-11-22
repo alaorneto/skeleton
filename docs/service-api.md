@@ -1,6 +1,6 @@
 # API de serviços entre apps
 
-**Estado: contrato entregue (epic [#112](https://github.com/alaorneto/skeleton/issues/112), core 0.4.0): base em `skeleton.service_api`, `runtime.service_api` no manifesto, checks E018/E019, kit de testes `skeleton.testing.service_api` e adoção pelo exemplo Notes e pelo gerador. Serviços do núcleo entregues (epic [#113](https://github.com/alaorneto/skeleton/issues/113), métodos `since="0.5.0"`): veja o [catálogo do núcleo](#catálogo-do-núcleo).** Este documento é o contrato normativo para apps que oferecem operações a outras apps ou consomem as do núcleo. O skill `service-api` (`.claude/skills/service-api/`) é o procedimento. O que as verificações automáticas não alcançam (seção "Limites da verificação") continua valendo por revisão de código.
+**Estado: contrato entregue (epic [#112](https://github.com/alaorneto/skeleton/issues/112), em todo núcleo publicado): base em `skeleton.service_api`, `runtime.service_api` no manifesto, checks E018/E019, kit de testes `skeleton.testing.service_api` e adoção pelo exemplo Notes e pelo gerador. Serviços do núcleo entregues (epic [#113](https://github.com/alaorneto/skeleton/issues/113), métodos `since="0.1.0"` ou posteriores): veja o [catálogo do núcleo](#catálogo-do-núcleo).** Este documento é o contrato normativo para apps que oferecem operações a outras apps ou consomem as do núcleo. O skill `service-api` (`.claude/skills/service-api/`) é o procedimento. O que as verificações automáticas não alcançam (seção "Limites da verificação") continua valendo por revisão de código.
 
 ## Por que existe
 
@@ -184,7 +184,7 @@ def open_followup_task(invoice, *, actor):
 
 O manifesto de `billing` declara `com.example.tasks` em `dependencies`. Não há dependência opcional: se a integração só funciona com a outra app presente, ela é declarada, e a ausência por organização é tratada com `Unavailable`.
 
-Uma app first-party, como a agenda, é declarada do mesmo modo, pelo `app_id` e com a faixa da versão do core: `"dependencies": {"org.skeleton.calendar": ">=0.1.0,<0.2.0"}`. A dependência só é satisfeita quando a instância instala a agenda (`SKELETON_BUNDLED_APPS=calendar`); vale para apps do projeto e para apps empacotadas ([extensão](extending.md#apps-first-party-do-núcleo-skeletoncontrib), #254).
+Uma app first-party, como a agenda, é declarada do mesmo modo, pelo `app_id` e com a faixa da versão do core: `"dependencies": {"org.skeleton.calendar": ">=0.3.0,<0.4.0"}`. A dependência só é satisfeita quando a instância instala a agenda (`SKELETON_BUNDLED_APPS=calendar`); vale para apps do projeto e para apps empacotadas ([extensão](extending.md#apps-first-party-do-núcleo-skeletoncontrib), #254).
 
 ## Superfícies públicas do núcleo para apps
 

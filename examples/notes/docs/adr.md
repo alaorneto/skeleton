@@ -10,7 +10,7 @@ Uma app Django instalada passa a existir no ambiente compartilhado, mas isso nã
 
 Sem linha de estado, a app está desativada: a ativação é sempre explícita (#22). As organizações que já usavam o Notes ativo por padrão o mantêm pelo `upgrade_app_activation` do núcleo. Desativar é reversível e não remove notas nem suas regras de acesso. Operações globais de software são solicitadas pelo administrador da plataforma e executadas pelo agente separado; a requisição web não instala código nem executa migrations. Remover dados ou schema exige manutenção offline revisada.
 
-O manifesto v2 canônico declara apresentação imutável junto ao código, sem DDL ou consultas em `ready()`. Notes 0.2.0 exige core >=0.3.0 para spans code 4/title 8/body 12 e rows 8; o core usa django-crispy-forms 2.7 com pack SSR próprio, somente como renderer dos formulários existentes. O admin é reservado a parâmetros; listas/formulários de notas usam o viewer tenant fora dele. Abas, seções, labels e dimensões não concedem campos ou acesso além de `TableSpec`. Um modelo sem metadados de UI continua usando o shell/defaults do core, evitando exigir uma segunda implementação de formulário ou arquivo UI paralelo.
+O manifesto v2 canônico declara apresentação imutável junto ao código, sem DDL ou consultas em `ready()`. Os spans code 4/title 8/body 12 e as rows 8 valem em todo núcleo publicado; o core usa django-crispy-forms 2.7 com pack SSR próprio, somente como renderer dos formulários existentes. O admin é reservado a parâmetros; listas/formulários de notas usam o viewer tenant fora dele. Abas, seções, labels e dimensões não concedem campos ou acesso além de `TableSpec`. Um modelo sem metadados de UI continua usando o shell/defaults do core, evitando exigir uma segunda implementação de formulário ou arquivo UI paralelo.
 
 Outras apps consomem Notes só por `NoteService` (`service_api.py`), com DTOs imutáveis e autorização revalidada dentro de cada método. As views e a API REST da própria app usam o mesmo serviço, o que prova o contrato e evita uma segunda regra de acesso.
 
@@ -27,4 +27,4 @@ Preservar estado e dados torna a desativação segura e reversível, mas não li
 
 **Decisão.** O fluxo fica no Notes, sobre a própria anotação, em vez de uma segunda app de exemplo. A app só declara o fluxo e chama o `FlowService`; não cria tabelas.
 
-**Consequências.** Nenhuma migration nova; a versão do Notes passa a 0.4.0. O piso de core do manifesto precisa subir para a versão do núcleo que publicar `skeleton.flows` quando ela for cortada.
+**Consequências.** Nenhuma migration nova; a versão do Notes passa a 0.4.0. Todo núcleo publicado traz `skeleton.flows`, então o piso de core do manifesto continua `>=0.0.0`.

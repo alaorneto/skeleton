@@ -59,6 +59,7 @@ def upgrade_sources(version, known_versions=(), *, earliest=None):
 
     ``known_versions`` are the versions already published; ``earliest`` is used only when no
     earlier line is known (the first automated release). Returns ``>=<floor>,<=<version>``.
+    A floor above the version would be an empty range, which no installation satisfies (#650).
     """
     version = normalize_version(version)
     line = release_line(version)
@@ -72,6 +73,8 @@ def upgrade_sources(version, known_versions=(), *, earliest=None):
         floor = f"{previous[0]}.{previous[1]}.0"
     elif earliest is not None:
         floor = normalize_version(earliest)
+        if Version(floor) > Version(version):
+            raise ValueError(f"Earliest source {floor} is above the version {version}.")
     else:
         floor = version
     return f">={floor},<={version}"

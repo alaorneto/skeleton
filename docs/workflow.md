@@ -50,8 +50,9 @@ A versão do projeto é a versão do core (`django-skeleton`). A fonte é a **ú
 |---|---|
 | `pyproject.toml` | `version` do core |
 | `deployment_agent/pyproject.toml` | `version` do agente e o pin `django-skeleton==X.Y.Z`: o agente anda no mesmo número do core |
-| `skeleton/contrib/calendar/manifest.json` | `version` (uma app first-party tem de ter a versão do core; o startup recusa outro número) e a faixa `compatibility.skeleton`, presa ao minor corrente |
-| `skeleton/contrib/calendar/docs/service-api.md` | A faixa recomendada para quem consome a agenda |
+| `skeleton/contrib/calendar/manifest.json`, `skeleton/contrib/ledger/manifest.json` | `version` (uma app first-party tem de ter a versão do core; o startup recusa outro número) e a faixa `compatibility.skeleton`, presa ao minor corrente |
+| `skeleton/contrib/calendar/docs/service-api.md`, `skeleton/contrib/ledger/docs/service-api.md` | A faixa recomendada para quem consome a agenda e o livro contábil |
+| `docs/deployment.md`, `docs/extending.md`, `docs/service-api.md` | Os exemplos de dependência de uma first-party (`"org.skeleton.calendar": ">=X.Y.0,<X.Y+1.0"`), presos ao minor corrente (#658) |
 | `CHANGELOG.md` | Uma seção por versão, agrupada por tipo, com links para issues e PRs |
 
 Uma app first-party nova em `skeleton/contrib` acrescenta as entradas dela em `[[versioning.files]]` de [.github/dev-workflow.toml](../.github/dev-workflow.toml), no mesmo PR.
@@ -108,7 +109,7 @@ Prefira `uv tool install` a `uvx pre-commit install`: o hook gravado em `.git/ho
 
 ## Passos únicos do responsável
 
-1. **Tag de base** (#569): a primeira release, a `v0.1.0` (PR de release #586), cobre todo o histórico e foi calculada a partir de `initial_version = "0.0.0"`, sem tag anterior. Ela é a tag de base das versões seguintes; `initial_version` só vale enquanto não há tag. Números de versão anteriores a ela que aparecem em notas históricas ("core/agente 0.4.0", por exemplo) são marcos de desenvolvimento, nunca publicados.
+1. **Tag de base** (#569): a primeira release, a `v0.1.0` (PR de release #586), cobre todo o histórico e foi calculada a partir de `initial_version = "0.0.0"`, sem tag anterior. Ela é a tag de base das versões seguintes; `initial_version` só vale enquanto não há tag. Números de versão anteriores a ela ("core/agente 0.4.0", por exemplo) são marcos de desenvolvimento, nunca publicados; eles só aparecem no registro histórico de [evidência de testes](testing-evidence.md), e a documentação de uso cita apenas versões publicadas (#658).
 2. **Ruleset da `main`** (#249, acima). As versões saem por PR (`release.mode = "pull-request"`), compatível com o ruleset: depois do merge de um PR `release`, o workflow "Versão e release" escreve a versão, o `CHANGELOG.md` e os arquivos de versão na branch `release/next` e abre o PR `chore(release): vX.Y.Z`; a tag, a GitHub Release e os comentários saem quando esse PR é mesclado. Para isso, uma vez:
    - marque "Allow GitHub Actions to create and approve pull requests" em Settings → Actions → General (`bootstrap.py doctor` mostra a pendência enquanto estiver desligado);
    - um PR aberto pelo `GITHUB_TOKEN` não dispara os checks obrigatórios (`CI`, `Verificação do PR`). Crie o segredo `RELEASE_TOKEN` (fine-grained PAT ou GitHub App com `contents` e `pull-requests` de escrita) para que eles rodem; sem ele, feche e reabra o PR de release antes de mesclar.

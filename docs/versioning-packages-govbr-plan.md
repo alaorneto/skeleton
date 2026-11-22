@@ -10,7 +10,7 @@ Leia [apps, pacotes e deployment](concepts.md#apps-pacotes-e-deployment) e [logi
 
 Os itens desta seção descrevem **somente o ponto de partida**, antes das mudanças. Por exemplo, “não há agente” e “não configura build separado” eram lacunas daquela base; não descrevem o checkout após a implementação. Não use esses itens para escolher comandos ou avaliar o estado atual.
 
-- `pyproject.toml` declara `django-skeleton` na versão `0.1.0`; não configura um build de distribuição do núcleo separado do projeto derivado.
+- `pyproject.toml` declara `django-skeleton` na versão `0.1.0` (número do desenvolvimento, anterior à renumeração da primeira release publicada, #569); não configura um build de distribuição do núcleo separado do projeto derivado.
 - `skeleton/system/app_registry.py` já fornece `AppManifest`, dependências, configuração, menus e inclusão de rotas. Não possui versão nem contrato de pacote.
 - `sk_system.AppInstallation` representa ativação/configuração **por organização**, não instalação física. Esse significado será preservado.
 - `config/settings/project.py` e `config/urls_project.py` pertencem ao projeto derivado; o núcleo não importa apps de negócio.

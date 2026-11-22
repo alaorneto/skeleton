@@ -6,7 +6,7 @@
   "description": "Tema de exemplo: verde-azulado, cantos arredondados e logo em SVG.",
   "publisher": "org.example",
   "compatibility": {
-    "skeleton": ">=0.2.0,<1.0.0"
+    "skeleton": ">=0.3.0,<1.0.0"
   },
   "tokens": {
     "brand_color": "#0f766e",

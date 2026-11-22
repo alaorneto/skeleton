@@ -100,3 +100,4 @@ Não se aplica: o exemplo não publica eventos de domínio.
 |---|---|
 | 0.3.0 | Primeira versão: `note_count`, `list_notes`, `get_note`, `create_note`, `update_note` e `NoteSummary` |
 | 0.4.0 | `request_publication`, `publication_status` e `PublicationStatus`, sobre o fluxo de processo `example_notes.publication` (core com `skeleton.flows`) |
+| 0.6.0 | `recent_notes`, para o quadro `example_notes.recent` do painel |
