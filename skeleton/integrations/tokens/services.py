@@ -126,23 +126,34 @@ def _require_room(user: Any) -> None:
         )
 
 
-def issue_personal_token(*, actor: Any, name: Any, scopes: Any, expires_at: Any, feed: bool = False) -> IssuedToken:
-    """A token of the actor itself, global (all of the actor's organizations)."""
+def issue_personal_token(
+    *, actor: Any, name: Any, scopes: Any, expires_at: Any, feed: bool = False, target: Any = None
+) -> IssuedToken:
+    """A token of the actor itself, global (all of the actor's organizations).
+
+    ``target`` (feed tokens only, #669) is ``(organization_id, table_key, record_id)``: the token
+    then opens only the feed of that record. The caller has already checked that the actor reads it.
+    """
     from .models import ApiToken
 
     _require_session_actor(actor)
     _require_mfa_policy(actor)
     if getattr(actor, "account_type", "human") != "human":
         raise PermissionDenied(gettext("Contas de serviço recebem tokens pela organização."))
+    if target is not None and not feed:
+        raise ValueError("Only feed tokens are bound to a record.")
+    organization_id, table_key, record_id = target if target is not None else (None, "", None)
     _require_room(actor)
     return _create(
         user=actor,
         kind=ApiToken.Kind.FEED if feed else ApiToken.Kind.PERSONAL,
-        bound_organization=None,
+        bound_organization_id=organization_id,
         name=_validate_name(name),
         scopes=validate_scopes(scopes, feed=feed),
         expires_at=_validate_expiry(expires_at),
         auth_version_at_issue=actor.auth_version,
+        target_table=table_key,
+        target_id=record_id,
     )
 
 

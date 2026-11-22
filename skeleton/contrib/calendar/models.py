@@ -16,12 +16,29 @@ def validate_timezone(value: str) -> None:
         raise ValidationError(gettext("Fuso IANA desconhecido.")) from None
 
 
+def valid_source_path(source_app: str, path: str) -> bool:
+    """A path relative to the organization, inside ``apps/<source_app>/`` (#537, #670)."""
+    return not path or not (
+        not path.startswith(f"apps/{source_app}/")
+        or ".." in path.split("/")
+        or "\\" in path
+        or ":" in path
+        or "//" in path
+        or any(ord(char) < 32 for char in path)
+    )
+
+
 class Calendar(SecuredRecord):
     """A calendar of the organization (#68); events derive their authorization from it.
 
     A ``personal`` calendar belongs to one member: its visibility is locked to ``private`` (only
     record grants delegate it), and each member has exactly one default personal calendar.
     A ``shared`` calendar follows the ordinary visibility rules of ``SecuredRecord``.
+
+    A shared calendar may be **managed** by another app (#670): ``source_app`` names it and
+    ``source_path`` (inside ``apps/<source_app>/``) is its page there. The calendar pages and the
+    table gateway then never rename it, change its access or delete it: the source app does,
+    through its own service. Once set, the source app never changes.
     """
 
     class Kind(models.TextChoices):
@@ -38,7 +55,13 @@ class Calendar(SecuredRecord):
     )
     timezone = models.CharField(max_length=64, default="UTC", validators=[validate_timezone])
     description = models.TextField(blank=True, validators=[MaxLengthValidator(2000)])
+    source_app = models.CharField(max_length=100, blank=True, default="")
+    source_path = models.CharField(max_length=300, blank=True, default="")
     immutable_fields = ("kind",)
+
+    @property
+    def is_managed(self) -> bool:
+        return bool(self.source_app)
 
     class Meta(SecuredRecord.Meta):
         constraints = SecuredRecord.Meta.constraints + [
@@ -58,6 +81,11 @@ class Calendar(SecuredRecord):
             models.CheckConstraint(
                 condition=Q(is_default=False) | Q(kind="personal"), name="skeleton_calendar_default_is_personal"
             ),
+            # Managed calendars (#670): a path needs its app, and only shared calendars are managed.
+            models.CheckConstraint(
+                condition=Q(source_app="", source_path="") | (~Q(source_app="") & Q(kind="shared")),
+                name="skeleton_calendar_calendar_source",
+            ),
         ]
         ordering = ("name", "sysid")
 
@@ -71,6 +99,21 @@ class Calendar(SecuredRecord):
             loaded = getattr(self, "_loaded_values", {})
             if not self._state.adding and loaded.get("owner_id") not in (None, self.owner_id):
                 raise ValidationError({"owner": gettext("Um calendário pessoal não muda de dono.")})
+        self._clean_source()
+
+    def _clean_source(self) -> None:
+        """The source app never changes once set, and its path stays inside the app (#670)."""
+        loaded = getattr(self, "_loaded_values", {}).get("source_app")
+        if not self._state.adding and loaded and loaded != self.source_app:
+            raise ValidationError({"source_app": gettext("A app de origem de um calendário não muda.")})
+        if not self.source_app:
+            if self.source_path:
+                raise ValidationError({"source_app": gettext("Informe a app de origem.")})
+            return
+        if self.kind != self.Kind.SHARED:
+            raise ValidationError({"source_app": gettext("Só um calendário compartilhado é gerenciado por uma app.")})
+        if not valid_source_path(self.source_app, self.source_path):
+            raise ValidationError({"source_path": gettext("Use um caminho relativo dentro de apps/<app de origem>/.")})
 
     def __str__(self) -> str:
         return self.name
@@ -274,15 +317,7 @@ class Event(OrganizationRecord):
             raise ValidationError({"rrule": gettext("Um evento gerenciado não é recorrente.")})
         if self.description:
             raise ValidationError({"description": gettext("Um evento gerenciado não tem descrição.")})
-        path = self.source_path
-        if path and (
-            not path.startswith(f"apps/{self.source_app}/")
-            or ".." in path.split("/")
-            or "\\" in path
-            or ":" in path
-            or "//" in path
-            or any(ord(char) < 32 for char in path)
-        ):
+        if not valid_source_path(self.source_app, self.source_path):
             raise ValidationError({"source_path": gettext("Use um caminho relativo dentro de apps/<app de origem>/.")})
 
     def __str__(self) -> str:

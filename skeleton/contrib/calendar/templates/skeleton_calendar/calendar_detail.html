@@ -1,0 +1,39 @@
+{% extends "skeleton/web/base.html" %}{% load i18n %}{% block title %}{{ calendar.name }} · {% translate "Agenda" %} · {{ site_name }}{% endblock %}
+{% block content %}
+<div class="max-w-3xl">
+<div class="page-header"><div class="min-w-0"><nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'skeleton_calendar:home' organization_id %}">{% translate "Agenda" %}</a></li><li><a href="{% url 'skeleton_calendar:calendars' organization_id %}">{% translate "Calendários" %}</a></li><li><span aria-current="page">{{ calendar.name }}</span></li></ol></nav><h1>{{ calendar.name }}</h1><p class="page-description">{% if calendar.kind == "personal" %}{% translate "Calendário pessoal" %}{% else %}{% translate "Calendário compartilhado" %}{% endif %} · {% translate "fuso" %} {{ calendar.timezone }}</p></div>
+  <nav class="toolbar" aria-label="{% translate "Ações do calendário" %}"><a class="btn btn-secondary" href="{% url 'skeleton_calendar:calendar-link' organization_id calendar.pk %}">{% translate "Link de assinatura" %}</a></nav>
+</div>
+{% if managed %}
+<section class="card" aria-labelledby="calendar-managed" data-managed-calendar>
+  <h2 id="calendar-managed"><span class="badge">{% blocktranslate with app=managed.name %}gerenciado por {{ app }}{% endblocktranslate %}</span></h2>
+  <p class="mt-1 text-sm/6">{% translate "O nome, o acesso e a exclusão deste calendário mudam só na app de origem." %} {% if managed.url %}<a class="underline" href="{{ managed.url }}">{% translate "abrir na origem" %}</a>{% else %}<span class="text-body-subtle">{% translate "origem indisponível" %}</span>{% endif %}</p>
+</section>
+{% endif %}
+{% if rename_form %}
+<form method="post" action="{% url 'skeleton_calendar:calendar-rename' organization_id calendar.pk %}" class="card mt-6" aria-labelledby="calendar-rename">
+  <h2 id="calendar-rename">{% translate "Nome" %}</h2>
+  {% csrf_token %}<input type="hidden" name="revision" value="{{ calendar.revision }}">
+  {% include "skeleton/web/components/form-fields.html" with form=rename_form hide_marks=True %}
+  <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Renomear" %}</button></div>
+</form>
+{% endif %}
+{% if sharing_form %}
+<form method="post" action="{% url 'skeleton_calendar:calendar-sharing' organization_id calendar.pk %}" class="card mt-6" aria-labelledby="calendar-sharing">
+  <h2 id="calendar-sharing">{% translate "Compartilhamento" %}</h2>
+  <p class="mt-1 text-sm/6">{% translate "Quem escreve também lê. A mudança vale no pedido seguinte." %}</p>
+  {% csrf_token %}
+  {% include "skeleton/web/components/form-fields.html" with form=sharing_form hide_marks=True %}
+  <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Salvar compartilhamento" %}</button></div>
+</form>
+{% endif %}
+{% if can_delete %}
+<form method="post" action="{% url 'skeleton_calendar:calendar-delete' organization_id calendar.pk %}" class="card mt-6" aria-labelledby="calendar-delete">
+  <h2 id="calendar-delete">{% translate "Excluir" %}</h2>
+  <p class="mt-1 text-sm/6">{% translate "Só um calendário sem eventos pode ser excluído." %}</p>
+  {% csrf_token %}<input type="hidden" name="revision" value="{{ calendar.revision }}">
+  <div class="form-actions"><button type="submit" class="btn btn-danger">{% translate "Excluir calendário" %}</button></div>
+</form>
+{% endif %}
+</div>
+{% endblock %}

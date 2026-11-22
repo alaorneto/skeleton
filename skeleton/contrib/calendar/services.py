@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
@@ -65,13 +67,31 @@ def create_calendar_record(record: Calendar, *, user: Any, values: dict[str, Any
     record.save()
 
 
+def _refuse_managed(record: Calendar) -> None:
+    """A calendar managed by another app changes only in that app (#670): 409 everywhere else."""
+    if record.source_app:
+        from skeleton.service_api import Conflict
+
+        raise Conflict("managed_calendar", gettext("Este calendário é gerenciado por outra app; altere-o na origem."))
+
+
+def _refuse_managed_record(record: Calendar) -> None:
+    """The table gateway (REST and generic pages) refuses a managed calendar as invalid input."""
+    if record.source_app:
+        raise ValidationError(
+            {"source_app": gettext("Este calendário é gerenciado por outra app; altere-o na origem.")}
+        )
+
+
 def update_calendar_record(record: Calendar, *, user: Any, values: dict[str, Any]) -> None:
+    _refuse_managed_record(record)
     for name, value in values.items():
         setattr(record, name, value)
     record.save(update_fields=set(values))
 
 
 def delete_calendar_record(record: Calendar, *, user: Any) -> None:
+    _refuse_managed_record(record)
     if record.kind == Calendar.Kind.PERSONAL and record.is_default:
         raise ValidationError({"kind": gettext("O calendário pessoal padrão não pode ser excluído.")})
     record.delete()
@@ -79,6 +99,143 @@ def delete_calendar_record(record: Calendar, *, user: Any) -> None:
 
 def restore_calendar_record(record: Calendar, *, user: Any) -> None:
     record.restore()
+
+
+# --------------------------------------------------------------------------- calendar pages (#670)
+
+SHARE_ACTIONS = {"read": ("read",), "write": ("read", "update")}
+
+
+@dataclass(frozen=True, slots=True)
+class Sharing:
+    """Who reads and who writes a calendar by record grant: groups and people (#670)."""
+
+    reader_group_ids: frozenset[UUID] = frozenset()
+    writer_group_ids: frozenset[UUID] = frozenset()
+    reader_user_ids: frozenset[UUID] = frozenset()
+    writer_user_ids: frozenset[UUID] = frozenset()
+
+
+def _subject_actions(actor: Any, calendar: Calendar) -> dict[tuple[str, UUID], set[str]]:
+    from skeleton.service_api.access import AccessService
+
+    from .policies import TABLE_KEY
+
+    actions: dict[tuple[str, UUID], set[str]] = {}
+    for grant in AccessService().record_grants(actor=actor, table_key=TABLE_KEY, record_id=calendar.pk):
+        if grant.action not in ("read", "update"):
+            continue  # Delete grants and role grants stay as the access management left them.
+        if grant.group_id is not None:
+            actions.setdefault(("group", grant.group_id), set()).add(grant.action)
+        elif grant.membership_user_id is not None:
+            actions.setdefault(("user", grant.membership_user_id), set()).add(grant.action)
+    return actions
+
+
+def calendar_sharing(*, actor: Any, calendar: Calendar) -> Sharing:
+    """The sharing of a calendar as the page shows it; ``access.manage`` (Forbidden otherwise)."""
+    actions = _subject_actions(actor, calendar)
+    pick = {
+        (kind, level): frozenset(
+            subject
+            for (subject_kind, subject), granted in actions.items()
+            if subject_kind == kind and ("update" in granted) == (level == "write")
+        )
+        for kind in ("group", "user")
+        for level in ("read", "write")
+    }
+    return Sharing(pick["group", "read"], pick["group", "write"], pick["user", "read"], pick["user", "write"])
+
+
+def set_calendar_sharing(*, actor: Any, calendar: Calendar, sharing: Sharing) -> bool:
+    """Grant and revoke read and update so that the calendar is shared exactly as ``sharing`` says.
+
+    Only shared calendars that no app manages; ``access.manage`` through the core grant service,
+    so each change is audited and holds on the next request. Returns whether anything changed.
+    """
+    from skeleton.service_api import InvalidInput
+    from skeleton.service_api.access import AccessService
+
+    from .policies import TABLE_KEY
+
+    _refuse_managed(calendar)
+    if calendar.kind != Calendar.Kind.SHARED:
+        raise InvalidInput({"calendar": [gettext("Um calendário pessoal é delegado pela gestão de acesso.")]})
+    desired: dict[tuple[str, UUID], set[str]] = {}
+    for kind, level, subjects in (
+        ("group", "read", sharing.reader_group_ids),
+        ("group", "write", sharing.writer_group_ids),
+        ("user", "read", sharing.reader_user_ids),
+        ("user", "write", sharing.writer_user_ids),
+    ):
+        for subject in subjects:
+            desired.setdefault((kind, subject), set()).update(SHARE_ACTIONS[level])
+    if len(desired) > 50:
+        raise InvalidInput({"sharing": [gettext("Compartilhe com até 50 grupos e pessoas.")]})
+    current = _subject_actions(actor, calendar)
+    access = AccessService()
+    changed = False
+
+    def subject_of(kind: str, subject: UUID) -> dict[str, UUID]:
+        return {"group_id": subject} if kind == "group" else {"membership_user_id": subject}
+
+    with transaction.atomic(using=current_context().using):
+        for (kind, subject), actions in current.items():
+            for action in sorted(actions - desired.get((kind, subject), set())):
+                access.revoke_record_access(
+                    actor=actor, table_key=TABLE_KEY, record_id=calendar.pk, action=action, **subject_of(kind, subject)
+                )
+                changed = True
+        for (kind, subject), actions in desired.items():
+            for action in sorted(actions - current.get((kind, subject), set())):
+                access.grant_record_access(
+                    actor=actor, table_key=TABLE_KEY, record_id=calendar.pk, action=action, **subject_of(kind, subject)
+                )
+                changed = True
+    return changed
+
+
+def rename_calendar(*, actor: Any, calendar_id: Any, name: str, expected_revision: int) -> Calendar:
+    """Rename a calendar the actor updates, with CAS; a managed calendar answers 409 (#670)."""
+    from skeleton.service_api import Conflict
+
+    from .policies import can_write
+
+    with transaction.atomic(using=current_context().using):
+        calendar = Calendar.objects.select_for_update().filter(pk=calendar_id).first()
+        if calendar is None or not can_write(actor, calendar):
+            raise PermissionDenied(gettext("Calendário indisponível."))
+        _refuse_managed(calendar)
+        if calendar.revision != expected_revision:
+            raise Conflict("stale_revision", gettext("O calendário mudou."))
+        calendar.name = name
+        calendar.save(update_fields={"name"})
+    return calendar
+
+
+def delete_calendar(*, actor: Any, calendar_id: Any, expected_revision: int) -> None:
+    """Soft delete a shared calendar the actor may delete, with CAS; managed ones answer 409 (#670).
+
+    A calendar with live events is refused (``Conflict("live_references")``): its events go first.
+    """
+    from skeleton.access.policies import require_record_action
+    from skeleton.service_api import Conflict
+
+    from .models import Event
+
+    with transaction.atomic(using=current_context().using):
+        calendar = Calendar.objects.select_for_update().filter(pk=calendar_id).first()
+        if calendar is None:
+            raise PermissionDenied(gettext("Calendário indisponível."))
+        require_record_action(calendar, user=actor, action="delete")
+        _refuse_managed(calendar)
+        if calendar.kind == Calendar.Kind.PERSONAL and calendar.is_default:
+            raise ValidationError({"kind": gettext("O calendário pessoal padrão não pode ser excluído.")})
+        if calendar.revision != expected_revision:
+            raise Conflict("stale_revision", gettext("O calendário mudou."))
+        if Event.objects.filter(calendar=calendar).exists():
+            raise Conflict("live_references", gettext("O calendário tem eventos."))
+        calendar.delete()
 
 
 # --------------------------------------------------------------------------- administration

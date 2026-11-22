@@ -6,6 +6,11 @@ token travels in the URL path; it authorizes only the feed views that check its 
 ``/api/v1/``. ``FeedTokenService.issue`` returns the text once; the person lists and revokes
 feed tokens at ``/profile/tokens/``. :func:`authenticate_feed` verifies a token for one scope,
 with the same rate limits as Bearer tokens.
+
+A record feed token (#669) is bound to one record of one organization: ``issue_for_record``
+emits it for a record the actor reads, and :func:`authenticate_record_feed` returns the person
+and the record. It never opens the person's feed, and the caller rereads the authorization of
+the record on every request, in the context of its organization.
 """
 
 from __future__ import annotations
@@ -31,6 +36,16 @@ class IssuedFeedToken:
     text: str
 
 
+@dataclass(frozen=True, slots=True)
+class RecordFeed:
+    """Who a record feed token belongs to and which record it opens (#669)."""
+
+    user: Any
+    organization_id: UUID
+    table_key: str
+    record_id: UUID
+
+
 class FeedTokenService(ServiceAPI):
     """Issue feed tokens of the actor for a named feed scope."""
 
@@ -54,14 +69,53 @@ class FeedTokenService(ServiceAPI):
         token = issued.token
         return IssuedFeedToken(token.pk, token.prefix, scope, token.expires_at, issued.text)
 
+    @service_method(read_only=False, since="0.4.0")
+    def issue_for_record(
+        self,
+        *,
+        actor: AbstractBaseUser,
+        name: str,
+        scope: str,
+        expires_at: datetime,
+        table_key: str,
+        record_id: UUID,
+    ) -> IssuedFeedToken:
+        """Issue a feed token of the actor bound to one record of the current organization (#669).
 
-def authenticate_feed(request: Any, text: str, *, scope: str) -> Any | None:
-    """The user of a live feed token carrying ``scope``, or ``None`` (rate limited per token and IP).
+        The token opens only the feed of that record (``authenticate_record_feed``), never the
+        person's feed; the app that serves the feed rereads the authorization on every request.
+        Autorização: a própria pessoa autenticada, que lê o registro (``AccessService.can``);
+        política de MFA.
+        Erros: NotFound para registro inexistente, ilegível ou de outra organização; InvalidInput
+        para escopo que não seja de feed, nome ou validade inválidos; Forbidden sem MFA exigida
+        pela política ou quando a requisição vem de um token.
+        Efeitos: grava o token (só o digest do segredo) na transação do chamador.
+        """
+        from skeleton.integrations.tokens.services import issue_personal_token
+        from skeleton.tenancy.context import current_context
 
-    Unknown, expired, revoked or wrong-scope tokens, and tokens of an inactive user or with a
-    changed ``auth_version``, all return ``None``: the caller answers 404. Over the limits the
-    caller gets ``None`` too, so the feed never tells a guess apart from a valid token.
-    """
+        from .access import AccessService
+        from .dto import as_uuid
+        from .errors import NotFound
+
+        identifier = as_uuid(record_id, field="record_id")
+        if not AccessService().can(actor=actor, action="read", table_key=table_key, record_id=identifier):
+            raise NotFound()
+        target = (current_context().organization_id, table_key, identifier)
+        try:
+            issued = issue_personal_token(
+                actor=actor, name=name, scopes=[scope], expires_at=expires_at, feed=True, target=target
+            )
+        except ValidationError as exc:
+            raise InvalidInput(exc.message_dict if hasattr(exc, "message_dict") else {"scope": exc.messages}) from None
+        except PermissionDenied:
+            raise Forbidden() from None
+        token = issued.token
+        return IssuedFeedToken(token.pk, token.prefix, scope, token.expires_at, issued.text)
+
+
+def _feed_token(request: Any, text: str, scope: str) -> Any | None:
+    """The live feed token for ``text`` carrying ``scope``, rate limited per token and IP, or ``None``."""
     from django.conf import settings
 
     from skeleton.common.ratelimit import hit, peek
@@ -82,4 +136,31 @@ def authenticate_feed(request: Any, text: str, *, scope: str) -> Any | None:
     from skeleton.integrations.tokens.activity import touch
 
     touch(token)
+    return token
+
+
+def authenticate_feed(request: Any, text: str, *, scope: str) -> Any | None:
+    """The user of a live feed token carrying ``scope``, or ``None`` (rate limited per token and IP).
+
+    Unknown, expired, revoked or wrong-scope tokens, tokens bound to a record (#669), and tokens
+    of an inactive user or with a changed ``auth_version``, all return ``None``: the caller
+    answers 404. Over the limits the caller gets ``None`` too, so the feed never tells a guess
+    apart from a valid token.
+    """
+    token = _feed_token(request, text, scope)
+    if token is None or token.target_table:
+        return None
     return token.user
+
+
+def authenticate_record_feed(request: Any, text: str, *, scope: str, table_key: str) -> RecordFeed | None:
+    """The person and the record of a live record feed token of ``table_key`` (#669), or ``None``.
+
+    The same refusals and limits as :func:`authenticate_feed`; a token of the person's feed or of
+    another table is ``None`` too. The record may since have become unreadable: the caller checks
+    it in the context of ``organization_id`` and answers 404 like for an unknown token.
+    """
+    token = _feed_token(request, text, scope)
+    if token is None or token.target_table != table_key or token.target_id is None:
+        return None
+    return RecordFeed(token.user, token.bound_organization_id, token.target_table, token.target_id)

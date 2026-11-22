@@ -83,7 +83,14 @@ def _materialized(value: Any) -> Any:
 
 
 def _organizations(
-    user: Any, *, request_id: Any, source: str, limit: int, using: str, all_organizations: bool = False
+    user: Any,
+    *,
+    request_id: Any,
+    source: str,
+    limit: int,
+    using: str,
+    all_organizations: bool = False,
+    organization_id: UUID | None = None,
 ) -> list[tuple[UUID, str]]:
     from .models import Membership
     from .routing import site_organization_id
@@ -106,6 +113,8 @@ def _organizations(
         )
         if site is not None:  # An organization host shows only its organization (#483).
             rows = rows.filter(organization_id=site)
+        if organization_id is not None:  # One organization only, like a record feed (#669).
+            rows = rows.filter(organization_id=organization_id)
         return list(rows[:limit])
 
 
@@ -120,11 +129,14 @@ def for_each_organization(
     using: str = "default",
     credential_scopes: frozenset[str] | None = None,
     all_organizations: bool = False,
+    organization_id: UUID | None = None,
 ) -> list[OrganizationResult]:
     """Run ``fn(organization_id)`` in each of the user's organizations; return the materialized results.
 
     On an organization host only that organization runs (#483), unless ``all_organizations``:
-    the personal data export and anything that decides about the account pass it.
+    the personal data export and anything that decides about the account pass it. With
+    ``organization_id`` (#669), only that organization runs, and only while the person is an
+    active member of it: the result is empty otherwise.
     """
     if in_context():
         raise InvalidContext("for_each_organization runs outside any context (mark the view with aggregate_route).")
@@ -134,14 +146,20 @@ def for_each_organization(
         raise ValueError(f"limit must be between 1 and {DEFAULT_LIMIT}.")
     results = []
     listed = _organizations(
-        user, request_id=request_id, source=source, limit=limit, using=using, all_organizations=all_organizations
+        user,
+        request_id=request_id,
+        source=source,
+        limit=limit,
+        using=using,
+        all_organizations=all_organizations,
+        organization_id=organization_id,
     )
-    for organization_id, name in listed:
+    for listed_id, name in listed:
         try:
             with request_context(
                 actor=user, request_id=request_id, source=source, using=using, credential_scopes=credential_scopes
             ):
-                with tenant_context(organization_id=organization_id, actor=user, source=source, using=using):
+                with tenant_context(organization_id=listed_id, actor=user, source=source, using=using):
                     if connections[using].vendor == "postgresql":
                         with connections[using].cursor() as cursor:
                             cursor.execute("SET TRANSACTION READ ONLY")
@@ -149,10 +167,10 @@ def for_each_organization(
                         from skeleton.system.applications import require_application_enabled
 
                         require_application_enabled(app_label)
-                    value = _materialized(fn(organization_id))
+                    value = _materialized(fn(listed_id))
         except (PermissionDenied, ApplicationUnavailable, Forbidden, Unavailable):
             continue  # Membership inactive since the listing, the app is off, or access is denied here.
-        results.append(OrganizationResult(organization_id, name, value))
+        results.append(OrganizationResult(listed_id, name, value))
     return results
 
 
