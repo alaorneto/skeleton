@@ -274,6 +274,7 @@ jobs:
           DJANGO_ALLOWED_HOSTS: ci.example.test
           DATABASE_URL: postgres://skeleton_runtime:unused@127.0.0.1:1/unused
           CACHE_URL: rediscache://127.0.0.1:1/0
+          SKELETON_CACHE_KEY_PREFIX: ci
           EMAIL_URL: smtp://127.0.0.1:1
           DEFAULT_FROM_EMAIL: ci@example.test
           SKELETON_PUBLIC_URL: https://ci.example.test

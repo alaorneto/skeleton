@@ -1,4 +1,4 @@
-"""Environment checks: PostgreSQL only (E025) and a shared cache in production (W029)."""
+"""Environment checks: PostgreSQL only (E025), a shared cache in production (W029) and its prefix (W049/E049)."""
 
 from django.core.checks import Error, Tags, Warning, register
 
@@ -52,3 +52,23 @@ def shared_cache_checks(app_configs=None, **kwargs):
             )
         ]
     return []
+
+
+@register(Tags.security, deploy=True)
+def cache_prefix_checks(app_configs=None, **kwargs):
+    """skeleton.W049/E049: a Redis without KEY_PREFIX collides with any other instance on it (#675)."""
+    from django.conf import settings
+
+    cache = settings.CACHES.get("default", {})
+    if not cache.get("BACKEND", "").endswith("redis.RedisCache") or cache.get("KEY_PREFIX"):
+        return []
+    hint = "Set SKELETON_CACHE_KEY_PREFIX (or ?key_prefix= in CACHE_URL) to a name of this instance."
+    if getattr(settings, "SKELETON_INSTANCE_MODE", "standalone") == "cluster":
+        return [Error("The shared cache has no key prefix in cluster mode.", hint=hint, id="skeleton.E049")]
+    return [
+        Warning(
+            "The shared cache has no key prefix: another instance on it would share keys.",
+            hint=hint,
+            id="skeleton.W049",
+        )
+    ]

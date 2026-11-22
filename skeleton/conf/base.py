@@ -131,7 +131,31 @@ def database_config(env, variable, *, conn_max_age=60):
 
 _database = database_config(env, "DATABASE_URL")
 DATABASES = {"default": _database} if _database else {}
-CACHES = {"default": env.cache("CACHE_URL", default="locmemcache://skeleton")}
+# Options of Django's cache settings that django-environ returns in lower case from the URL query
+# (?key_prefix=...): Django reads only the upper-case names, so they would be lost in silence (#675).
+CACHE_URL_OPTIONS = ("key_prefix", "timeout", "version", "key_function")
+
+
+def cache_config(env, *, default=None):
+    """``CACHES["default"]`` from ``CACHE_URL`` with the URL options promoted and the instance prefix."""
+    from django.core.exceptions import ImproperlyConfigured
+
+    config = env.cache("CACHE_URL", default=default) if default is not None else env.cache("CACHE_URL")
+    for name in CACHE_URL_OPTIONS:
+        if name in config:
+            value = config.pop(name)
+            config[name.upper()] = int(value) if name in ("timeout", "version") and str(value).isdigit() else value
+    prefix = env("SKELETON_CACHE_KEY_PREFIX", default="")
+    if prefix:
+        if config.get("KEY_PREFIX"):
+            raise ImproperlyConfigured(
+                "Defina o prefixo do cache em um lugar só: CACHE_URL ou SKELETON_CACHE_KEY_PREFIX."
+            )
+        config["KEY_PREFIX"] = prefix
+    return config
+
+
+CACHES = {"default": cache_config(env, default="locmemcache://skeleton")}
 # EMAIL_URL stays the operation interface; it becomes MAILERS["default"] (#127), never the
 # per-connection EMAIL_* settings Django 6.1 deprecated. EMAIL_TIMEOUT (seconds an SMTP
 # connection may block, so the notification jobs never hang on a mute server, #297) is read

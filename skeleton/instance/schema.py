@@ -93,6 +93,16 @@ def _url(parser: str) -> Callable[[str], str]:
     return validate
 
 
+def _cache_prefix(value: str) -> str:
+    """The key prefix of the shared cache (#675): one per instance on the same Redis."""
+    import re
+
+    cleaned = _text(value).strip()
+    if cleaned and not re.fullmatch(r"[a-z0-9_-]{1,50}", cleaned):
+        raise ValueError("Use de 1 a 50 caracteres entre a-z, 0-9, _ e -.")
+    return cleaned
+
+
 def _origin(value: str) -> str:
     from urllib.parse import urlsplit
 
@@ -245,6 +255,13 @@ _SPECS = (
         True,
     ),
     SettingSpec("cache_url", "CACHE_URL", "url", "Cache compartilhado", _url("cache_url_config"), True),
+    SettingSpec(
+        "cache_key_prefix",
+        "SKELETON_CACHE_KEY_PREFIX",
+        "str",
+        "Prefixo das chaves no cache compartilhado",
+        _cache_prefix,
+    ),
     SettingSpec("email_url", "EMAIL_URL", "url", "Servidor de email", _url("email_url_config"), True),
     SettingSpec("default_from_email", "DEFAULT_FROM_EMAIL", "str", "Remetente padrão dos emails", _required_text),
     SettingSpec("public_url", "SKELETON_PUBLIC_URL", "url", "Origem pública dos links de notificação", _origin),

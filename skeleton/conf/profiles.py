@@ -47,7 +47,9 @@ def production_settings(base):
     if database is None or database["ENGINE"] != "django.db.backends.postgresql":
         raise ImproperlyConfigured("Produção exige DATABASE_URL apontando para PostgreSQL.")
     DATABASES = {"default": database}
-    CACHES = {"default": env.cache("CACHE_URL")}
+    from skeleton.conf.base import cache_config
+
+    CACHES = {"default": cache_config(env)}
     if CACHES["default"]["BACKEND"] != "django.core.cache.backends.redis.RedisCache":
         raise ImproperlyConfigured("Produção exige Redis compartilhado.")
     from skeleton.conf.mailers import SMTP, mailer_from_url
