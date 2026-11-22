@@ -78,6 +78,13 @@ def build_parser() -> argparse.ArgumentParser:
     install.add_argument("--root", help="Agent root directory instead of agent_root")
     rollback = commands.add_parser("agent-rollback", help="Offline: point the agent back at its previous version")
     rollback.add_argument("--root", help="Agent root directory instead of agent_root")
+    cluster = commands.add_parser("cluster", help="The agents of a cluster: status, handover, forget (#678)")
+    cluster_actions = cluster.add_subparsers(dest="cluster_action", required=True)
+    cluster_actions.add_parser("status", help="The primary, its epoch and every node")
+    handover = cluster_actions.add_parser("handover", help="Ask the idle primary to give the lock to a candidate")
+    handover.add_argument("--to", required=True, dest="target")
+    forget = cluster_actions.add_parser("forget", help="Remove a node that left the cluster (never the primary)")
+    forget.add_argument("node_id")
     prune = commands.add_parser(
         "prune", help="Offline: list, and with --apply remove, releases, plans, images and backups no operation needs"
     )
@@ -162,6 +169,27 @@ def control_services(config: Config, options: argparse.Namespace) -> JSON:
     return {"action": options.action, "services": states}
 
 
+def cluster_command(config: Config, options: argparse.Namespace) -> JSON:
+    """``cluster status|handover|forget``: straight to the coordination state, without the daemon."""
+    from .coordination import coordinator_for
+    from .storage import AgentError, Store
+
+    coordinator = coordinator_for(config)
+    if coordinator is None:
+        raise AgentError("cluster_not_configured")
+    try:
+        if options.cluster_action == "status":
+            return coordinator.status()
+        if options.cluster_action == "forget":
+            coordinator.forget(options.node_id)
+            return {"state": "forgotten", "node_id": options.node_id}
+        states = Store(config["storage_root"]).operation_states().values()
+        busy = any(state in ("queued", "running", "interrupted") for state in states)
+        return coordinator.request_handover(options.target, busy=busy)
+    finally:
+        coordinator.close()
+
+
 def follow_preview(client: Any, options: argparse.Namespace) -> Any:
     """The plan is prepared in the agent (#298): follow it until it is ready (plan) or failed (None)."""
     result = client.preview(options.action, artifacts=options.artifact, app_ids=options.app_id)
@@ -184,6 +212,9 @@ def main() -> int:
             return 0
         if options.command == "control":  # A fixed hook: no journal, no service state.
             print(json.dumps(control_services(config, options), sort_keys=True))
+            return 0
+        if options.command == "cluster":
+            print(json.dumps(cluster_command(config, options), indent=2, sort_keys=True))
             return 0
         service = DeploymentService(config)
         if options.command == "serve":

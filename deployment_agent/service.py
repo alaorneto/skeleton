@@ -21,7 +21,7 @@ from skeleton.system.packages import (
     validate_release,
 )
 
-from . import adoption, catalogue, environments, execution, planning, recovery, selfupdate, sources
+from . import adoption, catalogue, coordination, environments, execution, planning, recovery, selfupdate, sources
 from .backends import backend_for
 from .catalogue import NoRedirect  # noqa: F401 - public name, importable from here
 from .config import Config
@@ -54,6 +54,28 @@ class DeploymentService:
         self.worker: threading.Thread | None = None
         self._drift: tuple[str, float, str, str | None] | None = None
         self._drift_lock = Lock()
+        # Cluster of agents (#678): None on a single node, which works exactly as before.
+        self.coordinator = coordination.coordinator_for(config, agent_version=selfupdate.agent_version() or "")
+
+    def assert_primary(self) -> None:
+        """In a cluster, only the primary migrates and changes the shared state (#678)."""
+        coordinator = getattr(self, "coordinator", None)
+        if coordinator is not None:
+            coordinator.assert_primary()
+
+    def cluster_status(self) -> JSON:
+        coordinator = getattr(self, "coordinator", None)
+        if coordinator is None:
+            return {"mode": "single"}
+        return coordinator.status()
+
+    def describe_node(self) -> JSON:
+        """The active release of this node, for the heartbeat."""
+        try:
+            state = self.state()
+        except AgentError:
+            return {"release": "", "generation": None}
+        return {"release": state["release"], "generation": state["inventory"].get("generation")}
 
     def state(self) -> ActiveState:
         path = self.store.root / "active.json"
@@ -183,6 +205,9 @@ class DeploymentService:
         return adoption.initialize(self, inventory_path, core_package=core_package, app_packages=app_packages)
 
     def ensure_available(self, *, ignore_plan: str | None = None) -> None:
+        coordinator = getattr(self, "coordinator", None)
+        if coordinator is not None and not coordinator.is_primary:
+            raise AgentError("not_primary", 409)
         if Path(self.config["maintenance_marker"]).exists() or any(
             state in ("queued", "running", "interrupted") for state in self.store.operation_states().values()
         ):

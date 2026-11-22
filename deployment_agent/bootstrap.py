@@ -326,6 +326,36 @@ def install_initial(
         }
 
 
+def first_start_installs(service: DeploymentService, *, sleep: Any = None, timeout: float = 1800.0) -> bool:
+    """Whether this node installs generation 0 (#678): always on a single node.
+
+    In a cluster only the candidate that takes the primary's lock of a **new** cluster (no primary
+    recorded yet) installs it; the coordinator keeps the lock for ``serve``. A node with a release,
+    a follower, or a candidate of a cluster that already has a primary returns False: it joins the
+    cluster's current release (#681) instead of building one of its own.
+    """
+    import time
+
+    coordinator = getattr(service, "coordinator", None)
+    if coordinator is None:
+        return True
+    if (service.store.root / "active.json").exists() or not coordinator.settings.candidate:
+        return False
+    coordinator.ensure_schema()
+    wait = sleep or time.sleep
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if coordinator.primary() is not None:
+            return coordinator.is_primary
+        coordinator.heartbeat()
+        if coordinator._may_try(None, time.monotonic()):
+            coordinator._last_try = time.monotonic()
+            if coordinator.try_acquire():
+                return True
+        wait(5)
+    raise AgentError("cluster_first_start_timeout", 409)
+
+
 def container_main(environ: Mapping[str, Any] | None = None) -> int:
     """Entrypoint of the agent container: configuration, first installation, then ``serve``."""
     import json
@@ -338,6 +368,9 @@ def container_main(environ: Mapping[str, Any] | None = None) -> int:
     try:
         config = Config.load(write_container_config(environ))
         service = DeploymentService(config)
+        if not first_start_installs(service):
+            print(json.dumps({"event": "agent.bootstrap_skipped", "reason": "cluster"}), file=sys.stderr, flush=True)
+            return serve(service)
         result = install_initial(
             service,
             release_file=environ.get("SKELETON_AGENT_RELEASE_FILE") or None,

@@ -204,6 +204,7 @@ No psql interativo, use `\password skeleton_owner` e `\password skeleton_runtime
 | skeleton_owner | LOGIN, NOSUPERUSER/NOCREATEDB/NOCREATEROLE, BYPASSRLS; ownership/schema/migrations offline |
 | skeleton_runtime | LOGIN, NOSUPERUSER/NOCREATEDB/NOCREATEROLE/NOBYPASSRLS; sem ownership/membership privilegiada/CREATE/TRIGGER/TRUNCATE |
 | skeleton_audit_writer | NOLOGIN/NOBYPASSRLS; dona das funções SECURITY DEFINER e INSERT audit, não escrita de negócio |
+| skeleton_agent | LOGIN/NOBYPASSRLS; só o schema `skeleton_deploy` (coordenação dos agentes de um cluster, #678): lê o primário e informa o estado do próprio nó. Sem `USAGE` em `skeleton`; o web nunca a recebe. Defina a senha com `\password skeleton_agent` só se houver seguidores |
 
 O banco usa schema `skeleton` e `search_path` `skeleton,public` (ordem de busca de nomes SQL). `CREATE` público é revogado. A distribuição de privilégios é deliberadamente restrita:
 
@@ -1056,6 +1057,40 @@ sudo systemctl daemon-reload && sudo systemctl restart skeleton-agent
 ```
 
 **Regra de compatibilidade de formato.** O agente da linha N precisa conseguir validar o pacote de release da linha N+1 para se atualizar a partir dele. Por isso, um formato novo de manifesto, de pacote ou de índice só pode ser **emitido** a partir da linha seguinte àquela em que os leitores passaram a aceitá-lo. Limite aceito: se o agente novo não subir por um erro que o `selfcheck` não pegou, o systemd fica reiniciando; a volta é `agent-rollback` seguido de `systemctl restart skeleton-agent`. Um supervisor que não reinicia em saída diferente de zero não serve: use `Restart=on-failure` ou equivalente.
+
+### Agente em vários nós (#678)
+
+Com vários nós de app, cada nó roda o próprio agente, e um deles é o **primário**: o único que migra, faz backup e decide as fases de uma atualização. Os outros são **seguidores**: preparam e trocam o release do próprio nó. A chave `cluster` do `agent.json` liga o modo; sem ela, o agente é o de sempre, de um nó só.
+
+```json
+{
+  "cluster": {
+    "node_id": "node-a",
+    "role": "candidate",
+    "cluster_url": "https://node-a.internal:9443",
+    "preferred": true
+  }
+}
+```
+
+- `node_id`: nome estável do nó (`[a-z0-9-]`, até 40 caracteres).
+- `role`: `candidate` (pode ser primário; tem o perfil `migration`, com a credencial owner) ou `follower` (nunca é primário; recusa ter `MIGRATION_DATABASE_URL` ou `backup_env_file`: `follower_has_owner`). O seguidor declara `coordination_env_file`, um arquivo 0600 com `COORDINATION_DATABASE_URL` da role `skeleton_agent` (sem ele, `missing_coordination_credentials`).
+- `cluster_url`: o endereço do canal entre agentes, na rede privada (`https://`).
+- `preferred`: o candidato que começa na primeira partida; os outros esperam 60 s antes de tentar.
+
+**Coordenação no PostgreSQL.** O estado do cluster fica no schema `skeleton_deploy` do banco da instância, criado pelo `deploy/postgres/bootstrap.sql` (dono `skeleton_owner`) junto da role `skeleton_agent`. Os candidatos criam as tabelas na primeira partida; a role runtime e o web nunca leem o schema. Numa instalação existente, aplique o bootstrap de novo (ele é idempotente) antes de ligar o modo cluster.
+
+**Como o primário é definido.** É o candidato que segura a trava de sessão do PostgreSQL do cluster (`pg_try_advisory_lock`), numa conexão direta (nunca pelo PgBouncer), e a **época** atual da linha única `skeleton_deploy."primary"`. O PostgreSQL só solta a trava quando a sessão do primário termina, então nunca há dois primários enquanto o primeiro está conectado. Cada passo que muda o banco (migrations, catálogo, sincronização do estado, troca do release) confere antes que a conexão da trava continua viva e que a época é a dele; um primário que travou, perdeu a trava e voltou recebe `not_primary` e não executa o passo. Na primeira partida de um cluster novo, só o candidato que pega a trava instala a geração 0.
+
+**Como o primário é reatribuído.**
+
+- **Planejado:** com o cluster ocioso, `skeleton-deployment-agent --config ... cluster handover --to node-b` pede ao primário que solte a trava; o candidato indicado a pega (os outros esperam 30 s para dar a vez a ele) e a época sobe. Com operação `queued`, `running` ou `interrupted`, recusa (`cluster_busy`); destino que não é candidato vivo ou que já é o primário, `handover_target_invalid`.
+- **Perda do primário:** a sessão dele cai (as conexões usam keepalives de TCP, e a queda é notada em cerca de 30 s), a trava fica livre e o primeiro candidato que tentar (a cada 15 s) vira o primário com a época seguinte. Servir tráfego não depende do primário: perdê-lo só suspende atualizações e instalação de apps. Se havia operação em curso, o novo primário a marca `interrupted` e recusa prévias e execuções (`recovery_or_operation_pending`) até o operador escolher `recover ... abort|restore|complete`, como num nó só.
+- Enquanto não é o primário, o agente responde `not_primary` a prévias e execuções.
+
+**`storage_root` compartilhado entre candidatos.** O journal, os planos, os uploads e os backups ficam em `storage_root`. Com dois ou mais candidatos, ele precisa ser um diretório compartilhado só entre eles (NFS, EFS, CephFS), escrito só por quem segura a trava: é o que deixa o novo primário retomar o journal do antigo. Cada candidato deixa uma marca em `storage_root/.cluster/<node_id>`; um candidato que não vê a marca de outro candidato vivo não tenta a trava (`cluster_storage_not_shared`, em `cluster status`). `releases_root` continua local em cada nó. Com um só candidato, `storage_root` pode ser local, mas perder esse nó exige restaurar o `storage_root` de backup antes de outro nó virar candidato.
+
+**Comandos.** `cluster status` mostra o primário, a época, a idade da última renovação e cada nó (papel, release ativo, fase, último sinal), sem segredos; `cluster forget <node_id>` remove um nó desativado (nunca o primário: `cannot_forget_primary`). A API de controle responde `GET /cluster` com o mesmo conteúdo (`{"mode": "single"}` num nó só).
 
 ### Backend Compose
 

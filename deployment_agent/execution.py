@@ -102,6 +102,7 @@ def execute(service: "DeploymentService", operation_id: str) -> None:
                 graph = service.backend.probe(plan["release"])
                 if not graph_matches(graph, plan):
                     raise AgentError("migration_plan_changed", 409)
+                service.assert_primary()  # Fenced by the epoch before the first change of the schema (#678).
                 service.stage(operation, "migration_started")
                 service.finish(operation, record)
             except Exception as error:  # noqa: BLE001 - any failure is journaled before re-raising
@@ -113,8 +114,10 @@ def execute(service: "DeploymentService", operation_id: str) -> None:
 
 def finish(service: "DeploymentService", operation: JSON, record: JSON) -> None:
     release = Path(operation["release"])
+    service.assert_primary()
     service.backend.manage(release, ["migrate", "--noinput"], "migration", code="migration_failed")
     service.stage(operation, "migrated")
+    service.assert_primary()
     service.backend.manage(release, ["sync_table_catalog"], "migration", code="catalogue_sync_failed")
     if Version(record["inventory"]["core"]["version"]) >= APP_ACTIVATION_UPGRADE_CORE:
         # Closed-by-default activation (#22): keep what organizations used before; idempotent per run.
@@ -130,6 +133,7 @@ def finish(service: "DeploymentService", operation: JSON, record: JSON) -> None:
     service.backend.manage(release, ["check", "--deploy"], "runtime", code="deployment_checks_failed")
     service.stage(operation, "runtime_checked")
     check_drift(release, record["owned_files"])
+    service.assert_primary()
     service.stage(operation, "cutover_started")
     service.backend.cutover(release)
     service.stage(operation, "release_switched")
@@ -137,6 +141,7 @@ def finish(service: "DeploymentService", operation: JSON, record: JSON) -> None:
     service.stage(operation, "workers_started")
     service.health(record["inventory"])
     service.stage(operation, "health_verified", generation=record["inventory"]["generation"])
+    service.assert_primary()
     sync_state(service, release, operation)
     service._write_active(release, record["inventory"], record["owned_files"])
     service.stage(operation, "committed", state="succeeded")

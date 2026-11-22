@@ -173,6 +173,8 @@ class ControlHandler(QuietHandler):
             return self.server.service.update_status()
         if path == "/sources":
             return self.server.service.sources()
+        if path == "/cluster":
+            return self.server.service.cluster_status()
         raise AgentError("not_found", 404)
 
     def _status_ticket(self, body: JSON) -> JSON:
@@ -339,6 +341,24 @@ def run_update_checks(
         delay = interval
 
 
+def run_coordination(service: "DeploymentService", stop: threading.Event, *, interval: float = 5.0) -> None:
+    """Heartbeat, renewal and the primary's lock (#678); a database outage only waits for the next tick."""
+    coordinator = service.coordinator
+    if coordinator is None:
+        return
+    try:
+        coordinator.ensure_schema()
+    except Exception as error:  # noqa: BLE001 - the loop below retries; never stop serving
+        log_internal_error(error)
+    while not stop.is_set():
+        try:
+            coordinator.tick(describe=service.describe_node, on_acquired=service.reconcile_interrupted)
+        except Exception as error:  # noqa: BLE001 - one failed tick never stops the agent
+            log_internal_error(error)
+        stop.wait(interval)
+    coordinator.close()
+
+
 class ShutdownRequest:
     """SIGTERM/SIGINT handler that also covers a signal received before the server exists (#616).
 
@@ -446,6 +466,10 @@ def serve(service: "DeploymentService") -> int:
             kwargs={"interval": interval},
             daemon=True,
             name="deployment-update-check",
+        ).start()
+    if getattr(service, "coordinator", None) is not None:
+        threading.Thread(
+            target=run_coordination, args=(service, stop_checks), daemon=True, name="deployment-cluster"
         ).start()
     try:
         server.serve_forever()

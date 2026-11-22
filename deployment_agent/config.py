@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Self
 from urllib.parse import urlsplit
 
+from .coordination import validate_cluster
 from .github import REPOSITORY
 from .github import valid_settings as github_settings_valid
 from .storage import AgentError, private_file
@@ -298,6 +299,13 @@ def _validate_credentials(values: JSON) -> None:
     build = read_environment(values["build_env_file"])
     if "MIGRATION_DATABASE_URL" in runtime or "MIGRATION_DATABASE_URL" in build:
         raise AgentError("migration_secret_in_runtime")
+    if (values.get("cluster") or {}).get("role") == "follower":
+        # A follower never migrates (#678): the owner credential never reaches its node.
+        if migration.get("MIGRATION_DATABASE_URL") or values.get("backup_env_file"):
+            raise AgentError("follower_has_owner")
+        if not effective_runtime_database(runtime):
+            raise AgentError("missing_runtime_credentials")
+        return
     if not migration.get("MIGRATION_DATABASE_URL"):
         raise AgentError("missing_migration_credentials")
     runtime_url = effective_runtime_database(runtime)
@@ -343,6 +351,7 @@ class Config:
         _validate_health(values)
         _validate_optional(values)
         _validate_compose(values)
+        validate_cluster(values)
         _validate_credentials(values)
         token = private_file(values["token_file"]).read_text().strip()
         if not token.isascii() or len(token) < 32:
