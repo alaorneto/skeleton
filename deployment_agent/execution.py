@@ -3,8 +3,9 @@
 import json
 import shutil
 import time
+from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin
 from urllib.request import Request, build_opener
 
@@ -93,6 +94,9 @@ def execute(service: "DeploymentService", operation_id: str) -> None:
                     raise AgentError("migration_plan_changed", 409)
                 # Configuration checked before any effect: no marker, no drain on a typo (#246).
                 service.backend.preflight(state["release"])
+                if operation.get("rollout_mode") == "rolling":
+                    execute_rolling(service, operation, record, state)
+                    return
                 cluster = rollout.begin(service, operation, record)
                 if cluster is not None:
                     # Every node installs the release before any maintenance (#681).
@@ -177,6 +181,59 @@ def finish(service: "DeploymentService", operation: JSON, record: JSON) -> None:
     service.stage(operation, "ready", state="succeeded")
 
 
+def runtime_checks(service: "DeploymentService", release: Path, record: JSON) -> None:
+    """The checks of a new release before it takes traffic (catalog, activation, schema, configuration)."""
+    service.assert_primary()
+    service.backend.manage(release, ["sync_table_catalog"], "migration", code="catalogue_sync_failed")
+    if Version(record["inventory"]["core"]["version"]) >= APP_ACTIVATION_UPGRADE_CORE:
+        service.backend.manage(release, ["upgrade_app_activation"], "runtime", code="app_activation_upgrade_failed")
+    service.backend.manage(release, ["check_skeleton_schema"], "runtime", code="runtime_schema_failed")
+    if Version(record["inventory"]["core"]["version"]) >= Version("0.2.0"):
+        service.backend.manage(
+            release, ["check_application_configuration"], "runtime", code="application_configuration_invalid"
+        )
+    service.backend.manage(
+        release, ["validate_provider_bindings", "--database", "default"], "runtime", code="provider_bindings_failed"
+    )
+    service.backend.manage(release, ["check", "--deploy"], "runtime", code="deployment_checks_failed")
+
+
+def execute_rolling(service: "DeploymentService", operation: JSON, record: JSON, state: Mapping[str, Any]) -> None:
+    """A patch without migrations across a cluster, node by node and without maintenance (#682).
+
+    Every node installs the release first; then the checks run once on the primary and each node,
+    the primary first, leaves the balancer (drain marker), stops, switches, starts and checks its
+    health before the next one. A node that fails goes back to its release and stops the rolling:
+    the nodes already switched stay on the new release, which serves the same database.
+    """
+    release, previous = Path(operation["release"]), Path(state["release"])
+    cluster = rollout.begin(service, operation, record, mode="rolling")
+    if cluster is None:
+        raise AgentError("rolling_requires_cluster", 409)
+    service.stage(operation, "cluster_preparing", state="running")
+    cluster.wait("prepare", timeout=rollout.PREPARE_TIMEOUT_S, code="follower_prepare_failed")
+    graph = service.backend.probe(release)
+    if not graph_matches(graph, record["plan"]) or graph["migrations"]:
+        raise AgentError("rolling_not_eligible", 409)
+    runtime_checks(service, release, record)
+    service.stage(operation, "runtime_checked")
+    check_drift(release, record["owned_files"])
+    service.stage(operation, "rolling_started")
+    rollout.roll_local(service, previous, release, operation["id"], record["inventory"])
+    service.stage(operation, "release_switched")
+    for node in cluster.nodes:
+        cluster.wait_node("rolling", node, timeout=rollout.CUTOVER_TIMEOUT_S, code="rolling_node_failed")
+    service.stage(operation, "health_verified", generation=record["inventory"]["generation"])
+    service.assert_primary()
+    sync_state(service, release, operation)
+    service._write_active(release, record["inventory"], record["owned_files"])
+    service.stage(operation, "committed", state="succeeded")
+    sync_state(service, release, operation)
+    service.publish_cluster_release()
+    cluster.phase("done")
+    service.stage(operation, "ready", state="succeeded", traffic_released=True)
+
+
 def health(service: "DeploymentService", inventory: JSON) -> None:
     opener = build_opener(NoRedirect())
     deadline = time.monotonic() + service.config.get("health_timeout", 60)
@@ -217,8 +274,16 @@ def queue_operation(
     operation_id: str,
     actor_id: str,
     request_id: str,
+    *,
+    mode: str | None = None,
 ) -> tuple[JSON, bool]:
-    """Journal the approved binding; ``(operation, created)``, ``created`` False for a repeated delivery."""
+    """Journal the approved binding; ``(operation, created)``, ``created`` False for a repeated delivery.
+
+    ``mode`` (#682) is ``window`` to force the maintenance window on a rolling-eligible plan; it is
+    part of the binding, so a redelivery with another mode is an idempotency conflict.
+    """
+    if mode not in (None, "window", "rolling"):
+        raise AgentError("invalid_rollout_mode")
     operation_id = identifier(operation_id)
     plan_id = identifier(plan_id)
     actor_id = identifier(actor_id)
@@ -233,6 +298,8 @@ def queue_operation(
         "actor_id": actor_id,
         "request_id": request_id,
     }
+    if mode is not None:
+        binding["mode"] = mode
     # Atomic journal replacement makes an existing binding safe to read while
     # execution owns the lock. Lost ACKs must not turn into deployment_busy.
     path = service.store.path("operations", operation_id)
@@ -261,6 +328,11 @@ def queue_operation(
             raise AgentError("stale_approval", 409)
         if any(row["binding"]["plan_id"] == plan_id for row in service.store.operations()):
             raise AgentError("plan_already_submitted", 409)
+        eligible = plan.get("rollout_mode", "window")
+        if mode == "rolling" and eligible != "rolling":
+            raise AgentError("rolling_not_eligible", 409)
+        # Rolling only across a cluster; one node always keeps the window.
+        rolling = (mode or eligible) == "rolling" and getattr(service, "coordinator", None) is not None
         operation = {
             "id": operation_id,
             "operation": plan["action"],
@@ -279,6 +351,7 @@ def queue_operation(
             "created_at": now(),
             "updated_at": now(),
             "traffic_released": False,
+            "rollout_mode": "rolling" if rolling else "window",
             "events": [{"stage": "approved", "at": now()}],
         }
         service.store.put("operations", operation_id, operation)

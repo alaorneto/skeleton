@@ -22,6 +22,8 @@ pytestmark = pytest.mark.posix
 PLAN_KEYS = {
     "id",
     "dropped_dependencies",  # #495
+    "rollout_mode",  # #682
+    "rollout_reason",
     "generation",
     "action",
     "components",

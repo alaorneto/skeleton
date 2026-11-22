@@ -85,6 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
     handover.add_argument("--to", required=True, dest="target")
     forget = cluster_actions.add_parser("forget", help="Remove a node that left the cluster (never the primary)")
     forget.add_argument("node_id")
+    cluster_actions.add_parser("restart", help="Restart every node with the same release, one at a time (#682)")
     keygen = cluster_actions.add_parser("keygen", help="Write a new secret of the channel between agents (0600)")
     keygen.add_argument("--output", required=True)
     prune = commands.add_parser(
@@ -179,6 +180,11 @@ def cluster_command(config: Config, options: argparse.Namespace) -> JSON:
 
     if options.cluster_action == "keygen":
         return write_secret(options.output)
+    if options.cluster_action == "restart":  # Through the daemon, which holds the primary's lock.
+        from skeleton.system.deployment_client import AgentClient
+
+        client = AgentClient(config["socket_path"], config["token_file"], timeout=config.get("command_timeout", 1800))
+        return client.cluster_restart()
     coordinator = coordinator_for(config)
     if coordinator is None:
         raise AgentError("cluster_not_configured")

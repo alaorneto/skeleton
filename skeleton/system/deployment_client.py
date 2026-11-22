@@ -134,20 +134,18 @@ class AgentClient:
             "POST", "/preview", {"action": action, "artifacts": artifacts or [], "app_ids": app_ids or []}
         )
 
-    def submit(self, plan_id, plan_digest, generation, operation_id, actor_id, request_id):
-        return self._request(
-            "POST",
-            "/submit",
-            {
-                "plan_id": str(plan_id),
-                "plan_digest": plan_digest,
-                "generation": generation,
-                "operation_id": str(operation_id),
-                "actor_id": str(actor_id),
-                "request_id": str(request_id),
-            },
-            timeout=SUBMIT_TIMEOUT,
-        )
+    def submit(self, plan_id, plan_digest, generation, operation_id, actor_id, request_id, mode=None):
+        body = {
+            "plan_id": str(plan_id),
+            "plan_digest": plan_digest,
+            "generation": generation,
+            "operation_id": str(operation_id),
+            "actor_id": str(actor_id),
+            "request_id": str(request_id),
+        }
+        if mode is not None:
+            body["mode"] = mode  # "window" forces the maintenance window on a rolling-eligible plan (#682).
+        return self._request("POST", "/submit", body, timeout=SUBMIT_TIMEOUT)
 
     def operation(self, operation_id):
         try:
@@ -201,6 +199,14 @@ class AgentClient:
     def update_status(self, *, timeout=STATUS_TIMEOUT):
         """Last check of the sources and the update paths, recalculated; the agent stays offline (#493)."""
         return self._request("GET", "/updates/status", timeout=timeout)
+
+    def cluster(self):
+        """The cluster of agents (#678): ``{"mode": "single"}`` on one node."""
+        return self._request("GET", "/cluster", timeout=5)
+
+    def cluster_restart(self):
+        """Restart every node with the same release, one at a time (#682)."""
+        return self._request("POST", "/cluster/restart", {})
 
     def fetch_release(self, component_id, version, source_id):
         return self._request(

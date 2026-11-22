@@ -1,6 +1,8 @@
 import logging
+from pathlib import Path
 from uuid import uuid4
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
 from django.http import HttpResponseNotAllowed, JsonResponse
@@ -28,7 +30,11 @@ def probe_response(request):
         return HttpResponseNotAllowed(["GET", "HEAD"])
     ready = request.path_info == "/health/ready/"
     body: dict[str, object] = {"status": "ok"}
-    if ready:
+    drain = getattr(settings, "SKELETON_DRAIN_MARKER", None)
+    if ready and drain and Path(drain).exists():
+        # A rolling update (#682) takes this node out of the balancer before stopping it.
+        body = {"status": "draining"}
+    elif ready:
         try:
             with connection.cursor() as cursor:
                 cursor.execute("SELECT 1")

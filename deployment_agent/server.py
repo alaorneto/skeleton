@@ -195,7 +195,8 @@ class ControlHandler(QuietHandler):
         return self.server.service.preview(body.get("action"), body.get("artifacts", []), body.get("app_ids", []))
 
     def _submit(self, body: JSON) -> JSON:
-        if set(body) != {"plan_id", "plan_digest", "generation", "operation_id", "actor_id", "request_id"}:
+        required = {"plan_id", "plan_digest", "generation", "operation_id", "actor_id", "request_id"}
+        if not required <= set(body) <= required | {"mode"}:
             raise AgentError("invalid_submit_fields")
         result = self.server.service.submit(**body)
         url = self.server.tickets.issue(result["id"])
@@ -234,6 +235,11 @@ class ControlHandler(QuietHandler):
             raise AgentError("invalid_catalogue_selection")
         return self.server.service.fetch_release(**body)
 
+    def _cluster_restart(self, body: JSON) -> JSON:
+        if body:
+            raise AgentError("unknown_fields")
+        return self.server.service.cluster_restart()
+
     POST_ROUTES: dict[str, Callable[["ControlHandler", JSON], JSON]] = {
         "/status-ticket": _status_ticket,
         "/preview": _preview,
@@ -243,6 +249,7 @@ class ControlHandler(QuietHandler):
         "/agent/update": _agent_update,
         "/sources/set": _sources_set,
         "/sources/remove": _sources_remove,
+        "/cluster/restart": _cluster_restart,
     }
 
     restart_after_response = False

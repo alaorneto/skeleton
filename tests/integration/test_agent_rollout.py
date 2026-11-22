@@ -232,3 +232,55 @@ def test_unsafe_archive_members_are_refused(tmp_path):
         tar.add(payload, arcname="../escape")
     with tarfile.open(archive) as tar, pytest.raises(AgentError, match="unsafe_release_archive"):
         rollout._safe_members(tar, "2-plan")
+
+
+def test_rolling_switches_one_node_at_a_time_and_only_on_its_turn(cluster, monkeypatch):
+    primary, service, new, release_digest = cluster
+    monkeypatch.setattr(rollout.time, "sleep", lambda seconds: None)  # The drain grace of the test.
+    service.config["drain_marker"] = str(Path(service.config["releases_root"]).parent / "node-b.drain")
+    install = rollout.begin(PrimaryService(primary), {"id": "op-r"}, plan_record(new, release_digest), mode="rolling")
+    follower = rollout.Follower(service)
+    install.phase("prepare")
+    follower.tick()
+    assert install.answers()["node-b"] == "prepared"
+    # Another node's turn: this follower does nothing.
+    primary._lock_conn.execute(
+        "UPDATE skeleton_deploy.rollout SET phase = 'rolling', current_node = 'node-x' WHERE operation_id = 'op-r'"
+    )
+    follower.tick()
+    assert not any(entry[0] == "cutover" for entry in service.log)
+    stop = threading.Event()
+    thread = threading.Thread(target=follow_until, args=(service, stop), daemon=True)
+    thread.start()
+    try:
+        install.wait_node("rolling", "node-b", timeout=10, code="rolling_node_failed")
+    finally:
+        stop.set()
+        thread.join(5)
+    assert service.active.name == "2-plan"
+    assert [entry[0] for entry in service.log if entry[0] != "active"][-4:] == ["drain", "cutover", "start", "health"]
+    assert not Path(service.config["drain_marker"]).exists()  # Back in the balancer.
+
+
+def test_a_node_that_fails_its_turn_goes_back_and_names_itself(cluster, monkeypatch):
+    primary, service, new, release_digest = cluster
+    monkeypatch.setattr(rollout.time, "sleep", lambda seconds: None)
+
+    def broken(service, inventory):
+        raise AgentError("application_smoke_failed", 409)
+
+    monkeypatch.setattr(execution, "health", broken)
+    run = rollout.begin(PrimaryService(primary), {"id": "op-f"}, plan_record(new, release_digest), mode="rolling")
+    rollout.install_release(service, "2-plan", release_digest)
+    stop = threading.Event()
+    thread = threading.Thread(target=follow_until, args=(service, stop), daemon=True)
+    thread.start()
+    try:
+        with pytest.raises(AgentError) as failed:
+            run.wait_node("rolling", "node-b", timeout=10, code="rolling_node_failed")
+    finally:
+        stop.set()
+        thread.join(5)
+    assert failed.value.details == [{"code": "application_smoke_failed", "component": "node-b"}]
+    assert service.active.name == "node-b-old"
+    assert service.log[-2:] == [("cutover", "node-b-old"), ("start", "node-b-old")]

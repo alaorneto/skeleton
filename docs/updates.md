@@ -109,7 +109,7 @@ Migração de uma instalação antiga (`/opt/skeleton-agent/venv`) e o leiaute d
 
 ## Atualizar um cluster de vários nós
 
-Num cluster (#678–#681), a tela de qualquer nó encaminha a atualização ao agente primário. O primário prepara o release e cada seguidor o recebe e confere antes de qualquer manutenção; depois todos os nós entram juntos na manutenção e param, o primário faz o backup e as migrations, e cada nó troca o release e confere a própria saúde antes de o tráfego reabrir. O passo a passo, o que cada falha deixa e a recuperação estão em [agente em vários nós](deployment.md#agente-em-vários-nós-678).
+Num cluster (#678–#681), a tela de qualquer nó encaminha a atualização ao agente primário. O primário prepara o release e cada seguidor o recebe e confere antes de qualquer manutenção; depois todos os nós entram juntos na manutenção e param, o primário faz o backup e as migrations, e cada nó troca o release e confere a própria saúde antes de o tráfego reabrir. Um patch sem migration, da mesma linha `major.minor` e com as mesmas apps, troca nó a nó sem janela de manutenção (a prévia mostra `rolling`); o resto usa a janela em todos os nós. O passo a passo, o que cada falha deixa e a recuperação estão em [agente em vários nós](deployment.md#agente-em-vários-nós-678).
 
 ## Apps
 

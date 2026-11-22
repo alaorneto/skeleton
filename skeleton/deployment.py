@@ -272,14 +272,14 @@ def release_response(request, confirmation=None):
         return HttpResponseNotAllowed(["GET", "HEAD"])
     inventory = settings.SKELETON_DEPLOYMENT_STATE
     actual, confirmed = confirmation if confirmation is not None else confirm_core(inventory)
-    response = JsonResponse(
-        {
-            "status": "ok" if confirmed else "release_mismatch",
-            "generation": inventory.generation,
-            "core": {"version": actual["version"], "origin": actual["origin"], "digest": inventory.core.get("digest")},
-        },
-        status=200 if confirmed else 503,
-    )
+    body = {
+        "status": "ok" if confirmed else "release_mismatch",
+        "generation": inventory.generation,
+        "core": {"version": actual["version"], "origin": actual["origin"], "digest": inventory.core.get("digest")},
+    }
+    if getattr(settings, "SKELETON_NODE_ID", ""):
+        body["node_id"] = settings.SKELETON_NODE_ID  # Which node answered, in a cluster (#681).
+    response = JsonResponse(body, status=200 if confirmed else 503)
     response["Cache-Control"] = "no-store"
     if request.method == "HEAD":
         response.content = b""

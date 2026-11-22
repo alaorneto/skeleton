@@ -1,6 +1,7 @@
 """Preview of an operation: quick checks, then the release prepared in a thread (#298, #317)."""
 
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
@@ -244,6 +245,7 @@ def prepare(service: "DeploymentService", plan_id: str) -> Plan | None:
                 "backend": service.config["backend"],
             }
             plan["presentation_changes"] = presentation_diff(inventory, target)
+            plan["rollout_mode"], plan["rollout_reason"] = rollout_eligibility(plan, inventory, target)
             plan["dropped_dependencies"] = dropped_dependencies(source, release)
             plan["resources"] = [
                 {
@@ -296,6 +298,31 @@ def prepare(service: "DeploymentService", plan_id: str) -> Plan | None:
                 remove_release(release)
             preparation_failed(service, plan_id, request_record, error)
             return None
+
+
+def rollout_eligibility(plan: Mapping[str, Any], before: JSON, after: JSON) -> tuple[str, str | None]:
+    """``("rolling", None)`` when old and new release can serve the same database at once (#682).
+
+    Only a patch of the same ``major.minor`` line, without any migration and without an app added
+    or removed: then a cluster switches node by node with no maintenance window. Anything else
+    keeps the window, with the reason shown in the preview.
+    """
+    from packaging.version import Version
+
+    if plan["migrations"]:
+        return "window", "migrations_present"
+    old, new = Version(before["core"]["version"]), Version(after["core"]["version"])
+    if (old.major, old.minor) != (new.major, new.minor):
+        return "window", "minor_change"
+
+    def apps(inventory: JSON) -> set[str]:
+        return {
+            entry["manifest"]["app_id"] for entry in inventory.get("apps", []) if entry["state"] != "schema_retained"
+        }
+
+    if apps(before) != apps(after):
+        return "window", "app_set_changed"
+    return "rolling", None
 
 
 def dropped_dependencies(active: Path, release: Path) -> list[str]:

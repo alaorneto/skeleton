@@ -96,6 +96,11 @@ def _valid_source(source: JSON, values: JSON) -> bool:
 
 def _validate_optional(values: JSON) -> None:
     """Shape of the optional keys at load time (#246); existence on disk is the preflight's job."""
+    if "drain_marker" in values and not _absolute(values["drain_marker"]):
+        raise AgentError("invalid_drain_marker")  # The rolling update's marker (#682).
+    grace = values.get("drain_grace", 20)
+    if isinstance(grace, bool) or not isinstance(grace, int | float) or not 0 <= grace <= 600:
+        raise AgentError("invalid_drain_grace")
     paths = values.get("recovery_paths")
     if paths is not None and (not isinstance(paths, list) or not all(_absolute(path) for path in paths)):
         raise AgentError("invalid_recovery_path")

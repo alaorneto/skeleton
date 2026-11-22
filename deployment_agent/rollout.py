@@ -50,7 +50,16 @@ DRAIN_TIMEOUT_S = 600.0
 CUTOVER_TIMEOUT_S = 900.0
 RESUME_TIMEOUT_S = 120.0
 POLL_S = 2.0
-ACKS = {"prepare": "prepared", "drain": "drained", "cutover": "healthy", "resume": "resumed", "abort": "aborted"}
+ACKS = {
+    "prepare": "prepared",
+    "drain": "drained",
+    "cutover": "healthy",
+    "resume": "resumed",
+    "abort": "aborted",
+    "rolling": "switched",
+    "restart": "restarted",
+}
+DRAIN_GRACE_S = 20.0
 
 
 # --------------------------------------------------------------------------- the primary
@@ -73,7 +82,9 @@ class Rollout:
         self.nodes = nodes
 
     @classmethod
-    def begin(cls, service: DeploymentService, operation: JSON, record: JSON) -> Rollout | None:
+    def begin(
+        cls, service: DeploymentService, operation: JSON, record: JSON, *, mode: str = "window"
+    ) -> Rollout | None:
         coordinator = getattr(service, "coordinator", None)
         if coordinator is None:
             return None
@@ -86,11 +97,12 @@ class Rollout:
         plan = record["plan"]
         coordinator._lock_conn.execute(
             "INSERT INTO skeleton_deploy.rollout (operation_id, epoch, mode, phase, release, release_digest,"
-            " base_generation, target_generation, nodes) VALUES (%s, %s, 'window', 'prepare', %s, %s, %s, %s, %s)"
+            " base_generation, target_generation, nodes) VALUES (%s, %s, %s, 'prepare', %s, %s, %s, %s, %s)"
             " ON CONFLICT (operation_id) DO UPDATE SET epoch = excluded.epoch, nodes = excluded.nodes",
             (
                 operation["id"],
                 coordinator.epoch,
+                mode,
                 Path(plan["release"]).name,
                 plan["release_digest"],
                 plan["generation"],
@@ -120,6 +132,25 @@ class Rollout:
             " WHERE operation_id = %s",
             (phase, self.coordinator.epoch, self.operation_id),
         )
+
+    def wait_node(self, phase: str, node: str, *, timeout: float, code: str, sleep: Any = time.sleep) -> None:
+        """One node's turn of a rolling phase: it alone acts while ``current_node`` names it."""
+        self.coordinator.assert_primary()
+        self.coordinator._lock_conn.execute(
+            "UPDATE skeleton_deploy.rollout SET phase = %s, current_node = %s, epoch = %s, phase_started_at = now()"
+            " WHERE operation_id = %s",
+            (phase, node, self.coordinator.epoch, self.operation_id),
+        )
+        expected, deadline = ACKS[phase], time.monotonic() + timeout
+        while True:
+            answer = self.answers().get(node, "")
+            if answer == expected:
+                return
+            if answer.startswith("failed:"):
+                raise AgentError(code, 409, [{"code": answer.removeprefix("failed:"), "component": node}])
+            if time.monotonic() >= deadline:
+                raise AgentError(code, 409, [{"code": "node_timeout", "component": node}])
+            sleep(POLL_S)
 
     def answers(self) -> dict[str, str]:
         rows = self.coordinator._execute(
@@ -153,8 +184,8 @@ class Rollout:
             sleep(POLL_S)
 
 
-def begin(service: DeploymentService, operation: JSON, record: JSON) -> Rollout | None:
-    rollout = Rollout.begin(service, operation, record)
+def begin(service: DeploymentService, operation: JSON, record: JSON, *, mode: str = "window") -> Rollout | None:
+    rollout = Rollout.begin(service, operation, record, mode=mode)
     service.rollout = rollout
     return rollout
 
@@ -166,6 +197,64 @@ def current(service: DeploymentService, operation: JSON) -> Rollout | None:
     rollout = Rollout.load(service, operation["id"])
     service.rollout = rollout
     return rollout
+
+
+# --------------------------------------------------------------------------- node by node
+
+
+def roll_local(service: Any, previous: Path, release: Path, operation_id: str, inventory: JSON | None = None) -> None:
+    """Take this node out of the balancer, stop, switch (when the release changes), start, check (#682).
+
+    On any failure the node goes back to ``previous`` and the error propagates.
+    """
+    from .execution import health
+
+    marker_path = service.config.get("drain_marker")
+    marker = Path(marker_path) if marker_path else None
+    backend = service.backend
+    try:
+        if marker is not None:
+            atomic_json(marker, {"operation": operation_id}, 0o644)
+            time.sleep(float(service.config.get("drain_grace", DRAIN_GRACE_S)))
+        backend.drain(previous, operation_id)
+        if release != previous:
+            backend.cutover(release)
+        backend.start(release, operation_id)
+        health(service, inventory or load_json(release / "inventory.json"))
+    except Exception:
+        if release != previous:
+            backend.cutover(previous)
+        backend.start(previous, operation_id)
+        raise
+    finally:
+        if marker is not None:
+            marker.unlink(missing_ok=True)
+
+
+def restart_cluster(service: Any, *, operation_id: str | None = None) -> JSON:
+    """``cluster restart`` (#682): the same release, node by node, to apply a new configuration."""
+    coordinator = _coordinator(service)
+    coordinator.assert_primary()
+    service.ensure_available()
+    state = service.state()
+    release = Path(state["release"])
+    operation_id = operation_id or f"restart-{uuid4().hex}"
+    record = {
+        "plan": {
+            "release": str(release),
+            "release_digest": digest(state["owned_files"]),
+            "generation": state["inventory"]["generation"],
+        },
+        "inventory": state["inventory"],
+    }
+    run = Rollout.begin(service, {"id": operation_id}, record, mode="rolling")
+    if run is None:
+        raise AgentError("cluster_not_configured")
+    roll_local(service, release, release, operation_id, state["inventory"])
+    for node in run.nodes:
+        run.wait_node("restart", node, timeout=CUTOVER_TIMEOUT_S, code="rolling_node_failed")
+    run.phase("done")
+    return {"state": "restarted", "operation_id": operation_id, "nodes": [coordinator.settings.node_id, *run.nodes]}
 
 
 # --------------------------------------------------------------------------- release transfer
@@ -277,7 +366,22 @@ class Follower:
         self.service._write_active(release, inventory, owned)
 
     def _run(self, row: tuple[Any, ...]) -> None:
-        operation_id, epoch, phase, name, release_digest = row
+        operation_id, epoch, phase, name, release_digest, current_node = row
+        if phase in ("rolling", "restart"):
+            # One node at a time (#682): act only on this node's turn, once per operation.
+            if current_node != self.coordinator.settings.node_id or (operation_id, phase) in self.done:
+                return
+            active, _ = self._active()
+            if active is None:
+                raise AgentError("active_release_missing", 409)
+            target = Path(self.service.config["releases_root"]) / name if phase == "rolling" else active
+            roll_local(self.service, active, target, operation_id)
+            if target != active:
+                self.service._write_active(
+                    target, load_json(target / "inventory.json"), load_json(target / "owned-files.json")
+                )
+            self._answer(operation_id, phase, int(epoch), ACKS[phase])
+            return
         if (operation_id, phase) in self.done or phase == "done":
             return
         marker = Path(self.service.config["maintenance_marker"])
@@ -332,7 +436,7 @@ class Follower:
         if primary is None or self.coordinator.is_primary:
             return
         row = self.coordinator._execute(
-            "SELECT operation_id, epoch, phase, release, release_digest FROM skeleton_deploy.rollout"
+            "SELECT operation_id, epoch, phase, release, release_digest, current_node FROM skeleton_deploy.rollout"
             " WHERE epoch = %s ORDER BY started_at DESC LIMIT 1",
             (primary["epoch"],),
         ).fetchone()

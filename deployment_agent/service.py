@@ -83,6 +83,26 @@ class DeploymentService:
             return
         coordinator.publish_release(state["release"], state["inventory"]["generation"], digest(state["owned_files"]))
 
+    def cluster_restart(self) -> JSON:
+        """Restart every node with the same release, one at a time, in the background (#682)."""
+        from . import rollout
+
+        coordinator = getattr(self, "coordinator", None)
+        if coordinator is None:
+            raise AgentError("cluster_not_configured")
+        coordinator.assert_primary()
+        self.ensure_available()
+        operation_id = f"restart-{uuid4().hex}"
+        self.worker = threading.Thread(
+            target=rollout.restart_cluster,
+            args=(self,),
+            kwargs={"operation_id": operation_id},
+            daemon=False,
+            name=f"deployment-{operation_id}",
+        )
+        self.worker.start()
+        return {"state": "started", "operation_id": operation_id}
+
     def describe_node(self) -> JSON:
         """The active release of this node, for the heartbeat."""
         try:
@@ -251,10 +271,17 @@ class DeploymentService:
         return planning.prepare(self, plan_id)
 
     def submit(
-        self, plan_id: str, plan_digest: str, generation: int, operation_id: str, actor_id: str, request_id: str
+        self,
+        plan_id: str,
+        plan_digest: str,
+        generation: int,
+        operation_id: str,
+        actor_id: str,
+        request_id: str,
+        mode: str | None = None,
     ) -> JSON:
         operation, created = execution.queue_operation(
-            self, plan_id, plan_digest, generation, operation_id, actor_id, request_id
+            self, plan_id, plan_digest, generation, operation_id, actor_id, request_id, mode=mode
         )
         if not created:
             return self.public_operation(operation)

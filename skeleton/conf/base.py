@@ -444,6 +444,11 @@ SKELETON_RETAINED_SCHEMA_PATHS = SKELETON_DEPLOYMENT_STATE.retained_schema_paths
 SKELETON_MIGRATION_ARCHIVES = SKELETON_DEPLOYMENT_STATE.migration_archives
 SKELETON_FROZEN_INFRASTRUCTURE = SKELETON_DEPLOYMENT_STATE.frozen_infrastructure
 SKELETON_MAINTENANCE_MARKER = env("SKELETON_MAINTENANCE_MARKER", default=None)
+# Written by the agent before it stops this node in a rolling update (#682): /health/ready/ answers
+# 503 "draining" so the balancer takes the node out while it still serves the requests in flight.
+SKELETON_DRAIN_MARKER = env("SKELETON_DRAIN_MARKER", default=None)
+# The node's name in a cluster of agents (#681), reported by /health/release/.
+SKELETON_NODE_ID = env("SKELETON_NODE_ID", default="")
 SKELETON_DEPLOYMENT_SMOKE_TOKEN_FILE = env("SKELETON_DEPLOYMENT_SMOKE_TOKEN_FILE", default=None)
 SKELETON_DEPLOYMENT_SMOKE_PATHS = tuple(env.list("SKELETON_DEPLOYMENT_SMOKE_PATHS", default=[]))
 if any(not path.startswith("/") or "?" in path or "#" in path for path in SKELETON_DEPLOYMENT_SMOKE_PATHS):
