@@ -18,11 +18,15 @@ O nome do produto, o rodapé, o logo, o logo para o modo escuro, o ícone e o te
 
 A página inicial pública (`/platform/appearance/home/`, [#622](appearance.md#página-inicial-pública)) é conteúdo escrito pelo administrador da plataforma para ser público: quem abre a raiz da plataforma sem login a vê enquanto ela estiver publicada. São só os blocos de texto que ele escreveu (títulos, parágrafos, contato e links); a página não lê nada de organização nem de pessoa, e o evento de segurança da alteração não leva o conteúdo. Um e-mail ou telefone de contato posto num bloco fica público por decisão de quem o escreveu.
 
+## Cookie do tema
+
+`sk_color_scheme` é um cookie funcional ([#666](https://github.com/alaorneto/skeleton/issues/666)): guarda só `light` ou `dark`, a escolha de tema da pessoa, para as telas antes do login e depois do logout no mesmo navegador. Não carrega identificador, não é lido por terceiros (`HttpOnly`, `SameSite=Lax`, `Secure` como o de sessão) e vale um ano, no mesmo domínio do cookie de sessão. "Seguir o sistema" o apaga; o logout o mantém. A fonte de verdade é o perfil ([modo escuro](ui-design.md#modo-escuro)).
+
 ## Exportação dos próprios dados
 
 Em `/profile/privacy/`, a pessoa baixa um ZIP com `dados.json` ([#190](https://github.com/alaorneto/skeleton/issues/190)). O arquivo traz:
 
-- a identidade (email, nomes, criação, último login) e o perfil (nome de exibição, idioma, fuso);
+- a identidade (email, nomes, criação, último login) e o perfil (nome de exibição, idioma, fuso, tema);
 - os metadados dos tokens de API: prefixo, nome, escopos, validade e revogação, nunca o digest;
 - em cada organização em que a pessoa tem vínculo ativo, o vínculo, as notificações recebidas (tipo, datas, alvo e snapshot), os metadados dos anexos que ela enviou e os formulários de fluxo que ela enviou (`flow_submissions`: fluxo, instância, etapa, data e valores, inclusive os sensíveis, que são dela; [#422](https://github.com/alaorneto/skeleton/issues/422)).
 
@@ -40,7 +44,7 @@ Um administrador da plataforma decide em `/platform/privacy/`, por POST com CSRF
 
 - email `anon-<sysid>@erased.invalid`, nomes vazios, `is_active=False`, senha inutilizável e senha local desligada;
 - `auth_version` incrementado, então toda sessão aberta termina na próxima requisição;
-- perfil de volta ao padrão (nome de exibição, idioma e fuso vazios);
+- perfil de volta ao padrão (nome de exibição, idioma, fuso e tema vazios);
 - emails, contas sociais e autenticadores MFA da allauth apagados;
 - tokens de API revogados e excluídos, preferências de notificação e inscrições de push excluídas.
 

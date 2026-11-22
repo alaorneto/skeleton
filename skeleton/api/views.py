@@ -126,6 +126,8 @@ def request_fields(request):
     return dict(request.data.items())
 
 
+# "" follows the operating system (#666).
+COLOR_SCHEMES = ["", "light", "dark"]
 ME_SCHEMA = obj(
     {
         "sysid": UUID,
@@ -140,12 +142,17 @@ ME_SCHEMA = obj(
                 "display_name": string(),
                 "timezone": string(),
                 "language": string(),
+                "color_scheme": string(enum=COLOR_SCHEMES),
             }
         ),
     }
 )
 ME_INPUT = obj(
-    {name: string() for name in ("first_name", "last_name", "display_name", "timezone", "language")}, required=()
+    {
+        **{name: string() for name in ("first_name", "last_name", "display_name", "timezone", "language")},
+        "color_scheme": string(enum=COLOR_SCHEMES),
+    },
+    required=(),
 )
 OWN_MEMBERSHIP = obj({"sysid": UUID, "organization_id": UUID, "is_active": BOOLEAN, "revision": INTEGER})
 ORGANIZATION = obj(
@@ -196,6 +203,7 @@ def me_data(me):
             "display_name": me.profile_display_name,
             "timezone": me.timezone,
             "language": me.language,
+            "color_scheme": me.color_scheme,
         },
     }
 

@@ -4,6 +4,24 @@ Registro do que rodou em cada rodada, com os comandos da época. As rodadas ante
 
 As rodadas anteriores à primeira release publicada (`v0.1.0`, #569) citam números de versão do desenvolvimento ("core/agente 0.3.0", "0.4.0", "0.5.0"), que nunca foram publicados e não correspondem às releases de mesmo número: são marcos internos daquela época, conservados como foram registrados. As versões publicadas e o que cada uma trouxe estão no [CHANGELOG](../CHANGELOG.md).
 
+## Tema claro, escuro ou do sistema (epic #667: #665, #666)
+
+Rodada de 2026-11-22 na branch `feat/665-renderizar-o-modo-claro-ou-escuro`, a partir da `main` em `v0.3.0`. Windows 11, Python do `.venv`, PostgreSQL de `tools/dev_postgres.py` com a role runtime, `SKELETON_ENABLE_EXAMPLE_APP=true`.
+
+- **#665:** `force_color_scheme` troca só `(prefers-color-scheme: …)` dos prelúdios de `@media` (simples, em `@supports`/`@layer`, `screen and`, `not`, listas, maiúsculas), deixa comentários, strings, `@supports (prefers-color-scheme…)`, a forma booleana e `@d edia` intactos e a saída passa em `css_problem` (tema `caderno` e tokens gerados); cookie `light`/`dark` vira `data-color-scheme` e `<meta name="color-scheme">`, lixo e ausência ficam no sistema; `/brand/theme.css?…&scheme=` reescrito com `immutable`, `ETag` com sufixo, `scheme=sepia` 400 e `v` divergente com cache curto; logo `<img>` da variante no modo forçado e `<picture>` no sistema; `<style nonce>` da organização forçado; `Vary: Cookie`.
+- **#666:** `/profile/` salva o tema com auditoria (`color_scheme` no `changes`) e grava o cookie; o seletor `POST /me/appearance/` volta pelo `Referer` do mesmo host (outro host, `//`, `javascript:` e ausência caem em `/profile/`), nunca leva o caminho no formulário, apaga o cookie no modo sistema e recusa revisão velha (nada muda), valor inválido, campo extra (inclusive `next`), sem revisão, sem CSRF (403), anônimo e GET (405); login traz o cookie do perfil, logout o mantém, o perfil vence um cookie antigo; API `me` lê e altera com If-Match (inválido 400, sem If-Match 428) e não grava cookie; `IdentityService.update_my_preferences(color_scheme=…)` com CAS, valores inválidos e ator divergente; exportação e anonimização; cookie `HttpOnly`, `SameSite=Lax`, `Secure`, um ano, `Domain=.<base>` no host de organização e host-only em domínio próprio.
+- **Ajustes de testes existentes:** os que contavam um token CSRF por página contam dentro do `<main>` (o menu tem o formulário do tema); snapshot do SQL de infraestrutura atualizado só para `sk_accounts.userprofile`; resposta de exemplo do contrato OpenAPI com `color_scheme`.
+- **Smoke no navegador:** `runserver` sobre um banco migrado, `bootstrap_skeleton` e o pacote `caderno` ativo. SO claro + Escuro pelo menu: `data-color-scheme="dark"`, `--color-canvas` escuro, `--caderno-accent: #fbbf24` (o `@media` do tema reescrito) e `--color-fg-brand` da variante escura, `theme.css?…&scheme=dark`. SO escuro + Claro: tudo claro, `--caderno-accent: #f59e0b`. Sistema com SO escuro: sem atributo, escuro. Escuro salvo em `/profile/` ("Perfil atualizado."), logout: a tela de login segue escura com SO claro e o cookie não aparece em `document.cookie`. A 375 px no modo escuro, o grupo Tema aparece no menu recolhível (três botões de 108 × 52 px), sem rolagem horizontal; nenhum erro no console.
+
+| Execução observada | Resultado |
+|---|---|
+| `python -m pytest tests/unit/test_color_scheme_css.py tests/unit/test_color_scheme_cookie.py` | 18 passed, 24 subtests passed |
+| `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests/unit/test_openapi_contract_helper.py tests/unit/test_record_infrastructure_sql.py tests/integration/test_organization_site_shell.py tests/integration/test_record_presentation.py tests/integration/test_color_scheme.py tests/integration/test_navigation_shell.py tests/integration/test_http_boundaries.py` | 87 passed, 47 subtests passed |
+| `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest -n 12 -p skeleton.testing.database` | 3910 passed, 170 skipped (POSIX e fixtures externas), 1001 subtests passed |
+| `python manage.py check`; `python manage.py makemigrations --check --dry-run sk_accounts` | sem problemas; nenhuma mudança |
+| `cd frontend && npm ci --ignore-scripts && npm run build && npm run check` | "Assets atualizados (Tailwind 4.3.5, Flowbite 4.0.2, Inter 5.3.0)." |
+| `ruff check` e `ruff format --check` (0.17.4) nos arquivos alterados | sem problemas |
+
 ## Busca global nas tabelas pesquisáveis (epic #585: #581, #582, #583, #584)
 
 Rodada de 2026-11-20/21 na branch `feat/585-global-search`, a partir da `main` com #580. Windows 11, Python 3.13 do `.venv` com `requirements-dev.txt`, PostgreSQL 16 de `tools/dev_postgres.py`, assertions como `skeleton_runtime`. Somente o que rodou.

@@ -87,9 +87,9 @@ def update_profile(
     user_revision: int | None = None,
     profile_revision: int | None = None,
 ) -> tuple[User, UserProfile]:
-    from skeleton.accounts.models import User, UserProfile
+    from skeleton.accounts.models import ColorScheme, User, UserProfile
 
-    allowed = {"first_name", "last_name", "display_name", "timezone", "language"}
+    allowed = {"first_name", "last_name", "display_name", "timezone", "language", "color_scheme"}
     if set(data) - allowed:
         raise ValidationError(gettext("Campos de perfil não permitidos."))
     for name in ("first_name", "last_name", "display_name"):
@@ -106,6 +106,10 @@ def update_profile(
         or (data["language"] != "" and data["language"] not in dict(settings.LANGUAGES))
     ):
         raise ValidationError({"language": gettext("Idioma não suportado.")})
+    if "color_scheme" in data and (
+        not isinstance(data["color_scheme"], str) or data["color_scheme"] not in ColorScheme.values
+    ):
+        raise ValidationError({"color_scheme": gettext("Tema não suportado.")})
     with transaction.atomic():
         locked = User.objects.select_for_update().get(pk=user.pk)
         profile = UserProfile.objects.select_for_update().get(user=locked)

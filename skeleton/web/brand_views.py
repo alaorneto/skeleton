@@ -5,7 +5,9 @@ host: no login, GET/HEAD only, no parameter that picks a file. The stylesheet is
 ``text/css`` with ``nosniff`` from the same host (``style-src 'self'`` already allows it), never
 embedded in HTML, so the CSP does not change. ``?safe=1`` serves only the generated tokens,
 without the free CSS: the appearance pages use it, so a theme that hides the interface never
-locks the administrator out. The images come from the three keys of the single brand row or,
+locks the administrator out. ``&scheme=light|dark`` serves the same stylesheet with its
+``prefers-color-scheme`` media features fixed to the person's choice (#665): one URL per scheme, so
+the public cache stays per URL, never per person. The images come from the three keys of the single brand row or,
 when the administrator did not upload one, from the active theme package (#636), whose fonts
 are served by ``/brand/fonts/<file>`` only when the file is a font of the active theme. An SVG
 logo goes out with ``image/svg+xml``, ``nosniff`` and a ``sandbox`` CSP.
@@ -15,7 +17,7 @@ from __future__ import annotations
 
 import re
 
-from django.http import Http404, HttpResponse, HttpResponseNotModified
+from django.http import Http404, HttpResponse, HttpResponseBadRequest, HttpResponseNotModified
 from django.views.decorators.http import require_safe
 
 from skeleton.web.organization_settings_views import public_site_image
@@ -37,8 +39,19 @@ FONT_NAME = re.compile(r"[a-z0-9][a-z0-9._-]*\.woff2")
 
 
 def stylesheet_response(request, css: str, version: str, *, cache_control: str | None = None) -> HttpResponse:
-    """A theme stylesheet with ETag, ``nosniff`` and the cache policy of its version."""
-    etag = f'"{version or "core"}"'
+    """A theme stylesheet with ETag, ``nosniff`` and the cache policy of its version.
+
+    ``?scheme=light|dark`` fixes the ``prefers-color-scheme`` media features to that scheme (#665);
+    any other value is a 400, so the cache never holds more than three forms of one version.
+    """
+    from skeleton.appearance.color_scheme import SCHEMES, force_color_scheme
+
+    scheme = request.GET.get("scheme")
+    if scheme is not None:
+        if scheme not in SCHEMES:
+            return HttpResponseBadRequest("scheme", content_type="text/plain; charset=utf-8")
+        css = force_color_scheme(css, scheme)
+    etag = f'"{version or "core"}{"-" + scheme if scheme else ""}"'
     if cache_control is None:
         cache_control = IMMUTABLE if version and request.GET.get("v") == version else SHORT
     if etag in [item.strip() for item in request.headers.get("If-None-Match", "").split(",")]:

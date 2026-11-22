@@ -28,6 +28,12 @@ def http_identity():
     return client, user, organization
 
 
+def main(response):
+    """The page content without the shell (the user menu has its own form: the colour scheme, #666)."""
+    content = response.content
+    return content[content.index(b"<main") : content.index(b"</main>")]
+
+
 def send(client, method, url, data=None, revision=None, csrf=True):
     headers = {}
     if csrf:
@@ -210,7 +216,7 @@ def test_html_create_edit_revision_and_escaping(http_identity):
         page = client.get(reverse(route, kwargs=record_kwargs))
         assert page.status_code == 200
         assert page.context["cancel_url"] == detail_url
-        assert page.content.count(b'name="csrfmiddlewaretoken"') == 1
+        assert main(page).count(b'name="csrfmiddlewaretoken"') == 1
         assert page.content.count(b'name="revision"') == 1
         assert client.get(page.context["cancel_url"]).status_code == 200
     assert snapshot() == before
@@ -249,7 +255,7 @@ def test_html_create_edit_revision_and_escaping(http_identity):
     assert page.status_code == 200
     assert page.context["cancel_url"] == reverse("web:deleted-records", kwargs=kwargs)
     assert set(page.context["form"].fields) == {"revision"}
-    assert page.content.count(b'name="csrfmiddlewaretoken"') == 1
+    assert main(page).count(b'name="csrfmiddlewaretoken"') == 1
     assert page.content.count(b'name="revision"') == 1
     from examples.notes.models import Note
     from skeleton.audit.models import AuditEvent
@@ -345,7 +351,7 @@ def test_html_delete_and_edit_without_read_cancel_to_records(http_identity):
         page = client.get(reverse(route, kwargs=kwargs))
         assert page.status_code == 200
         assert page.context["cancel_url"] == records
-        assert page.content.count(b'name="csrfmiddlewaretoken"') == 1
+        assert main(page).count(b'name="csrfmiddlewaretoken"') == 1
         assert page.content.count(b'name="revision"') == 1
         if route == "web:record-delete":
             assert set(page.context["form"].fields) == {"revision"}

@@ -71,7 +71,9 @@ def test_profile_lives_in_account_area():
     html = response.content.decode()
     for name in ("web:profile", "account_email", "account_change_password", "mfa_index"):
         assert f'href="{reverse(name)}"' in html
-    assert html.count('name="csrfmiddlewaretoken"') == 1
+    # One form in the page; the user menu has the colour scheme switch, a form of its own (#666).
+    assert html[html.index("<main") : html.index("</main>")].count('name="csrfmiddlewaretoken"') == 1
+    assert html.count(f'action="{reverse("web:color-scheme")}"') == 1
 
 
 def test_access_lists_show_one_column_per_field_without_uuid_or_revision_columns():

@@ -84,6 +84,8 @@ MIDDLEWARE = [
     "allauth.account.middleware.AccountMiddleware",
     # After the tenant context: reads the organization defaults under RLS (#170).
     "skeleton.common.locale.LocaleMiddleware",
+    # Light, dark or the system's: request.color_scheme and the mirror cookie (#665, #666).
+    "skeleton.web.color_scheme.ColorSchemeMiddleware",
 ]
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"

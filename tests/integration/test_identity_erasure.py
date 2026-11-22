@@ -10,8 +10,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 from skeleton.accounts.erasure import anonymous_email, decide_erasure, request_erasure
-from skeleton.accounts.models import ErasureRequest, User
-from skeleton.accounts.services import bootstrap_identity, create_service_account
+from skeleton.accounts.models import ErasureRequest, User, UserProfile
+from skeleton.accounts.services import bootstrap_identity, create_service_account, update_profile
 from skeleton.notifications.registry import NotificationType, register_notification_type
 from skeleton.notifications.services import Recipients, notify
 from skeleton.tenancy.context import request_context, system_context
@@ -121,6 +121,7 @@ def test_the_approval_anonymizes_the_identity_and_forgets_its_rows(scenario, pla
     with scenario.acting(scenario.member, scenario.a) as member:
         note = scenario.model(organization=scenario.a, code="FICA-1", title="Fica", owner=member)
         note.save()
+        update_profile(member, data={"color_scheme": "dark"})  # Reset with the other preferences (#666).
     session = login(scenario.member)
     assert ask(session).status_code == 302
     record = ErasureRequest.objects.get(user=scenario.member)
@@ -143,6 +144,7 @@ def test_the_approval_anonymizes_the_identity_and_forgets_its_rows(scenario, pla
     person = User.all_objects.get(pk=scenario.member.pk)
     assert person.email == anonymous_email(person.pk)
     assert (person.first_name, person.last_name, person.is_active) == ("", "", False)
+    assert UserProfile.all_objects.get(user_id=person.pk).color_scheme == ""
     assert not person.has_usable_password() and not person.local_password_allowed
     assert not EmailAddress.objects.filter(user_id=person.pk).exists()
     assert not SocialAccount.objects.filter(user_id=person.pk).exists()

@@ -3,8 +3,22 @@
  * mapeamento semântico do Flowbite 4 e valores do modo escuro.
  * Documentação: docs/ui-design.md.
  */
-/* Modo escuro: segue o sistema (prefers-color-scheme), sem script nem flash. */
-@custom-variant dark (@media (prefers-color-scheme: dark));
+/*
+ * Modo escuro, sem script nem flash: o servidor põe data-color-scheme="light|dark" no <html>
+ * quando a pessoa escolheu um modo; sem o atributo, segue o sistema (prefers-color-scheme).
+ * Nunca a classe "dark": ela ligaria o bloco .dark do Flowbite. :where() mantém a especificidade
+ * de :root, para o tema e a marca continuarem vencendo pela ordem (#665).
+ */
+@custom-variant dark {
+  &:where([data-color-scheme="dark"], [data-color-scheme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:not([data-color-scheme="light"], [data-color-scheme="light"] *)) {
+      @slot;
+    }
+  }
+}
 
 @font-face {
   font-family: "Inter Variable";

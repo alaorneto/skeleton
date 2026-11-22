@@ -41,8 +41,17 @@ from skeleton.service_api import errors as service_errors
 from skeleton.service_api.dto import MAX_OFFSET
 from skeleton.system.registry import get_spec
 from skeleton.tenancy.context import current_context
+from skeleton.web.color_scheme import store_cookie
 from skeleton.web.errors import error_response
-from skeleton.web.forms import ProfileForm, dedicated_form, dedicated_label, explicit_form, record_form, wire_values
+from skeleton.web.forms import (
+    ColorSchemeForm,
+    ProfileForm,
+    dedicated_form,
+    dedicated_label,
+    explicit_form,
+    record_form,
+    wire_values,
+)
 from skeleton.web.people import people_labels
 from skeleton.web.presentation import (
     audit_rows,
@@ -387,6 +396,7 @@ def profile(request):
         "display_name": me.profile_display_name,
         "timezone": me.timezone,
         "language": me.language,
+        "color_scheme": me.color_scheme,
         "user_revision": me.user_revision,
         "profile_revision": me.revision,
     }
@@ -401,19 +411,62 @@ def profile(request):
             user_revision = values.pop("user_revision")
             profile_revision = values.pop("profile_revision")
             try:
-                IdentityService().update_my_profile(
+                saved = IdentityService().update_my_profile(
                     actor=request.user,
                     expected_user_revision=user_revision,
                     expected_revision=profile_revision,
                     changes=tuple(values.items()),
                 )
                 messages.success(request, gettext("Perfil atualizado."))
-                return redirect("web:profile")
+                response = redirect("web:profile")
+                store_cookie(request, response, saved.color_scheme)  # The mirror of the profile (#666).
+                return response
             except service_errors.ServiceError as exc:
                 status = _service_form_error(form, exc)
         else:
             status = 400
     return render(request, "account/profile.html", {"title": gettext("Perfil"), "form": form}, status=status)
+
+
+@never_cache
+@login_required
+@require_http_methods(["POST"])
+@transaction.atomic
+def color_scheme(request):
+    """``POST /me/appearance/``: the light/dark/system switch of the user menu (#666).
+
+    Saves the profile through the identity service (CAS on the profile revision the page showed),
+    mirrors it in the cookie and goes back to the page in ``Referer`` only when it is this host's;
+    the form never carries the path, so a page does not depend on where it was opened (#483).
+    """
+    from django.http import HttpResponseBadRequest
+    from django.utils.http import url_has_allowed_host_and_scheme
+
+    from skeleton.service_api.identity import IdentityService
+
+    form = ColorSchemeForm(request.POST)
+    if set(request.POST) - (set(form.fields) | {"csrfmiddlewaretoken"}) or not form.is_valid():
+        return HttpResponseBadRequest(gettext("Tema não suportado."), content_type="text/plain; charset=utf-8")
+    target = request.headers.get("Referer", "")
+    if not url_has_allowed_host_and_scheme(
+        target, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        target = reverse("web:profile")
+    response = redirect(target)
+    response.status_code = 303
+    try:
+        saved = IdentityService().update_my_preferences(
+            actor=request.user,
+            expected_revision=form.cleaned_data["expected_revision"],
+            color_scheme=form.cleaned_data["color_scheme"],
+        )
+    except service_errors.Conflict:
+        messages.error(request, gettext("Sua preferência mudou em outra aba ou dispositivo. Confira e tente de novo."))
+        return response
+    except service_errors.InvalidInput:
+        return HttpResponseBadRequest(gettext("Tema não suportado."), content_type="text/plain; charset=utf-8")
+    store_cookie(request, response, saved.color_scheme)
+    return response
 
 
 def access_capability(request, kwargs):

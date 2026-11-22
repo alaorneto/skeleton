@@ -24,6 +24,7 @@ def me(**changes):
             "display_name": "Alice",
             "timezone": "UTC",
             "language": "pt-br",
+            "color_scheme": "",
         },
     }
     body.update(changes)
