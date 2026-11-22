@@ -77,6 +77,55 @@ def _env_line(name: str, value: str) -> str:
     return f"{name}={value}\n"
 
 
+def _quoted_line(name: str, value: str) -> str:
+    """A configuration value of any text (a secret key may hold ``$`` or quotes) for read_environment."""
+    import shlex
+
+    if any(char in value for char in "\n\r\x00"):
+        raise AgentError("invalid_bootstrap_value", details={"variable": name})
+    return f"{name}={shlex.quote(value)}\n"
+
+
+def _instance_lines(environ: Mapping[str, str]) -> str:
+    """In cluster mode (#673) the instance configuration is the environment: the agent's profiles get it too."""
+    if (environ.get("SKELETON_INSTANCE_MODE") or "").strip().lower() != "cluster":
+        return ""
+    from skeleton.instance.schema import BY_ENV
+
+    lines = _env_line("SKELETON_INSTANCE_MODE", "cluster")
+    for name in sorted(BY_ENV):
+        if environ.get(name):
+            lines += _quoted_line(name, environ[name])
+    return lines
+
+
+def _cluster_values(environ: Mapping[str, str], private: Path, control: Path) -> tuple[JSON | None, dict[str, str]]:
+    """The ``cluster`` key of agent.json (#678, #680) from the container variables; None on one node."""
+    node_id = environ.get("SKELETON_NODE_ID", "")
+    if not node_id:
+        return None, {}
+    role = environ.get("SKELETON_AGENT_ROLE") or "candidate"
+    directory = Path(environ.get("SKELETON_CLUSTER_DIR", "/run/cluster"))
+    cluster: JSON = {
+        "node_id": node_id,
+        "role": role,
+        "cluster_url": _required(environ, "SKELETON_CLUSTER_URL"),
+        "listen": environ.get("SKELETON_CLUSTER_LISTEN") or "0.0.0.0:9443",  # noqa: S104 - the private channel
+        "preferred": (environ.get("SKELETON_CLUSTER_PREFERRED") or "").lower() in ("1", "true", "yes", "on"),
+        "tls_cert": str(directory / "node.crt"),
+        "tls_key": str(directory / "node.key"),
+        "tls_ca": str(directory / "ca.crt"),
+        "secret_file": str(directory / "secret"),
+    }
+    files = {}
+    if role == "follower":
+        cluster["coordination_env_file"] = str(private / "coordination.env")
+        files["coordination.env"] = _env_line(
+            "COORDINATION_DATABASE_URL", _required(environ, "SKELETON_COORDINATION_DATABASE_URL")
+        )
+    return cluster, files
+
+
 def container_config(environ: Mapping[str, str]) -> tuple[JSON, dict[str, str]]:
     """``(agent.json values, {file name: content})`` of the agent container, from its variables.
 
@@ -103,7 +152,10 @@ def container_config(environ: Mapping[str, str]) -> tuple[JSON, dict[str, str]]:
         if not path.is_absolute():
             raise AgentError("invalid_bootstrap_path")
     runtime_url = _required(environ, "SKELETON_RUNTIME_DATABASE_URL")
-    owner_url = _required(environ, "SKELETON_MIGRATION_DATABASE_URL")
+    follower = bool(environ.get("SKELETON_NODE_ID")) and environ.get("SKELETON_AGENT_ROLE") == "follower"
+    if follower and environ.get("SKELETON_MIGRATION_DATABASE_URL"):
+        raise AgentError("follower_has_owner")  # A follower never migrates (#678).
+    owner_url = "" if follower else _required(environ, "SKELETON_MIGRATION_DATABASE_URL")
     publisher = environ.get("SKELETON_AGENT_PUBLISHER") or OFFICIAL_PUBLISHER
     publisher_key = environ.get("SKELETON_AGENT_PUBLISHER_KEY") or OFFICIAL_PUBLISHER_KEY
     for name, value in (("SKELETON_AGENT_PUBLISHER", publisher), ("SKELETON_AGENT_PUBLISHER_KEY", publisher_key)):
@@ -117,16 +169,21 @@ def container_config(environ: Mapping[str, str]) -> tuple[JSON, dict[str, str]]:
         for name in ("SKELETON_INSTANCE_DB", "SKELETON_INSTANCE_KEY_FILE")
         if environ.get(name)
     )
+    cluster_mode = _instance_lines(environ)
     files = {
         "runtime.env": _env_line("DJANGO_SETTINGS_MODULE", "config.settings.production")
         + _env_line("DATABASE_URL", runtime_url)
         + instance
         + apps
-        + runtime_only,
+        + runtime_only
+        + "".join(line for line in cluster_mode.splitlines(True) if not line.startswith("DATABASE_URL=")),
         "migration.env": _env_line("DJANGO_SETTINGS_MODULE", "config.settings.migrate")
-        + _env_line("MIGRATION_DATABASE_URL", owner_url)
-        + apps,
-        "build.env": _env_line("DJANGO_SETTINGS_MODULE", "config.settings.build") + apps,
+        + (_env_line("MIGRATION_DATABASE_URL", owner_url) if owner_url else "")
+        + apps
+        + (_env_line("SKELETON_INSTANCE_MODE", "cluster") if cluster_mode else ""),
+        "build.env": _env_line("DJANGO_SETTINGS_MODULE", "config.settings.build")
+        + apps
+        + (_env_line("SKELETON_INSTANCE_MODE", "cluster") if cluster_mode else ""),
     }
     agent = [sys.executable, "-m", "deployment_agent", "--config", str(private / "agent.json")]
     project_paths = environ.get("SKELETON_AGENT_PROJECT_PATHS", "manage.py,config,applications,examples").split(",")
@@ -164,6 +221,13 @@ def container_config(environ: Mapping[str, str]) -> tuple[JSON, dict[str, str]]:
     }
     if environ.get("SKELETON_PUBLIC_HOST"):
         values["health_host"] = environ["SKELETON_PUBLIC_HOST"]
+    cluster, cluster_files = _cluster_values(environ, private, control)
+    if cluster is not None:
+        values["cluster"] = cluster
+        files.update(cluster_files)
+        # The rolling update's marker (#682), read by the web through the control volume.
+        values["drain_marker"] = str(control / "drain")
+        values["drain_grace"] = int(environ.get("SKELETON_DRAIN_GRACE") or 20)
     source = environ.get("SKELETON_AGENT_SOURCE") or OFFICIAL_SOURCE  # Compose passes "" when unset.
     if source and source.lower() != "none":  # "none": no catalogue source, only SKELETON_AGENT_RELEASE_FILE.
         values["catalogue_sources"] = [{"id": "official", "github": source, "publisher": publisher}]

@@ -1,7 +1,7 @@
 """Both Compose files run the deployment agent (#654): read as text, without Docker.
 
 The rendered configuration is checked again by the CI (``docker compose config``) and the stack
-itself by the "Stack Compose com o agente" job.
+itself by the "Stack Compose em dois nós" job (#685).
 """
 
 import re
@@ -24,9 +24,12 @@ def test_the_agent_is_the_only_service_with_the_owner_and_nobody_mounts_the_dock
     _, services = compose_blocks(name)
     assert "docker.sock" not in text and "/var/run/docker" not in text
     assert not {"migrate", "migrator"} & set(services)  # The agent migrates (#652).
-    owners = [service for service, block in services.items() if "skeleton_owner:" in block]
+    owners = [service for service, block in services.items() if "MIGRATION_DATABASE_URL" in block]
     assert owners == ["agent"]
-    assert "SKELETON_MIGRATION_DATABASE_URL: postgres://skeleton_owner:" in services["agent"]
+    if name == "compose.sandbox.yaml":
+        assert "SKELETON_MIGRATION_DATABASE_URL: postgres://skeleton_owner:" in services["agent"]
+    else:  # The HA node (#685): the owner URL only on a candidate node, given by the operator.
+        assert "SKELETON_MIGRATION_DATABASE_URL: ${SKELETON_MIGRATION_DATABASE_URL:-}" in services["agent"]
     for service in APPLICATION:
         assert "MIGRATION_DATABASE_URL" not in services[service], service
         assert "OWNER_DB_PASSWORD" not in services[service], service
@@ -42,7 +45,8 @@ def test_the_application_services_run_the_active_release_through_the_launcher(na
         assert "build: ." in services[service]  # The runtime image, which carries the launcher.
     volumes = top["x-app-volumes"]
     assert "  - releases:/releases:ro\n" in volumes and "  - control:/control:ro\n" in volumes
-    assert "  - control_state:/control-state\n" in volumes and "  - files:/files\n" in volumes
+    files = "  - files:/files\n" if name == "compose.sandbox.yaml" else "  - ${SKELETON_FILES_SOURCE:-files}:/files\n"
+    assert "  - control_state:/control-state\n" in volumes and files in volumes
     environment = top["x-app-environment"]
     for line in (
         "  SKELETON_AGENT_SOCKET: /control/agent.sock\n",
@@ -59,7 +63,8 @@ def test_the_agent_writes_releases_and_control_and_only_reads_the_launcher_state
     _, services = compose_blocks(name)
     agent = services["agent"]
     assert re.search(r"\n      target: agent\n", agent)
-    for mount in ("agent_private:/agent/private", "agent_state:/agent/state", "releases:/releases", "control:/control"):
+    state = "agent_state" if name == "compose.sandbox.yaml" else "${SKELETON_AGENT_STATE_SOURCE:-agent_state}"
+    for mount in ("agent_private:/agent/private", f"{state}:/agent/state", "releases:/releases", "control:/control"):
         assert f"      - {mount}\n" in agent, mount
     assert "      - control_state:/control-state:ro\n" in agent
     assert "agent_private" not in "".join(services[service] for service in APPLICATION)
@@ -82,6 +87,33 @@ def test_everything_is_on_in_both_files():
         top, services = compose_blocks(name)
         assert "  <<: *features\n" in top["x-app-environment"]
         assert "      <<: *features\n" in services["agent"]
+
+
+def test_the_production_file_is_an_application_node_of_a_cluster():
+    """#685: no PostgreSQL nor Redis, cluster mode, the launcher waits for the agent."""
+    top, services = compose_blocks("compose.yaml")
+    assert not {"postgres", "redis"} & set(services)
+    assert "  SKELETON_INSTANCE_MODE: cluster\n" in top["x-app-environment"]
+    assert "  SKELETON_DRAIN_MARKER: /control/drain\n" in top["x-app-environment"]
+    assert (
+        "${SKELETON_INSTANCE_ENV_FILE:?" in top["x-instance-env-file"]
+        and "required: true" in top["x-instance-env-file"]
+    )
+    for service in APPLICATION:
+        command = next(line for line in services[service].splitlines() if line.startswith("    command:"))
+        assert '"--wait-for-agent", "--"' in command, service
+        assert "env_file: *instance-env-file" in services[service], service
+    agent = services["agent"]
+    for line in (
+        "SKELETON_COORDINATION_DATABASE_URL: ${SKELETON_COORDINATION_DATABASE_URL:-}",
+        "SKELETON_NODE_ID: ${SKELETON_NODE_ID:?",
+        "SKELETON_CLUSTER_URL: ${SKELETON_CLUSTER_URL:?",
+        "${SKELETON_CLUSTER_DIR:?Define the directory of the channel certificates and secret}:/run/cluster:ro",
+    ):
+        assert line in agent, line
+    sandbox, sandbox_services = compose_blocks("compose.sandbox.yaml")
+    assert {"postgres", "redis"} <= set(sandbox_services)  # The sandbox keeps everything (#685).
+    assert "SKELETON_INSTANCE_MODE" not in sandbox["x-app-environment"]
 
 
 def test_the_images_create_the_volume_mount_points_for_the_service_user():

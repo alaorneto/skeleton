@@ -383,21 +383,20 @@ jobs:
           path: dist/*.whl
 
   compose-stack:
-    name: Stack Compose com o agente
-    # #654: a stack real a partir de um pacote de release de ensaio (chave efêmera, sem rede para
-    # o release): primeira partida pelo agente, setup por comandos e as fronteiras da credencial owner.
+    name: Stack Compose em dois nós
+    # #654, #685: a stack real a partir de um pacote de release de ensaio (chave efêmera, sem rede
+    # para o release): o servidor de dados num projeto, dois nós de app (um candidato e um seguidor)
+    # contra ele, a primeira partida pelo primário, o seguidor entrando pelo canal entre agentes e as
+    # fronteiras da credencial owner.
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 50
     env:
       POSTGRES_PASSWORD: cipostgres
       SKELETON_OWNER_DB_PASSWORD: ciowner
       SKELETON_RUNTIME_DB_PASSWORD: ciruntime
+      SKELETON_AGENT_DB_PASSWORD: ciagent
       REDIS_PASSWORD: ciredis
       KEYCLOAK_ADMIN_PASSWORD: unused
-      SKELETON_AGENT_RELEASE_FILE: /rehearsal/release.skapp
-      SKELETON_AGENT_PUBLISHER: ephemeral
-      SKELETON_AGENT_PUBLISHER_KEY: /rehearsal/publisher.pub.pem
-      SKELETON_AGENT_SOURCE: none
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
@@ -420,78 +419,170 @@ jobs:
           chmod -R a+rX "$RUNNER_TEMP/stack"
           # Só o agente vê o pacote e a chave pública do ensaio.
           printf 'services:\n  agent:\n    volumes:\n      - %s:/rehearsal:ro\n' "$RUNNER_TEMP/stack" > "$RUNNER_TEMP/compose.ci.yaml"
-          # O contexto runner não existe no env do job: os passos seguintes leem COMPOSE_FILE daqui.
-          echo "COMPOSE_FILE=compose.yaml:$RUNNER_TEMP/compose.ci.yaml" >> "$GITHUB_ENV"
-      - name: Primeira partida pelo agente
+      - name: Certificados, segredos e configuração do cluster
         run: |
-          docker compose up -d --build
+          set -eu
+          gateway=$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}')
+          echo "GATEWAY=$gateway" >> "$GITHUB_ENV"
+          tls="$RUNNER_TEMP/tls" && mkdir -p "$tls/data" "$tls/node-a" "$tls/node-b"
+          # O PostgreSQL do servidor de dados exige TLS (#679).
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 2 -subj "/CN=host.docker.internal" \
+            -keyout "$tls/data/server.key" -out "$tls/data/server.crt"
+          chmod 0644 "$tls/data/server.key"
+          # A CA privada do canal entre agentes e um certificado por nó (#680).
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 2 -subj "/CN=ci-cluster-ca" \
+            -keyout "$tls/ca.key" -out "$tls/ca.crt"
+          secret=$(python -c 'import secrets; print(secrets.token_hex(32))')
+          for node in node-a node-b; do
+            openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj "/CN=$node" \
+              -addext "subjectAltName=DNS:host.docker.internal" -keyout "$tls/$node/node.key" -out "$tls/$node/node.csr"
+            openssl x509 -req -in "$tls/$node/node.csr" -CA "$tls/ca.crt" -CAkey "$tls/ca.key" -CAcreateserial -days 2 \
+              -copy_extensions copy -out "$tls/$node/node.crt"
+            cp "$tls/ca.crt" "$tls/$node/ca.crt" && rm "$tls/$node/node.csr"
+            printf '%s\n' "$secret" > "$tls/$node/secret"
+            chmod 0600 "$tls/$node/node.key" "$tls/$node/secret"
+            sudo chown -R 10001:10001 "$tls/$node"
+          done
+          # Os anexos num volume que os dois nós montam (#673, E048).
+          mkdir -p "$RUNNER_TEMP/files" && sudo chown 10001:10001 "$RUNNER_TEMP/files"
+          cat > "$RUNNER_TEMP/data.env" <<EOF
+          DATA_BIND_ADDRESS=$gateway
+          DATA_CLIENT_CIDR=172.16.0.0/12
+          DATA_TLS_DIR=$tls/data
+          POSTGRES_PORT=55432
+          REDIS_PORT=56379
+          POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+          SKELETON_OWNER_DB_PASSWORD=$SKELETON_OWNER_DB_PASSWORD
+          SKELETON_RUNTIME_DB_PASSWORD=$SKELETON_RUNTIME_DB_PASSWORD
+          SKELETON_AGENT_DB_PASSWORD=$SKELETON_AGENT_DB_PASSWORD
+          REDIS_PASSWORD=$REDIS_PASSWORD
+          EOF
+          fernet() { python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'; }
+          db="host.docker.internal:55432/skeleton?sslmode=require"
+          # A configuração da instância, a mesma nos dois nós (modo cluster, #673).
+          cat > "$RUNNER_TEMP/instance.env" <<EOF
+          DJANGO_SECRET_KEY=$(python -c 'import secrets; print(secrets.token_urlsafe(50))')
+          DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
+          DATABASE_URL=postgres://skeleton_runtime:$SKELETON_RUNTIME_DB_PASSWORD@$db
+          CACHE_URL=rediscache://:$REDIS_PASSWORD@host.docker.internal:56379/0
+          SKELETON_CACHE_KEY_PREFIX=ci
+          EMAIL_URL=smtp://localhost:2525
+          DEFAULT_FROM_EMAIL=ci@example.test
+          SKELETON_PUBLIC_URL=http://localhost:8000
+          SKELETON_FILES_SHARED=true
+          MFA_ENCRYPTION_KEYS=$(fernet)
+          IDENTITY_PROVIDER_ENCRYPTION_KEYS=$(fernet)
+          INTEGRATION_ENCRYPTION_KEYS=$(fernet)
+          BILLING_ENCRYPTION_KEYS=$(fernet)
+          EOF
+          common="SKELETON_INSTANCE_ENV_FILE=$RUNNER_TEMP/instance.env
+          SKELETON_RUNTIME_DATABASE_URL=postgres://skeleton_runtime:$SKELETON_RUNTIME_DB_PASSWORD@$db
+          SKELETON_FILES_SOURCE=$RUNNER_TEMP/files
+          SKELETON_CLUSTER_BIND=$gateway
+          SKELETON_AGENT_RELEASE_FILE=/rehearsal/release.skapp
+          SKELETON_AGENT_PUBLISHER=ephemeral
+          SKELETON_AGENT_PUBLISHER_KEY=/rehearsal/publisher.pub.pem
+          SKELETON_AGENT_SOURCE=none
+          KEYCLOAK_ADMIN_PASSWORD=unused"
+          cat > "$RUNNER_TEMP/node-a.env" <<EOF
+          $common
+          SKELETON_NODE_ID=node-a
+          SKELETON_AGENT_ROLE=candidate
+          SKELETON_CLUSTER_PREFERRED=true
+          SKELETON_MIGRATION_DATABASE_URL=postgres://skeleton_owner:$SKELETON_OWNER_DB_PASSWORD@$db
+          SKELETON_CLUSTER_URL=https://host.docker.internal:9443
+          SKELETON_CLUSTER_PORT=9443
+          SKELETON_CLUSTER_DIR=$tls/node-a
+          SKELETON_WEB_PORT=8000
+          EOF
+          cat > "$RUNNER_TEMP/node-b.env" <<EOF
+          $common
+          SKELETON_NODE_ID=node-b
+          SKELETON_AGENT_ROLE=follower
+          SKELETON_COORDINATION_DATABASE_URL=postgres://skeleton_agent:$SKELETON_AGENT_DB_PASSWORD@$db
+          SKELETON_CLUSTER_URL=https://host.docker.internal:9444
+          SKELETON_CLUSTER_PORT=9444
+          SKELETON_CLUSTER_DIR=$tls/node-b
+          SKELETON_WEB_PORT=8001
+          EOF
+          sed -i 's/^ *//' "$RUNNER_TEMP"/*.env
+      - name: Servidor de dados
+        run: docker compose -p ci-data --env-file "$RUNNER_TEMP/data.env" -f deploy/data-server/compose.yaml up -d --build --wait
+      - name: Primeiro nó (candidato), primeira partida pelo agente
+        run: |
+          node() { docker compose -p "$1" --env-file "$RUNNER_TEMP/$1.env" -f compose.yaml -f "$RUNNER_TEMP/compose.ci.yaml" "${@:2}"; }
+          node node-a up -d --build
           healthy() {
             for _ in $(seq 1 240); do
-              [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q "$1")")" = healthy ] && return 0
+              [ "$(docker inspect -f '{{.State.Health.Status}}' "$(node "$1" ps -q "$2")")" = healthy ] && return 0
               sleep 5
             done
-            docker compose logs --no-color "$1" | tail -200
+            node "$1" logs --no-color "$2" | tail -200
             return 1
           }
-          healthy agent
-          healthy web
-          # O web serve o release do agente em modo setup.
-          curl -fsS -H 'Host: localhost' http://127.0.0.1:8000/health/live/
-      - name: Setup por comandos
+          healthy node-a agent
+          healthy node-a web
+          curl -fsS -H 'Host: localhost' http://127.0.0.1:8000/health/ready/
+      - name: Segundo nó (seguidor) entra pelo canal entre agentes
         run: |
-          fernet() { python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'; }
-          docker compose exec -T \
-            -e DJANGO_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(50))')" \
-            -e DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1 \
-            -e DATABASE_URL="postgres://skeleton_runtime:$SKELETON_RUNTIME_DB_PASSWORD@postgres:5432/skeleton" \
-            -e CACHE_URL="rediscache://:$REDIS_PASSWORD@redis:6379/0" \
-            -e EMAIL_URL=smtp://localhost:2525 -e DEFAULT_FROM_EMAIL=ci@example.test \
-            -e SKELETON_PUBLIC_URL=http://localhost:8000 \
-            -e MFA_ENCRYPTION_KEYS="$(fernet)" -e IDENTITY_PROVIDER_ENCRYPTION_KEYS="$(fernet)" \
-            -e INTEGRATION_ENCRYPTION_KEYS="$(fernet)" -e BILLING_ENCRYPTION_KEYS="$(fernet)" \
-            web sh -c 'cd /releases/current && SKELETON_PROJECT_ROOT=$PWD SKELETON_DEPLOYMENT_INVENTORY=$PWD/inventory.json PYTHONPATH=$PWD exec .venv/bin/python manage.py instance import-env'
-          docker compose restart web worker scheduler
-      - name: Instância pronta, apps ligadas e owner só no agente
-        run: |
-          release() {
-            docker compose exec -T web sh -c 'cd /releases/current && SKELETON_PROJECT_ROOT=$PWD SKELETON_DEPLOYMENT_INVENTORY=$PWD/inventory.json PYTHONPATH=$PWD exec .venv/bin/python "$@"' sh "$@"
-          }
-          for _ in $(seq 1 60); do
-            curl -fsS -H 'Host: localhost' http://127.0.0.1:8000/health/ready/ && break
+          node() { docker compose -p "$1" --env-file "$RUNNER_TEMP/$1.env" -f compose.yaml -f "$RUNNER_TEMP/compose.ci.yaml" "${@:2}"; }
+          node node-b up -d
+          for _ in $(seq 1 240); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' "$(node node-b ps -q web)")" = healthy ] && break
             sleep 5
           done
-          curl -fsS -H 'Host: localhost' http://127.0.0.1:8000/health/ready/
-          # Sem E037 com a cobrança ligada; os erros de deploy falham o passo.
-          release manage.py check --deploy --fail-level ERROR
-          # As apps first-party e a de exemplo instaladas, e o web fala com o agente pelo socket.
-          release manage.py shell -c "
-          from django.apps import apps
-          for label in ('skeleton_calendar', 'skeleton_ledger', 'example_notes'):
-              apps.get_app_config(label)
-          from skeleton.system.releases import agent_client
-          inventory = agent_client().inventory()
-          assert inventory['core']['version'], inventory
-          print('agent', inventory.get('agent'), 'core', inventory['core']['version'])
-          "
-          # A credencial owner não chega a nenhum processo dos serviços de aplicação.
-          for service in web worker scheduler; do
-            if docker compose exec -T "$service" sh -c 'cat /proc/[0-9]*/environ 2>/dev/null | tr "\0" "\n"' | grep -E 'skeleton_owner|MIGRATION_DATABASE_URL'; then
-              echo "owner no ambiente de $service" >&2
-              exit 1
-            fi
+          node node-b logs --no-color agent | tail -100
+          curl -fsS -H 'Host: localhost' http://127.0.0.1:8001/health/ready/
+      - name: Os dois nós no mesmo release, o primário e as fronteiras da owner
+        run: |
+          node() { docker compose -p "$1" --env-file "$RUNNER_TEMP/$1.env" -f compose.yaml -f "$RUNNER_TEMP/compose.ci.yaml" "${@:2}"; }
+          release() {
+            node "$1" exec -T web sh -c 'cd /releases/current && SKELETON_PROJECT_ROOT=$PWD SKELETON_DEPLOYMENT_INVENTORY=$PWD/inventory.json PYTHONPATH=$PWD exec .venv/bin/python "$@"' sh "${@:2}"
+          }
+          a=$(curl -fsS -H 'Host: localhost' http://127.0.0.1:8000/health/release/)
+          b=$(curl -fsS -H 'Host: localhost' http://127.0.0.1:8001/health/release/)
+          echo "$a" && echo "$b"
+          [ "$(echo "$a" | jq -c '{generation, core}')" = "$(echo "$b" | jq -c '{generation, core}')" ]
+          [ "$(echo "$a" | jq -r .node_id)" = node-a ] && [ "$(echo "$b" | jq -r .node_id)" = node-b ]
+          status=$(node node-a exec -T agent python -m deployment_agent --config /agent/private/agent.json cluster status)
+          echo "$status"
+          [ "$(echo "$status" | jq -r .primary.node_id)" = node-a ]
+          [ "$(echo "$status" | jq '[.nodes[] | select(.alive)] | length')" = 2 ]
+          # Sem E037, E048 ou E049; os erros de deploy falham o passo.
+          release node-a manage.py check --deploy --fail-level ERROR
+          release node-b manage.py check --deploy --fail-level ERROR
+          # Um anexo gravado por um nó aparece no outro (o volume compartilhado declarado).
+          node node-a exec -T web sh -c 'echo shared > /files/ci-probe'
+          [ "$(node node-b exec -T web cat /files/ci-probe)" = shared ]
+          # A credencial owner não chega aos serviços de aplicação, nem ao agente seguidor.
+          for project in node-a node-b; do
+            for service in web worker scheduler; do
+              if node "$project" exec -T "$service" sh -c 'cat /proc/[0-9]*/environ 2>/dev/null | tr "\0" "\n"' | grep -E 'skeleton_owner|MIGRATION_DATABASE_URL=.'; then
+                echo "owner no ambiente de $project/$service" >&2
+                exit 1
+              fi
+            done
           done
+          if node node-b exec -T agent sh -c 'cat /proc/[0-9]*/environ 2>/dev/null | tr "\0" "\n"; cat /agent/private/migration.env' | grep -E 'skeleton_owner|MIGRATION_DATABASE_URL=.'; then
+            echo "owner no agente seguidor" >&2
+            exit 1
+          fi
           # Nenhum container monta o socket Docker.
-          if docker inspect $(docker compose ps -q) --format '{{range .Mounts}}{{.Source}} {{end}}' | grep -q docker.sock; then
+          if docker inspect $(docker ps -q) --format '{{range .Mounts}}{{.Source}} {{end}}' | grep -q docker.sock; then
             echo "socket Docker montado" >&2
             exit 1
           fi
       - name: Logs da stack
         if: failure()
         run: |
-          docker compose logs --no-color | tail -500
-          # A saída de cada comando do agente fica no armazenamento privado dele (senhas só de ensaio).
-          docker compose cp agent:/agent/state/logs "$RUNNER_TEMP/agent-logs" || true
-          find "$RUNNER_TEMP/agent-logs" -name '*.log' -exec sh -c 'echo "== $1"; tail -n 60 "$1"' sh {} \; || true
+          node() { docker compose -p "$1" --env-file "$RUNNER_TEMP/$1.env" -f compose.yaml -f "$RUNNER_TEMP/compose.ci.yaml" "${@:2}"; }
+          docker compose -p ci-data --env-file "$RUNNER_TEMP/data.env" -f deploy/data-server/compose.yaml logs --no-color | tail -100
+          for project in node-a node-b; do
+            node "$project" logs --no-color | tail -300
+            # A saída de cada comando do agente fica no armazenamento privado dele (senhas só de ensaio).
+            node "$project" cp agent:/agent/state/logs "$RUNNER_TEMP/agent-logs-$project" || true
+            find "$RUNNER_TEMP/agent-logs-$project" -name '*.log' -exec sh -c 'echo "== $1"; tail -n 60 "$1"' sh {} \; || true
+          done
 
   ci:
     name: CI

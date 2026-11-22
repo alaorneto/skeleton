@@ -70,12 +70,7 @@ services:
     # The password comes from the container environment ($$ escapes Compose interpolation), never the
     # rendered command. volatile-lru evicts only keys with a TTL (every key of the core and of allauth
     # has one); allkeys-lru could evict a TOTP anti-replay marker.
-    command:
-      - sh
-      - -c
-      - >-
-        exec docker-entrypoint.sh redis-server --requirepass "$$REDIS_PASSWORD"
-        --maxmemory "$$REDIS_MAXMEMORY" --maxmemory-policy volatile-lru
+    command: ["sh", "-c", "exec docker-entrypoint.sh redis-server --requirepass \"$$REDIS_PASSWORD\" --maxmemory \"$$REDIS_MAXMEMORY\" --maxmemory-policy volatile-lru"]
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?Define the Redis password}
       REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-256mb}

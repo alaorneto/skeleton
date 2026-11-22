@@ -220,6 +220,8 @@ def roll_local(service: Any, previous: Path, release: Path, operation_id: str, i
         if release != previous:
             backend.cutover(release)
         backend.start(release, operation_id)
+        if marker is not None:
+            marker.unlink(missing_ok=True)  # Back in the balancer: the readiness of the check is the real one.
         health(service, inventory or load_json(release / "inventory.json"))
     except Exception:
         if release != previous:
