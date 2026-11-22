@@ -417,7 +417,7 @@ jobs:
             -e DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1 \
             -e DATABASE_URL="postgres://skeleton_runtime:$SKELETON_RUNTIME_DB_PASSWORD@postgres:5432/skeleton" \
             -e CACHE_URL="rediscache://:$REDIS_PASSWORD@redis:6379/0" \
-            -e EMAIL_URL=consolemail:// -e DEFAULT_FROM_EMAIL=ci@example.test \
+            -e EMAIL_URL=smtp://localhost:2525 -e DEFAULT_FROM_EMAIL=ci@example.test \
             -e SKELETON_PUBLIC_URL=http://localhost:8000 \
             -e MFA_ENCRYPTION_KEYS="$(fernet)" -e IDENTITY_PROVIDER_ENCRYPTION_KEYS="$(fernet)" \
             -e INTEGRATION_ENCRYPTION_KEYS="$(fernet)" -e BILLING_ENCRYPTION_KEYS="$(fernet)" \
