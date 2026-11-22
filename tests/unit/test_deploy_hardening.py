@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-APPLICATION_SERVICES = ("web", "worker", "scheduler", "migrator")
+APPLICATION_SERVICES = ("agent", "web", "worker", "scheduler")
 UNITS = ROOT / "deploy" / "systemd"
 
 
@@ -18,10 +18,10 @@ def compose_blocks(name="compose.yaml"):
     return top, services
 
 
-# The Coolify sandbox (#369) runs the same application services, plus its one-shot migrate.
+# The Coolify sandbox (#369) runs the same services; the agent migrates in both (#654).
 COMPOSE_FILES = [
     ("compose.yaml", APPLICATION_SERVICES),
-    ("compose.sandbox.yaml", ("migrate", "web", "worker", "scheduler")),
+    ("compose.sandbox.yaml", APPLICATION_SERVICES),
 ]
 
 

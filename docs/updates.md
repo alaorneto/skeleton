@@ -64,8 +64,11 @@ CONFIG=/srv/skeleton/private/agent.json
 
 1. Em "Fontes", cadastre o repositório (`dono/nome`) e escolha o publicador entre os aprovados no servidor. Sem nenhuma fonte GitHub, o formulário já sugere o repositório oficial, `alaorneto/skeleton`.
 2. Em "Novas versões", "Verificar agora" consulta as fontes. A página mostra a última consulta e, para o núcleo e cada app, a versão instalada, a mais nova e os passos.
-3. "Preparar este passo" (só no primeiro passo) baixa o pacote pelo agente e abre o plano. Confirme como no envio por arquivo.
-4. Ao fim da operação, a página dela oferece o próximo passo, até não haver mais atualizações pendentes.
+3. Para o núcleo, "Atualizar até a versão" escolhe o alvo entre as versões alcançáveis a partir da instalada (#653): a mais nova de cada linha que o caminho alcança, lida dos índices verificados, sem rede; a mais nova de todas vem marcada. De `0.3.0`, com `0.3.1`, `0.4.0`, `0.4.2` e `0.5.0` publicadas, os alvos são `0.3.1`, `0.4.2` e `0.5.0`, e escolher `0.5.0` mostra os passos `0.4.2 → 0.5.0`. Sem escolha, o alvo é a mais nova alcançável. Apps seguem sempre até a mais nova.
+4. "Preparar este passo" (só no primeiro passo) baixa o pacote pelo agente e abre o plano. Confirme como no envio por arquivo: cada passo tem prévia e confirmação próprias, com autenticação recente e `updates.operate`; nada é aplicado sozinho.
+5. Ao fim da operação, a página dela oferece o próximo passo rumo ao alvo escolhido; ao chegar nele, nenhum passo do núcleo é oferecido e a escolha é esquecida.
+
+O alvo fica só na sessão de quem escolheu e nunca vale como confiança: a tela confere de novo, a cada passo, que ele continua entre os alcançáveis e que o passo pedido é o primeiro rumo a ele, e o agente revalida o passo (assinatura, linha minor, versão abaixo da instalada). Um alvo que deixou de ser alcançável (índice vencido, versão retirada, linha intermediária faltando) é recusado com aviso, nunca trocado por outra versão.
 
 Pelo shell: `check-updates`, `update-status` (sem rede), `sources` e `fetch-release <component_id> <versão> <source_id>`.
 
@@ -83,7 +86,7 @@ O agente recusa atualizar o núcleo pulando uma linha minor (`version_jump_forbi
 ## Usar um fork
 
 - **Dono do fork:** gera a própria chave (`python -m skeleton.system.packages keygen --private-key release.key --public-key release.pub.pem`), cria o ambiente `release` do repositório com o segredo `RELEASE_SIGNING_KEY` e a variável `RELEASE_PUBLISHER` (um id próprio, diferente do oficial), publica e divulga a chave pública ([publicação automática](deployment.md#publicação-automática-nos-releases-do-github)).
-- **Operador do servidor:** acrescenta a chave pública em `approved_publishers` do arquivo do agente e reinicia o agente. É ele quem decide em quem confiar.
+- **Operador do servidor:** acrescenta a chave pública em `approved_publishers` do arquivo do agente e reinicia o agente. É ele quem decide em quem confiar. No container do agente, cuja configuração gerada aprova só a chave oficial versionada em `deploy/release/publishers/` (#656), basta definir `SKELETON_AGENT_PUBLISHER`, `SKELETON_AGENT_PUBLISHER_KEY` (o PEM do fork, montado no container) e `SKELETON_AGENT_SOURCE` (`dono/nome` do fork) antes da primeira partida; depois dela, edite `agent.json` ([primeira partida pelo agente](deployment.md#primeira-partida-pelo-agente-containers)).
 - **Administrador da plataforma:** cadastra `dono/nome` do fork em "Fontes" e escolhe o publicador do fork.
 
 Trocar o publicador do núcleo de um para outro muda a fonte e a chave que vale; não muda o que está instalado, os dados nem o histórico de migrations. O agente só aceita do novo publicador versões que o caminho permite, e o próprio agente só se atualiza a partir do publicador do núcleo instalado (ou de um de `agent_publishers`).
@@ -112,7 +115,7 @@ Apps continuam em pacotes de componente. Uma app publica o próprio índice no p
 
 O agente consulta as fontes sozinho a cada `update_check_interval` segundos (padrão 6 horas; `0` desliga; a primeira consulta, 2 minutos depois de subir). Quem tem `updates.operate` vê nas páginas de `/platform/` uma faixa com o link "Ver o passo a passo"; o atraso máximo é o intervalo do agente mais 5 minutos de cache. Nada é baixado nem aplicado sozinho.
 
-Sem agente, com o opt-in `SKELETON_UPDATE_REPOSITORY`, o job `system.update_check` consulta o release mais recente e mostra um aviso **só informativo** com o link para o release ([aviso sem agente](deployment.md#sandbox-no-coolify-369)).
+Todo deployment roda o agente (#649), que mostra as versões em "Novas versões". Fora dele (só desenvolvimento local), com o opt-in `SKELETON_UPDATE_REPOSITORY`, o job `system.update_check` consulta o release mais recente e mostra um aviso **só informativo** com o link para o release ([aviso sem agente](deployment.md#sandbox-no-coolify-369)).
 
 ## Dependências do projeto derivado
 
@@ -237,7 +240,7 @@ Num servidor de teste Linux com systemd e PostgreSQL, com um repositório de tes
 4. Cadastre em "Fontes" o `dono/nome` do repositório de teste; "Verificar agora"; confira o caminho com dois passos e o botão só no primeiro.
 5. Tente enviar direto o pacote da segunda linha; confira a recusa com o texto de salto de versão.
 6. Atualize o agente pela tela; confira a versão nova em "Versões instaladas".
-7. Conclua os dois passos; confira que a página da operação oferece o passo seguinte e que a faixa de aviso some no fim.
+7. Conclua os dois passos; confira que a página da operação oferece o passo seguinte e que a faixa de aviso some no fim. Com três releases em linhas seguidas, escolha em "Atualizar até a versão" a do meio, conclua os passos até ela e confira que, ao chegar, nenhum passo do núcleo é oferecido (#653).
 8. Rode `agent-rollback` e reinicie; confira a versão anterior do agente.
-9. Numa instalação sem agente (`compose.sandbox.yaml`), defina `SKELETON_UPDATE_REPOSITORY`, rode o job e veja a faixa informativa.
+9. No sandbox (`compose.sandbox.yaml`, [sandbox no Coolify](deployment.md#sandbox-no-coolify-369)) recriado do zero: confira que a primeira partida instalou o release publicado mais novo, que `/platform/updates/` mostra o agente, o core e a fonte oficial, que a agenda, o livro contábil e a app de exemplo aparecem instaladas e que a cobrança sobe sem `skeleton.E037`; depois de um release novo, escolha-o como alvo e conclua os passos.
 10. Confira nos logs do agente e do web que nenhum token, chave ou URL de download assinada aparece.

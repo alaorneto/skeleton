@@ -195,6 +195,10 @@ class DatabaseForm(forms.Form):
         return data
 
 
+class AgentSchemaForm(forms.Form):
+    """The schema step when the deployment agent migrated already (#652): nothing to type, only confirm."""
+
+
 class SchemaForm(forms.Form):
     """The schema owner, only user and password: host, port and database come from the runtime step."""
 

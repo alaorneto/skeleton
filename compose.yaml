@@ -1,19 +1,70 @@
+# A Compose deployment with the deployment agent (#649, #654); see docs/deployment.md. The agent
+# installs a published core release on its first start and every update after that; web, worker
+# and scheduler run the agent's active release through the launcher (#651). No service mounts the
+# Docker socket, and the owner credential exists only in the agent.
+#
+# Required variables: POSTGRES_PASSWORD, SKELETON_OWNER_DB_PASSWORD, SKELETON_RUNTIME_DB_PASSWORD
+# and REDIS_PASSWORD (letters and digits only: they go into URLs unencoded). Optional:
+# SKELETON_CORE_VERSION (the release of the first start; default the newest published),
+# SKELETON_AGENT_RELEASE_FILE (a release package inside the agent container, without network) and,
+# for a fork, SKELETON_AGENT_SOURCE, SKELETON_AGENT_PUBLISHER and SKELETON_AGENT_PUBLISHER_KEY.
+#
 # Application services run without capabilities, without privilege gain and with a read-only
-# root (#318). Writable: the instance volume and /tmp (uploads, Gunicorn heartbeat). When used,
-# mount SKELETON_FILES_ROOT (private attachments) and PROMETHEUS_MULTIPROC_DIR as volumes too.
+# root (#318). Writable: the instance, files and launcher state volumes and /tmp (uploads,
+# Gunicorn heartbeat). When used, mount PROMETHEUS_MULTIPROC_DIR as a volume too.
 x-hardened: &hardened
   read_only: true
   tmpfs:
     - /tmp:size=512m,mode=1777
   cap_drop: ["ALL"]
   security_opt: ["no-new-privileges:true"]
+
+# Everything on by default (#649); each switch can be turned off by its variable.
+x-features: &features
+  SKELETON_BUNDLED_APPS: ${SKELETON_BUNDLED_APPS-calendar,ledger}
+  SKELETON_ENABLE_EXAMPLE_APP: ${SKELETON_ENABLE_EXAMPLE_APP:-true}
+  SKELETON_BILLING_ENABLED: ${SKELETON_BILLING_ENABLED:-true}
+
+x-app-environment: &app-environment
+  <<: *features
+  DJANGO_SETTINGS_MODULE: config.settings.production
+  # Bootstrap only: the configuration itself lives in the instance volume (#143, #146).
+  SKELETON_INSTANCE_DB: /instance/instance.sqlite3
+  SKELETON_INSTANCE_KEY_FILE: /instance/keys/master.key
+  SKELETON_FILES_ROOT: /files
+  # The launcher's own code; the release it starts gets the release's paths instead.
+  PYTHONPATH: /opt/launcher
+  SKELETON_AGENT_SOCKET: /control/agent.sock
+  SKELETON_AGENT_TOKEN_FILE: /control/agent.token
+  SKELETON_MAINTENANCE_MARKER: /control/maintenance
+  # The agent migrated the schema: the setup only confirms it, never asks for the owner (#652).
+  SKELETON_SETUP_SCHEMA: agent
+
+# What the application services mount: the releases and the agent's control files read-only.
+x-app-volumes: &app-volumes
+  - instance:/instance
+  - files:/files
+  - releases:/releases:ro
+  - control:/control:ro
+  - control_state:/control-state
+
+# Optional overrides of the instance configuration (the environment wins over the SQLite).
+x-instance-env-file: &instance-env-file
+  - path: ${SKELETON_INSTANCE_ENV_FILE:-.env.instance}
+    required: false
+
 services:
   postgres:
-    image: postgres:18.6
+    # The reviewed bootstrap (roles, schema, runtime privileges) on the first start of an empty volume.
+    build:
+      context: .
+      dockerfile: deploy/coolify/postgres.Dockerfile
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-skeleton}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_DB: skeleton
+      POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define a private PostgreSQL administrator password}
+      SKELETON_OWNER_DB_PASSWORD: ${SKELETON_OWNER_DB_PASSWORD:?Define the skeleton_owner password}
+      SKELETON_RUNTIME_DB_PASSWORD: ${SKELETON_RUNTIME_DB_PASSWORD:?Define the skeleton_runtime password}
     ports: ["127.0.0.1:5432:5432"]
     volumes: ["postgres_data:/var/lib/postgresql/data"]
     healthcheck:
@@ -35,22 +86,58 @@ services:
       retries: 20
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?Define a private Redis password}
+  # The deployment agent (#652): writes its configuration once, installs generation 0 from the
+  # signed release (migrating with the owner), then serves the control socket.
+  agent:
+    <<: *hardened
+    build:
+      context: .
+      target: agent
+    image: ${SKELETON_AGENT_IMAGE:-django-skeleton-agent:local}
+    restart: unless-stopped
+    stop_grace_period: 30m
+    environment:
+      <<: *features
+      SKELETON_RUNTIME_DATABASE_URL: postgres://skeleton_runtime:${SKELETON_RUNTIME_DB_PASSWORD:?Define the skeleton_runtime password}@postgres:5432/skeleton
+      SKELETON_MIGRATION_DATABASE_URL: postgres://skeleton_owner:${SKELETON_OWNER_DB_PASSWORD:?Define the skeleton_owner password}@postgres:5432/skeleton
+      SKELETON_INSTANCE_DB: /instance/instance.sqlite3
+      SKELETON_INSTANCE_KEY_FILE: /instance/keys/master.key
+      SKELETON_PUBLIC_HOST: ${SKELETON_PUBLIC_HOST:-localhost}
+      SKELETON_HEALTH_URL: http://web:8000
+      SKELETON_CORE_VERSION: ${SKELETON_CORE_VERSION:-}
+      SKELETON_AGENT_RELEASE_FILE: ${SKELETON_AGENT_RELEASE_FILE:-}
+      SKELETON_AGENT_SOURCE: ${SKELETON_AGENT_SOURCE:-alaorneto/skeleton}
+      SKELETON_AGENT_PUBLISHER: ${SKELETON_AGENT_PUBLISHER:-skeleton}
+      SKELETON_AGENT_PUBLISHER_KEY: ${SKELETON_AGENT_PUBLISHER_KEY:-/opt/agent/publishers/skeleton.pub.pem}
+    volumes:
+      - agent_private:/agent/private
+      - agent_state:/agent/state
+      - releases:/releases
+      - control:/control
+      - control_state:/control-state:ro
+      - instance:/instance
+    depends_on:
+      postgres: {condition: service_healthy}
+    healthcheck:
+      # Healthy once the first installation is done and the control socket is served.
+      test: ["CMD", "python", "-c", "import os, stat, sys; sys.exit(not stat.S_ISSOCK(os.stat('/control/agent.sock').st_mode))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30m
   web:
     <<: *hardened
     build: .
     image: ${SKELETON_IMAGE:-django-skeleton:local}
     ports: ["127.0.0.1:8000:8000"]
-    # The setup exits the process when it completes; the policy brings it back in normal mode.
+    # Waits for the agent's first release, then runs it; the agent stops and restarts it through
+    # the control files around each update. The setup exits the process when it completes; the
+    # policy brings it back in normal mode.
+    command: ["python", "-m", "deployment_agent.launcher", "--service", "web", "--control", "/control/services", "--state", "/control-state", "--releases-root", "/releases", "--active", "/releases/current", "--grace", "30", "--", "{venv}/bin/gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120", "--no-control-socket"]
     restart: unless-stopped
-    # Optional overrides of the instance configuration (the environment wins over the SQLite).
-    env_file:
-      - path: ${SKELETON_INSTANCE_ENV_FILE:-.env.instance}
-        required: false
+    env_file: *instance-env-file
     environment:
-      DJANGO_SETTINGS_MODULE: config.settings.production
-      # Bootstrap only: the configuration itself lives in the instance volume (#143, #146).
-      SKELETON_INSTANCE_DB: /instance/instance.sqlite3
-      SKELETON_INSTANCE_KEY_FILE: /instance/keys/master.key
+      <<: *app-environment
       SKELETON_SETUP_RESTART: exit
       SKELETON_SETUP_ALLOWED_HOSTS: ${SKELETON_SETUP_ALLOWED_HOSTS:-localhost,127.0.0.1}
       SKELETON_SETUP_SECURE_COOKIES: ${SKELETON_SETUP_SECURE_COOKIES:-false}
@@ -58,85 +145,52 @@ services:
       # directly (#442); applies to setup mode only, the instance stores its own trust_proxy.
       SKELETON_SETUP_TRUST_PROXY: ${SKELETON_SETUP_TRUST_PROXY:-false}
       SKELETON_REQUIRE_ADMIN_MFA: "true"
-      SKELETON_DEPLOYMENT_INVENTORY: ${SKELETON_DEPLOYMENT_INVENTORY:-}
-      SKELETON_MAINTENANCE_MARKER: /run/skeleton/release/maintenance
-      SKELETON_AGENT_SOCKET: ${SKELETON_AGENT_SOCKET:-}
-      SKELETON_AGENT_TOKEN_FILE: ${SKELETON_AGENT_TOKEN_FILE:-}
-    volumes:
-      - instance:/instance
-      - ${SKELETON_RELEASE_METADATA_DIR:-./deploy/runtime}:/run/skeleton/release:ro
+    volumes: *app-volumes
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
+      agent: {condition: service_started}
     healthcheck:
       # Resolves a Host the instance accepts (setup or normal mode) without starting Django.
       test: ["CMD", "python", "-m", "skeleton.api.healthcheck"]
       interval: 30s
       timeout: 5s
       retries: 3
-  # Job worker and periodic scheduler (#40): same image, instance volume and environment as web.
-  # The deployment agent stops them before migrations and starts them after the cutover
-  # (compose.worker_services). Until the setup finishes they exit and the policy retries.
+      # The first start waits for the agent to download and install the release.
+      start_period: 30m
+  # Job worker and periodic scheduler (#40): the same release, volumes and environment as web.
+  # The agent stops them before migrations and restarts them after the cutover through the
+  # control files. Until the setup finishes they exit and the policy retries.
   worker:
     <<: *hardened
     image: ${SKELETON_IMAGE:-django-skeleton:local}
     build: .
-    command: ["python", "manage.py", "run_worker", "--queues", "default"]
+    command: ["python", "-m", "deployment_agent.launcher", "--service", "worker", "--control", "/control/services", "--state", "/control-state", "--releases-root", "/releases", "--active", "/releases/current", "--grace", "300", "--", "{python}", "manage.py", "run_worker", "--queues", "default"]
     restart: unless-stopped
     stop_grace_period: 5m
-    env_file:
-      - path: ${SKELETON_INSTANCE_ENV_FILE:-.env.instance}
-        required: false
-    environment:
-      DJANGO_SETTINGS_MODULE: config.settings.production
-      SKELETON_INSTANCE_DB: /instance/instance.sqlite3
-      SKELETON_INSTANCE_KEY_FILE: /instance/keys/master.key
-      SKELETON_DEPLOYMENT_INVENTORY: ${SKELETON_DEPLOYMENT_INVENTORY:-}
-      SKELETON_MAINTENANCE_MARKER: /run/skeleton/release/maintenance
-    volumes:
-      - instance:/instance
-      - ${SKELETON_RELEASE_METADATA_DIR:-./deploy/runtime}:/run/skeleton/release:ro
+    env_file: *instance-env-file
+    environment: *app-environment
+    volumes: *app-volumes
     depends_on:
       web: {condition: service_healthy}
     healthcheck:
-      test: ["CMD", "python", "manage.py", "check_jobs", "--max-lag", "900"]
+      # With the paths the launcher gives the release (deployment_agent.launcher.release_environment).
+      test: ["CMD", "sh", "-c", "cd /releases/current && SKELETON_PROJECT_ROOT=$$PWD SKELETON_DEPLOYMENT_INVENTORY=$$PWD/inventory.json PYTHONPATH=$$PWD exec .venv/bin/python manage.py check_jobs --max-lag 900"]
       interval: 60s
       timeout: 20s
       retries: 3
+      start_period: 5m
   scheduler:
     <<: *hardened
     image: ${SKELETON_IMAGE:-django-skeleton:local}
     build: .
-    command: ["python", "manage.py", "run_scheduler", "--interval", "30"]
+    command: ["python", "-m", "deployment_agent.launcher", "--service", "scheduler", "--control", "/control/services", "--state", "/control-state", "--releases-root", "/releases", "--active", "/releases/current", "--grace", "30", "--", "{python}", "manage.py", "run_scheduler", "--interval", "30"]
     restart: unless-stopped
-    env_file:
-      - path: ${SKELETON_INSTANCE_ENV_FILE:-.env.instance}
-        required: false
-    environment:
-      DJANGO_SETTINGS_MODULE: config.settings.production
-      SKELETON_INSTANCE_DB: /instance/instance.sqlite3
-      SKELETON_INSTANCE_KEY_FILE: /instance/keys/master.key
-      SKELETON_DEPLOYMENT_INVENTORY: ${SKELETON_DEPLOYMENT_INVENTORY:-}
-      SKELETON_MAINTENANCE_MARKER: /run/skeleton/release/maintenance
-    volumes:
-      - instance:/instance
-      - ${SKELETON_RELEASE_METADATA_DIR:-./deploy/runtime}:/run/skeleton/release:ro
+    env_file: *instance-env-file
+    environment: *app-environment
+    volumes: *app-volumes
     depends_on:
       web: {condition: service_healthy}
-  migrator:
-    <<: *hardened
-    image: ${SKELETON_IMAGE:-django-skeleton:local}
-    build: .
-    profiles: ["migration"]
-    command: ["python", "manage.py", "migrate", "--noinput"]
-    environment:
-      DJANGO_SETTINGS_MODULE: config.settings.migrate
-      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL:-}
-      SKELETON_DEPLOYMENT_INVENTORY: ${SKELETON_DEPLOYMENT_INVENTORY:-}
-    volumes:
-      - ${SKELETON_RELEASE_METADATA_DIR:-./deploy/runtime}:/run/skeleton/release:ro
-    depends_on:
-      postgres: {condition: service_healthy}
   keycloak:
     image: quay.io/keycloak/keycloak:26.8.2-3
     profiles: ["integrations"]
@@ -150,3 +204,9 @@ services:
 volumes:
   postgres_data:
   instance:
+  files:
+  agent_private:
+  agent_state:
+  releases:
+  control:
+  control_state:

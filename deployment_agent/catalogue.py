@@ -284,6 +284,7 @@ def evaluate(service: "DeploymentService") -> JSON:
             core,
             list(candidates.get(CORE_COMPONENT, {}).values()),
             enforce_lines=not service.config.get("allow_version_jumps", False),
+            with_targets=True,
         )
     ]
     for entry in inventory["apps"]:

@@ -16,6 +16,8 @@ Antes de operar, leia [apps, pacotes e deployment](concepts.md#apps-pacotes-e-de
 | Migrator | Processo temporário que executa migrations com a credencial owner. Não é uma terceira role nem um worker web. |
 | Operador/agente | Conta de sistema que prepara releases e coordena manutenção. Seus privilégios de supervisor/Docker não pertencem ao web. |
 
+**Todo deployment roda o agente (#649).** Nos containers, o serviço `agent` dos arquivos Compose instala o release publicado na [primeira partida](#primeira-partida-pelo-agente-containers) e controla os serviços de aplicação [sem o socket Docker](#serviços-em-containers-sem-socket-docker); com systemd, a unit `skeleton-agent.service` com o [backend diretório](#agente-independente-de-deployment). Em qualquer caso só releases publicados e assinados chegam à instalação, e o operador [escolhe a versão do core](updates.md#atualizar-pelo-github), com uma confirmação por passo. Sem agente fica só o desenvolvimento local (`runserver`, [README](../README.md)).
+
 **Ordem segura:** provisione serviços e segredos → crie roles/schema → aplique migrations com owner → verifique com runtime → inicie web → confirme saúde e comportamento. Um check feito como owner não demonstra que o web está isolado.
 
 ### Índices da auditoria (`sk_audit.0005`)
@@ -105,7 +107,7 @@ chmod 600 /etc/skeleton/oidc-key.pem   # IDP_OIDC_PRIVATE_KEY_FILE=/etc/skeleton
 Uma instância nova não precisa de `.env` nem de comandos: enquanto faltar alguma chave exigida (`secret_key`, `allowed_hosts`, `database_url`) no ambiente e no SQLite da instância, o WSGI (`config.wsgi`, perfil de produção) e o `manage.py runserver` sobem em **modo setup** (`config.settings.setup`). Eles também continuam em modo setup enquanto um setup começado não for concluído: os passos "Instância" e "Banco runtime" já gravam as três chaves, e um reinício antes da conclusão volta ao setup no passo em que parou, em vez de subir com settings de produção ainda sem cache, email e o resto (#453). Conta como começado o setup que registrou algum passo; um token emitido sozinho não conta. Quem começar o setup pela tela e decidir configurar a instância de outro jeito sai com `SKELETON_SETUP=off`. Nesse modo não há alias de banco, a sessão é um cookie assinado com uma chave derivada da chave mestra, e só `/setup/` e as sondas de saúde respondem; qualquer outra rota leva a `/setup/`. `SKELETON_SETUP=off` desliga a troca (ferramentas e instâncias configuradas por outro meio). O entrypoint ASGI (`config/asgi.py`) não entra em modo setup: usa `config.settings.production` direto. O runtime suportado é WSGI/Gunicorn ([arquitetura](architecture.md)).
 
 1. **Token:** no primeiro start, o processo gera um token de uso único (24 h), grava só o SHA-256 no SQLite, imprime o token uma vez no log e o escreve em `setup-token` (0600, ao lado do SQLite). Token errado, reutilizado ou expirado é recusado (403), com limite de 5 tentativas por IP em 15 minutos (429), contadas por processo. O token certo é conferido antes do limite e entra mesmo depois de tentativas erradas do mesmo endereço (atrás de um proxy, todos os clientes compartilham um IP); cada recusa gera o evento de segurança `setup.token_rejected`, sem o token (#290). Um reinício sem token aberto gera outro. Sem reiniciar, `manage.py instance setup-token` (no Compose, `docker compose exec web python manage.py instance setup-token`) revoga os tokens abertos e emite um novo, impresso só na saída do comando e gravado em `setup-token`; depois do setup concluído, o comando recusa e não emite nada (#466). A sessão do setup é um cookie assinado renovado a cada requisição, que expira depois de 2 horas sem uso (`SESSION_SAVE_EVERY_REQUEST`); sem sessão, as etapas levam ao token com o aviso de sessão expirada.
-2. **Instância:** hosts, origens CSRF, proxy e endereço público. O campo de hosts já vem com o host do pedido (sem a porta) e a confiança no proxy vem marcada quando o pedido traz `X-Forwarded-Proto`. Com as origens CSRF em branco e o endereço público informado, o setup grava o endereço público como origem confiável, o que evita o erro de CSRF mais comum depois do setup (#463). O fuso horário padrão (`default_timezone`) vem com `America/Sao_Paulo` selecionado (#467). O setup gera `SECRET_KEY` e os keyrings MFA, de provedores e de integração, cifrados no SQLite e nunca exibidos.
+2. **Instância:** hosts, origens CSRF, proxy e endereço público. O campo de hosts já vem com o host do pedido (sem a porta) e a confiança no proxy vem marcada quando o pedido traz `X-Forwarded-Proto`. Com as origens CSRF em branco e o endereço público informado, o setup grava o endereço público como origem confiável, o que evita o erro de CSRF mais comum depois do setup (#463). O fuso horário padrão (`default_timezone`) vem com `America/Sao_Paulo` selecionado (#467). O endereço público vem sugerido com a origem do pedido, que links e provedores de pagamento precisam (W037). O setup gera `SECRET_KEY` e os keyrings MFA, de provedores, de integração e de cobrança (`BILLING_ENCRYPTION_KEYS`, sem o qual `skeleton.E037` impede a partida com a cobrança ligada, #654), cifrados no SQLite e nunca exibidos.
 3. **Banco runtime:** servidor, porta, nome do banco, usuário (`skeleton_runtime`) e senha em campos separados; o setup monta a URL com percent-encoding (`build_dsn` em `skeleton/setup/database.py`), então a senha pode ter qualquer caractere. A URL completa continua aceita no bloco "Avançado" (para `sslmode` e outros parâmetros) e, quando preenchida, os campos são ignorados. A role é recusada se for superuser, tiver `BYPASSRLS`, for dona do schema `skeleton` ou tiver `CREATE` nele, ou se o schema não existir (provisione com `deploy/postgres/bootstrap.sql`); cada recusa diz a role a usar (#464).
 4. **Schema:** pede só usuário (`skeleton_owner`) e senha; banco, host e porta vêm da etapa anterior e aparecem na tela (a URL completa vai no bloco "Avançado"). A credencial owner (dona do schema, mesmo banco, outra role) roda `migrate`, `sync_table_catalog` e o check do schema **só na memória dessa requisição**: ela não vai para o SQLite, o log nem a sessão.
 
@@ -135,20 +137,27 @@ Atrás de um proxy que termina TLS, o Django em modo setup vê a requisição co
 
 Docker usa Python 3.14-slim, fixado por versão de patch e digest do índice multi-arquitetura nos dois Dockerfiles (o Dependabot propõe a troca, #309), bibliotecas XML/xmlsec, usuário não-root e Gunicorn WSGI. O contexto de build exclui `var/` (SQLite e chave mestra da instância, PostgreSQL local), `.private/`, `.sso-fixtures/` e `*.sqlite3`, `*.pem` e `*.key` em qualquer profundidade, e nenhum estágio grava o contexto numa camada: o estágio `project-assets` lê `templates/` por bind mount, o que exige BuildKit (padrão desde o Docker 23; o builder legado falha no `RUN --mount`, #248). Collectstatic é parte do build; WhiteNoise segue SecurityMiddleware. Produção usa CompressedManifestStaticFilesStorage e STATIC_ROOT=staticfiles; dev usa runserver/staticfiles. Não inicie migrations em cada worker.
 
-Compose fixa postgres:16.15, redis:8.8.3 e Keycloak 26.8.0 no perfil integrations. Postgres/Redis/Keycloak expõem somente loopback. Postgres admin e Redis exigem secrets de ambiente. O `web` (#148) recebe só variáveis de bootstrap: o SQLite da instância e a chave mestra ficam no volume nomeado privado `instance` (`/instance/instance.sqlite3`, `/instance/keys/master.key`), preservado ao recriar o container. O fluxo é um só:
+O `compose.yaml` roda o [agente de deployment](#primeira-partida-pelo-agente-containers) como todo deployment (#649, #654). O PostgreSQL usa a imagem `deploy/coolify/postgres.Dockerfile`, que aplica `deploy/postgres/bootstrap.sql` e define as senhas de `skeleton_owner` e `skeleton_runtime` na criação do volume; PostgreSQL, Redis, web e Keycloak (perfil `integrations`) expõem só loopback. São obrigatórias `POSTGRES_PASSWORD`, `SKELETON_OWNER_DB_PASSWORD`, `SKELETON_RUNTIME_DB_PASSWORD` e `REDIS_PASSWORD`, no `.env` do Compose (privado, nunca versionado), só letras e dígitos. Nenhum serviço monta o socket Docker, e a credencial owner existe só no serviço `agent`.
 
-1. **Instalação nova:** com `POSTGRES_PASSWORD` e `REDIS_PASSWORD` no `.env` do Compose (privado, nunca versionado) e as roles e o schema provisionados (`deploy/postgres/bootstrap.sql`, ver [Provisionamento PostgreSQL](#provisionamento-postgresql); é pré-requisito do passo "Banco runtime" do setup), `docker compose up -d` sobe o `web` em modo setup, e o token aparece em `docker compose logs web`.
-2. **Setup:** grava hosts, origens CSRF, proxy, origem pública e banco no SQLite da instância e migra com a credencial owner informada na tela. Ao concluir, `SKELETON_SETUP_RESTART=exit` encerra o processo e `restart: unless-stopped` o traz de volta em modo normal.
-3. **Depois:** mudanças pontuais pela [administração da instância](#alterar-a-configuração-depois-do-setup-147) (`/platform/instance/`) ou no arquivo opcional `.env.instance` (outro caminho com `SKELETON_INSTANCE_ENV_FILE`), que o `compose.yaml` carrega com `env_file` opcional no `web` e no `worker` e que vence o SQLite.
+| Serviço | Papel |
+|---|---|
+| `agent` | Imagem do alvo `agent` do `Dockerfile`. Na primeira partida grava a configuração, instala a geração 0 a partir do release publicado (migrando com a owner) e passa a servir o socket de controle; depois, cada atualização. Volumes: `agent_private` e `agent_state` (só dele), `releases` e `control` (gravação), `control_state` (só leitura) e `instance`. |
+| `web`, `worker`, `scheduler` | Imagem de runtime, que traz o [inicializador](#serviços-em-containers-sem-socket-docker): esperam o primeiro release do agente e rodam o release ativo de `/releases/current`. Montam `releases` e `control` só para leitura, `control_state`, `instance` e `files` (anexos, `SKELETON_FILES_ROOT=/files`). Recebem `SKELETON_AGENT_SOCKET`, `SKELETON_AGENT_TOKEN_FILE`, `SKELETON_MAINTENANCE_MARKER` e `SKELETON_SETUP_SCHEMA=agent`. |
+
+Tudo vem ligado por padrão: `SKELETON_BUNDLED_APPS` (`calendar,ledger`), `SKELETON_ENABLE_EXAMPLE_APP` e `SKELETON_BILLING_ENABLED`, cada um desligável pela variável; a cobrança ligada não cobra nada sem produtos, preços e conta de provedor. O fluxo é um só:
+
+1. **Instalação nova:** `docker compose up -d` sobe o agente, que instala o core publicado mais novo (ou `SKELETON_CORE_VERSION`); o `web` espera esse release e sobe em modo setup, com o token em `docker compose logs web`.
+2. **Setup:** grava hosts, origens CSRF, proxy, origem pública (sugerida a partir do endereço em uso) e banco no SQLite da instância, gera os keyrings (inclusive `BILLING_ENCRYPTION_KEYS`) e só confere o schema com a role runtime, sem pedir a owner. Ao concluir, `SKELETON_SETUP_RESTART=exit` encerra o processo e `restart: unless-stopped` o traz de volta em modo normal.
+3. **Depois:** atualizações e apps pela tela [`/platform/updates/`](updates.md); mudanças pontuais pela [administração da instância](#alterar-a-configuração-depois-do-setup-147) (`/platform/instance/`) ou no arquivo opcional `.env.instance` (outro caminho com `SKELETON_INSTANCE_ENV_FILE`), que o `compose.yaml` carrega com `env_file` opcional nos serviços de aplicação e que vence o SQLite.
 
 ```sh
-docker compose up -d            # instalação nova: sobe em modo setup
+docker compose up -d            # instalação nova: o agente instala, o web sobe em modo setup
 docker compose logs web         # o token de setup aparece aqui
 ```
 
-O healthcheck do `web` (`python -m skeleton.api.healthcheck`) consulta `/health/live/` na porta local sem iniciar o Django e escolhe o Host assim: `localhost` em modo setup; depois, `DJANGO_HEALTH_HOST` se estiver definido (ambiente, inclusive `.env.instance`, ou SQLite da instância), senão o primeiro host de `DJANGO_ALLOWED_HOSTS`. Definir `DJANGO_HEALTH_HOST` só é preciso quando o primeiro host da lista não serve para a sonda (por exemplo, um curinga `.example.org`); ele tem de estar na allowlist. O serviço `migrator` (perfil `migration`) continua opcional: o setup migra na primeira vez e o agente migra nas atualizações com a credencial owner dele, que nunca chega ao `web`. Para uma instalação existente configurada por variáveis, copie-as para `.env.instance` ou rode `manage.py instance import-env` dentro do container e remova-as do ambiente. URL do web usa hostname `postgres`/`redis` dentro da rede Compose; no host use 127.0.0.1.
+O healthcheck do `web` (`python -m skeleton.api.healthcheck`) consulta `/health/live/` na porta local sem iniciar o Django e escolhe o Host assim: `localhost` em modo setup; depois, `DJANGO_HEALTH_HOST` se estiver definido (ambiente, inclusive `.env.instance`, ou SQLite da instância), senão o primeiro host de `DJANGO_ALLOWED_HOSTS`. Definir `DJANGO_HEALTH_HOST` só é preciso quando o primeiro host da lista não serve para a sonda (por exemplo, um curinga `.example.org`); ele tem de estar na allowlist. Para uma instalação existente configurada por variáveis, copie-as para `.env.instance` ou rode `manage.py instance import-env` dentro do container e remova-as do ambiente. URL do web usa hostname `postgres`/`redis` dentro da rede Compose; no host use 127.0.0.1.
 
-**Endurecimento (#318).** `web`, `worker`, `scheduler` e `migrator` herdam o bloco `x-hardened`: `read_only: true`, `cap_drop: ["ALL"]`, `security_opt: ["no-new-privileges:true"]` e um `tmpfs` em `/tmp` (512 MiB, para uploads de pacotes e anexos e o heartbeat do Gunicorn). Só o volume `instance` e o `/tmp` são graváveis: quem usa `SKELETON_FILES_ROOT` (anexos privados) ou `PROMETHEUS_MULTIPROC_DIR` monta esses diretórios como volumes; um projeto derivado que grava em outro caminho precisa montar um volume para ele. O Gunicorn sobe com `--no-control-socket` em todos os comandos (imagens, `compose.sandbox.yaml` e unit systemd): desde a versão 25.1 ele cria por padrão um socket de controle em `$HOME/.gunicorn/`, o que falha na raiz somente leitura e sob `ProtectHome`; o projeto não usa o `gunicornc`, e o agente controla o web por sinais e pelo supervisor (#441). A senha do Redis chega pelo ambiente do container e não aparece no `command` renderizado (`docker compose config`); o servidor continua passando pelo `docker-entrypoint.sh` da imagem, que troca root pelo usuário `redis`. A app de exemplo entra na imagem por padrão; `docker build --build-arg INCLUDE_EXAMPLES=false .` deixa `examples/` só com o `__init__.py`.
+**Endurecimento (#318).** `agent`, `web`, `worker` e `scheduler` herdam o bloco `x-hardened`: `read_only: true`, `cap_drop: ["ALL"]`, `security_opt: ["no-new-privileges:true"]` e um `tmpfs` em `/tmp` (512 MiB, para uploads de pacotes e anexos e o heartbeat do Gunicorn). Graváveis são só os volumes montados sem `:ro` e o `/tmp`: quem usa `PROMETHEUS_MULTIPROC_DIR` monta esse diretório como volume; um projeto derivado que grava em outro caminho precisa montar um volume para ele. O Gunicorn sobe com `--no-control-socket` em todos os comandos (imagens, arquivos Compose e unit systemd): desde a versão 25.1 ele cria por padrão um socket de controle em `$HOME/.gunicorn/`, o que falha na raiz somente leitura e sob `ProtectHome`; o projeto não usa o `gunicornc`, e o agente controla o web por sinais e pelo supervisor (#441). A senha do Redis chega pelo ambiente do container e não aparece no `command` renderizado (`docker compose config`); o servidor continua passando pelo `docker-entrypoint.sh` da imagem, que troca root pelo usuário `redis`. A app de exemplo entra na imagem por padrão; `docker build --build-arg INCLUDE_EXAMPLES=false .` deixa `examples/` só com o `__init__.py`.
 
 Configure proxy HTTPS em frente ao web. Se ele termina TLS, habilite DJANGO_TRUST_PROXY=true somente se remover/substituir X-Forwarded-Proto recebido do cliente; não confie em cabeçalho público. Defina DJANGO_ALLOWED_HOSTS e DJANGO_CSRF_TRUSTED_ORIGINS com hosts/origens exatos. Essas chaves (e DJANGO_TRUST_PROXY, falso por padrão) são da configuração da instância: no setup, em `/platform/instance/` ou, como sobrescrita, no `.env.instance`; o `compose.yaml` não as define. Para o próprio setup atrás desse proxy, `SKELETON_SETUP_TRUST_PROXY=true` no `web` (padrão `false` no `compose.yaml`; nas units systemd, no `runtime.env`), com a mesma ressalva ([setup](#primeira-instalação-pelo-setup-146)). Não abra CORS/domínios de cookies wildcard. Para SSO no container, monte JSON privado read-only e injete SSO_PROVIDER_CONFIG_PATH + referências env; Compose base não provisiona IdP de produção.
 
@@ -364,20 +373,19 @@ Produção sempre exigiu PostgreSQL. Bancos SQLite de desenvolvimento deixam de 
 
 ## Sandbox no Coolify (#369)
 
-Um ambiente de sandbox e testes numa VPS com [Coolify](https://coolify.io), atualizado a cada merge em `main`. Ele **não** é o caminho de produção: não há agente, então não há manutenção coordenada, backup antes da migration nem rollback. Use só dados de teste.
+Um ambiente de sandbox e testes numa VPS com [Coolify](https://coolify.io). Como todo deployment, ele roda o agente (#649): instala só releases publicados (não segue mais a `main`) e é atualizado pela tela `/platform/updates/`, com manutenção coordenada, backup antes da migration e recuperação. Tudo vem ligado: as apps first-party, a app de exemplo e a cobrança. Use só dados de teste.
 
-O `compose.sandbox.yaml` da raiz difere do `compose.yaml` em quatro pontos:
+O `compose.sandbox.yaml` da raiz tem os mesmos serviços do `compose.yaml` (`agent`, `web`, `worker`, `scheduler`, PostgreSQL e Redis) e difere em três pontos:
 
 | Ponto | `compose.sandbox.yaml` |
 |---|---|
 | Portas | Nenhum serviço publica porta no host; o proxy do Coolify chega ao `web` na 8000 pela rede interna. |
-| PostgreSQL | Imagem `deploy/coolify/postgres.Dockerfile`: aplica `deploy/postgres/bootstrap.sql` e define as senhas de `skeleton_owner` e `skeleton_runtime` **só na criação do volume**. |
-| Migrations | O serviço `migrate` roda a cada deploy, com a credencial owner, `migrate` e `sync_table_catalog`, e sai. O `web` só sobe depois dele (`service_completed_successfully`). A URL owner existe só nesse serviço. |
-| Start do `web` | Com a instância configurada, roda `upgrade_app_activation` e `check_skeleton_schema` com a role runtime antes do Gunicorn, como o agente faz no `finish()`. Uma falha impede o `web` de subir. Sem configuração, sobe em modo setup. |
+| Funcionalidades | Ligadas de forma fixa (`calendar,ledger`, app de exemplo e cobrança), sem variável para desligar. |
+| Proxy | `SKELETON_SETUP_TRUST_PROXY` e cookies seguros ligados para o setup atrás do TLS do Coolify; o agente confere a saúde com o Host `SANDBOX_HOST`. |
 
-**Aviso de versão nova sem agente (#502).** Instalações sem agente (este sandbox, Compose mantido à mão) podem ao menos avisar que saiu versão nova. É **opt-in**, porque a consulta revela ao GitHub o endereço IP da instalação: `SKELETON_UPDATE_REPOSITORY` (`dono/nome`; vazio, o padrão, desliga; também configurável na instância), `SKELETON_UPDATE_GITHUB_TOKEN_FILE` (opcional, só em variável de ambiente: arquivo com um token de leitura para repositório privado) e `SKELETON_UPDATE_CHECK_HOURS` (intervalo, padrão 24, mínimo 1). Com o repositório definido e sem `SKELETON_AGENT_SOCKET`, o job periódico global `system.update_check` faz uma única `GET` a `https://api.github.com/repos/<dono/nome>/releases/latest` (host fixo no código, saída por `skeleton.common.outbound_http`, `User-Agent: django-skeleton` sem versão nem identificação da instalação, redirecionamento não seguido), lê só `tag_name` e guarda no cache do Django, por 3 intervalos, a versão e o link `https://github.com/<dono/nome>/releases/tag/<tag>` montado localmente. Quem tem `updates.operate` vê nas páginas de `/platform/` (inclusive as de atualização) a faixa "Há uma versão nova do Skeleton (<versão>). Esta instalação não tem agente de deployment…", com o link "Ver a release". O aviso é **só informativo**: não verifica assinatura, não baixa nem instala nada, e a atualização continua sendo o processo de deploy do operador. Uma falha (404, 403, 429, 3xx, 5xx, corpo inválido) só deixa um registro de log com o código e mantém o resultado anterior. O cache precisa ser compartilhado entre o worker e o web (o Redis de produção); com cache local por processo, em desenvolvimento, o web não vê o que o worker gravou.
+**Aviso de versão nova sem agente (#502).** Todo deployment suportado, este sandbox inclusive, roda o agente e vê as versões novas em `/platform/updates/`. Fora dele (desenvolvimento local, um projeto derivado que ainda não adotou o agente), o job abaixo pode ao menos avisar que saiu versão nova. É **opt-in**, porque a consulta revela ao GitHub o endereço IP da instalação: `SKELETON_UPDATE_REPOSITORY` (`dono/nome`; vazio, o padrão, desliga; também configurável na instância), `SKELETON_UPDATE_GITHUB_TOKEN_FILE` (opcional, só em variável de ambiente: arquivo com um token de leitura para repositório privado) e `SKELETON_UPDATE_CHECK_HOURS` (intervalo, padrão 24, mínimo 1). Com o repositório definido e sem `SKELETON_AGENT_SOCKET`, o job periódico global `system.update_check` faz uma única `GET` a `https://api.github.com/repos/<dono/nome>/releases/latest` (host fixo no código, saída por `skeleton.common.outbound_http`, `User-Agent: django-skeleton` sem versão nem identificação da instalação, redirecionamento não seguido), lê só `tag_name` e guarda no cache do Django, por 3 intervalos, a versão e o link `https://github.com/<dono/nome>/releases/tag/<tag>` montado localmente. Quem tem `updates.operate` vê nas páginas de `/platform/` (inclusive as de atualização) a faixa "Há uma versão nova do Skeleton (<versão>). Esta instalação não tem agente de deployment…", com o link "Ver a release". O aviso é **só informativo**: não verifica assinatura, não baixa nem instala nada, e a atualização continua sendo o processo de deploy do operador. Uma falha (404, 403, 429, 3xx, 5xx, corpo inválido) só deixa um registro de log com o código e mantém o resultado anterior. O cache precisa ser compartilhado entre o worker e o web (o Redis de produção); com cache local por processo, em desenvolvimento, o web não vê o que o worker gravou.
 
-No resto, ele segue o `compose.yaml`: os serviços de aplicação (`migrate`, `web`, `worker` e `scheduler`) usam a mesma âncora `x-hardened` (sem capabilities, sem ganho de privilégio e raiz somente leitura, [#318](https://github.com/alaorneto/skeleton/issues/318)), o Redis recebe a senha pelo ambiente do container e não pelo comando renderizado, e o Gunicorn usa o mesmo `--timeout 120` (#298) e `--no-control-socket` (#441) da imagem.
+No resto, ele segue o `compose.yaml`: o agente e os serviços de aplicação (`web`, `worker` e `scheduler`) usam a mesma âncora `x-hardened` (sem capabilities, sem ganho de privilégio e raiz somente leitura, [#318](https://github.com/alaorneto/skeleton/issues/318)), o Redis recebe a senha pelo ambiente do container e não pelo comando renderizado, e o Gunicorn usa o mesmo `--timeout 120` (#298) e `--no-control-socket` (#441) da imagem.
 
 ### Criar o recurso
 
@@ -390,13 +398,13 @@ No resto, ele segue o `compose.yaml`: os serviços de aplicação (`migrate`, `w
    |---|---|
    | `SANDBOX_HOST` | Host público, sem esquema: `sandbox.example.com`. O compose acrescenta `localhost` aos hosts do setup, porque é o Host que o healthcheck manda em modo setup (#436) |
    | `POSTGRES_PASSWORD` | Administrador do PostgreSQL; só o container do banco a recebe |
-   | `SKELETON_OWNER_DB_PASSWORD` | Role owner; só o `migrate` e o init do banco a recebem |
+   | `SKELETON_OWNER_DB_PASSWORD` | Role owner; só o `agent` e o init do banco a recebem |
    | `SKELETON_RUNTIME_DB_PASSWORD` | Role runtime; digitada no setup |
    | `REDIS_PASSWORD` | `requirepass` do Redis |
 
 5. **Domínio:** na configuração do serviço `web`, informe `https://<SANDBOX_HOST>:8000`. O sufixo `:8000` é a porta do container, não uma porta pública; o Coolify emite o certificado e o Traefik termina o TLS.
-6. **Auto Deploy:** desligado. Quem dispara o deploy é o CI (abaixo).
-7. *Deploy*. Na primeira vez, o `migrate` cria o schema e o `web` sobe em modo setup.
+6. **Auto Deploy:** desligado. O sandbox não segue a `main`: o código que ele roda vem dos releases publicados, pelo agente.
+7. *Deploy*. Na primeira vez, o `agent` instala o release publicado mais novo (ou `SKELETON_CORE_VERSION`) e cria o schema, e o `web` sobe em modo setup.
 
 ### Primeiro acesso
 
@@ -404,20 +412,17 @@ O token de uso único aparece nos logs do serviço `web` no Coolify. Abra `https
 
 - **Instância:** host `<SANDBOX_HOST>`, origem CSRF `https://<SANDBOX_HOST>` e confiança no proxy ligada (o Traefik substitui o `X-Forwarded-Proto` recebido de fora). Antes desse passo, o setup já vê a requisição como `https://` porque o compose liga `SKELETON_SETUP_TRUST_PROXY`; sem isso o POST do token responderia 403 de CSRF (#442). A origem CSRF fica no SQLite, não no ambiente, e pode ser alterada em `/platform/instance/`. Um sandbox configurado antes disso, com a origem só no ambiente (#439), continua aceitando os formulários sem ela: com a confiança no proxy ligada, o Django vê `https://<SANDBOX_HOST>` e o `Origin` do próprio host já confere.
 - **Banco runtime:** `postgres://skeleton_runtime:<SKELETON_RUNTIME_DB_PASSWORD>@postgres:5432/skeleton`.
-- **Schema:** `postgres://skeleton_owner:<SKELETON_OWNER_DB_PASSWORD>@postgres:5432/skeleton`. O `migrate` já aplicou as migrations; o setup só confere.
+- **Schema:** nada a digitar. O agente já aplicou as migrations; o setup só confere com a role runtime e nunca pede a owner.
 - **Cache:** `redis://:<REDIS_PASSWORD>@redis:6379/0`.
-- **Arquivos:** backend local em `/instance/files`, dentro do volume persistente `instance`.
+- **Arquivos:** backend local em `/files`, o volume persistente `files`.
 
 Na conclusão, o processo sai, a política de reinício o traz de volta em modo normal, e o `worker` e o `scheduler` passam a ficar saudáveis.
 
-### Deploy a cada merge em `main`
+### Atualizar o sandbox
 
-O job `deploy-sandbox` do `.github/workflows/ci.yml` roda só num push para `main` e só depois do job `CI` verde, e chama a API de deploy do Coolify. Ele nunca roda em pull request. Sem os secrets, o job termina com um aviso, sem disparar nada; projetos derivados sem sandbox não precisam remover o job.
+O sandbox não recebe deploy a cada merge (o job `deploy-sandbox` saiu do CI, #654). Versões novas do core e apps chegam pela tela `/platform/updates/`, que consulta o repositório oficial: escolha a versão, confira o plano e confirme cada passo ([atualizações](updates.md)). Um *Redeploy* no Coolify só reconstrói as imagens do agente e de runtime; o release ativo continua o mesmo.
 
-1. **Coolify:** em *Settings*, habilite o acesso à API. Em *Keys & Tokens* → *API tokens*, crie um token com permissão de deploy. Na aba *Webhooks* do recurso, copie a URL de deploy, `https://<coolify>/api/v1/deploy?uuid=<uuid>&force=false`.
-2. **GitHub:** em *Settings* → *Environments*, crie `sandbox` (opcionalmente restrito ao branch `main`) com os secrets `COOLIFY_DEPLOY_URL` e `COOLIFY_TOKEN`.
-
-O deploy no Coolify é assíncrono: o job só confirma que o pedido foi aceito. O resultado aparece em *Deployments* no recurso.
+**Sandbox criado antes do agente.** O volume `postgres_data` já tem o schema e o `instance` a configuração, mas não há estado do agente, e a primeira partida sobre um banco já migrado não é coberta pelos testes. Como o sandbox só tem dados de teste, apague os volumes do recurso (`postgres_data`, `instance` e os do agente) antes do primeiro *Deploy* com este arquivo e refaça o [primeiro acesso](#primeiro-acesso).
 
 **Limites:** o init do PostgreSQL só roda com o volume vazio. Trocar uma senha depois exige `ALTER ROLE` no banco e a atualização da variável e da configuração da instância. Se uma migration falha, o `migrate` termina com erro e o `web` com o código novo não sobe. Confira os logs do `migrate` no Coolify. Migrations já aplicadas antes da falha continuam no banco, porque o sandbox não tem o backup do agente.
 
@@ -594,7 +599,7 @@ A base source explicitamente adotada pode ser confirmada para recuperação some
 
 O canal de controle independente usa `SKELETON_AGENT_SOCKET` e `SKELETON_AGENT_TOKEN_FILE`; o token/socket de API do agente não são o socket Docker nem credenciais de migration. `SKELETON_PACKAGE_MAX_BYTES` limita o upload web (default 128 MiB). O agente fornece status autenticado e limitado por operação durante manutenção; o web não recebe shell, escrita no release ativo ou credencial owner.
 
-Compose inclui `migrator` no profile `migration`, com a mesma imagem do web e apenas `MIGRATION_DATABASE_URL` para a conexão owner; não há essa variável no serviço web. Para uso manual forneça o DSN privado explicitamente e execute `docker compose --profile migration run --rm migrator`. Não execute o job com DSN vazio. `SKELETON_RELEASE_METADATA_DIR` monta metadata read-only em `/run/skeleton/release`; inventário e marker precisam usar paths disponíveis no container. O agente gera overrides para imagem/path/env de cada release e roda migrator separado, em vez de alterar containers em execução. Secrets e estado mutável permanecem fora dos builds/releases.
+Nos arquivos Compose do repositório, a credencial owner fica só no serviço `agent` (`SKELETON_MIGRATION_DATABASE_URL`), que migra com ela; o inicializador ainda tira `MIGRATION_DATABASE_URL` do ambiente de cada serviço. Inventário, marcador e socket ficam nos volumes `releases` e `control`, que os serviços de aplicação montam só para leitura. Secrets e estado mutável permanecem fora dos builds/releases.
 
 ## Agente independente de deployment
 
@@ -609,7 +614,7 @@ python3.14 -m venv /opt/skeleton-agent/venv
   --require-hashes -r /srv/agent.lock
 ```
 
-O pacote independente é definido por `deployment_agent/pyproject.toml`; seu entrypoint não exige inicializar Django. A atualização do core gerenciado não atualiza esse virtualenv. O operador mantém `python`, `pg_dump`, `pg_restore`, `psql` e, para Compose, Docker disponíveis com versões compatíveis.
+Nos containers, a imagem do alvo `agent` do `Dockerfile` já traz o wheel do agente, o do core, o cliente PostgreSQL e a chave do publicador oficial; o roteiro abaixo é o da instalação com systemd. O pacote independente é definido por `deployment_agent/pyproject.toml`; seu entrypoint não exige inicializar Django. A atualização do core gerenciado não atualiza esse virtualenv. O operador mantém `python`, `pg_dump`, `pg_restore`, `psql` e, para Compose, Docker disponíveis com versões compatíveis.
 
 ### Diretórios, secrets e configuração mínima
 
@@ -802,9 +807,55 @@ O worker (`manage.py run_worker`) e o agendador de periódicos (`manage.py run_s
 | `start` (depois do cutover) | Executa o hook `restart` e depois `worker_restart`: o worker sobe com o código do release novo |
 | Compose | Liste os serviços em `"compose": {"worker_services": ["worker", "scheduler"]}`. O agente gera para eles o mesmo override de imagem e ambiente runtime do web (recusa `MIGRATION_DATABASE_URL`), para-os com `compose stop` no `drain` e os recria com `compose up --force-recreate` no `start` |
 
+### Primeira partida pelo agente (containers)
+
+Num deployment em container, ninguém instala o core à mão (#652): na primeira partida, o agente instala uma **release publicada**. A imagem do agente é o alvo `agent` do `Dockerfile` (mesmo Python e bibliotecas do runtime, cliente PostgreSQL 18, o agente em `/opt/agent` e os arquivos do projeto em `/opt/project`), e o comando dela é `python -m deployment_agent.bootstrap`:
+
+1. **Configuração**, escrita uma vez a partir das variáveis do container (um `agent.json` existente nunca é sobrescrito): `agent.json`, `runtime.env`, `migration.env` e `build.env` em `SKELETON_AGENT_PRIVATE` (0600) e o token de controle em `<SKELETON_CONTROL>/agent.token` (0640, gerado uma vez). Obrigatórias: `SKELETON_RUNTIME_DATABASE_URL` e `SKELETON_MIGRATION_DATABASE_URL` (só neste container). O publicador é o oficial, cuja chave pública está versionada em `deploy/release/publishers/skeleton.pub.pem` e vai na imagem do agente: `SKELETON_AGENT_PUBLISHER` (padrão `skeleton`), `SKELETON_AGENT_PUBLISHER_KEY` (padrão `/opt/agent/publishers/skeleton.pub.pem`, caminho absoluto de um PEM) e `SKELETON_AGENT_SOURCE` (padrão `alaorneto/skeleton`, fixado nesse publicador; `none` deixa sem fonte GitHub); um fork troca as três ([usar um fork](updates.md#usar-um-fork)). Opcionais: `SKELETON_CORE_VERSION` (a versão a instalar; padrão a mais nova publicada), `SKELETON_AGENT_RELEASE_FILE` (um pacote de release local, sem rede), `SKELETON_HEALTH_URL`, `SKELETON_PUBLIC_HOST`, os caminhos da instância e as chaves de funcionalidade: `SKELETON_BUNDLED_APPS` e `SKELETON_ENABLE_EXAMPLE_APP`, que mudam as apps instaladas, vão para todo perfil; `SKELETON_BILLING_ENABLED` vai só para o runtime, onde está o keyring da cobrança (no build e nas migrations o check `skeleton.E037` recusaria). Falta ou valor inseguro: `missing_bootstrap_variable`, `invalid_bootstrap_path`, `invalid_bootstrap_value`. A configuração gerada usa o backend diretório com os hooks `control` de [serviços em containers](#serviços-em-containers-sem-socket-docker).
+2. **Instalação inicial** (`install_initial`, também `skeleton-deployment-agent --config … bootstrap [--release-file F] [--version V] [--source S]`), só quando ainda não há release ativo: o pacote de release vem do arquivo ou da fonte (a versão fixada ou a mais nova publicada), é verificado contra `approved_publishers` antes de qualquer extração e precisa trazer o alvo deste servidor (`release_package_required`, `release_target_unavailable`, `package_verification_failed`). O agente monta a geração 0 a partir de `project_root` com o core, o lock e os wheels do pacote; aplica as migrations e o catálogo com o owner; confere o schema; espelha o inventário no banco (`sync_deployment_state`); congela o release; e só então troca o ponteiro ativo. Antes do setup a instância não tem configuração runtime, então essa conferência usa o perfil migration, como a migração do próprio setup.
+3. **`serve`**, em toda partida. Com release ativo, a partida não reinstala nada.
+
+Uma partida interrompida não deixa ponteiro ativo: a próxima remove o release parcial (`0-bootstrap-*`) e recomeça (as migrations são idempotentes). Os containers de aplicação esperam (`waiting`) até haver o release e sobem sozinhos.
+
+Com `SKELETON_SETUP_SCHEMA=agent` no web, a etapa "Tabelas do banco" do setup não pede a credencial owner: o agente já migrou, e a etapa só confere o schema com a role de aplicação (`check_deployed_schema`).
+
+### Serviços em containers sem socket Docker
+
+Em containers (Compose, Coolify), o agente controla `web`, `worker` e `scheduler` sem acesso ao Docker (#651): o socket Docker equivale a root no host, e o Coolify gera o próprio projeto Compose, que desfaria o que o agente recriasse. Cada container de aplicação parte pelo **inicializador** `python -m deployment_agent.launcher` (biblioteca padrão apenas), e os dois lados conversam por arquivos em volumes compartilhados:
+
+| Arquivo | Quem grava | Conteúdo |
+|---|---|---|
+| `<control_root>/<serviço>/request.json` | só o agente (o container monta só leitura) | `{"id", "action", "release", "operation"}`, com `action` `stop` ou `restart`, gravado de forma atômica |
+| `<state_root>/<serviço>/state.json` | só o inicializador daquele serviço (o agente monta só leitura) | `{"id", "state", "release", "pid"}`: o último pedido aplicado e o estado `running`, `stopped`, `waiting` (sem release ativo), `failed` (com `reason`) ou `exited` |
+
+O inicializador resolve o ponteiro do release ativo e recusa um que saia da raiz de releases (`active_release_outside_root`) ou que não tenha `.venv` (`active_release_incomplete`); executa o comando com o virtualenv e o ambiente que o agente dá a um release (`SKELETON_PROJECT_ROOT`, `SKELETON_DEPLOYMENT_INVENTORY`, `STATIC_ROOT`, `PYTHONPATH`), trocando `{release}`, `{venv}` e `{python}` no comando, e tira `MIGRATION_DATABASE_URL` do ambiente do processo filho. Sem release ativo, espera (`waiting`) e sobe assim que houver um. Cada pedido é aplicado uma vez só (pelo `id`): `stop` manda SIGTERM, espera `--grace` segundos (depois SIGKILL) e fica parado, também depois de o container reiniciar; `restart` para o filho e sobe o release que o ponteiro indica agora. Um pedido malformado vai para o log e é ignorado. Um filho que termina sozinho encerra o inicializador com o código dele, e vale a política de reinício do container.
+
+```sh
+python -m deployment_agent.launcher --service worker --control /control --state /control-state \
+  --releases-root /releases --active /releases/current --grace 300 \
+  -- {python} manage.py run_worker --queues default
+```
+
+No agente, a chave opcional `service_control` (`control_root` e `state_root` absolutos e diferentes, `timeout` positivo em segundos, padrão `command_timeout`; senão `invalid_service_control`) liga o subcomando `control`, usado como hook fixo do backend diretório. Ele grava um pedido por serviço e só retorna quando todos confirmaram, ou falha com `service_control_timeout` ou `service_control_failed` (sem `service_control`, `service_control_not_configured`):
+
+```json
+{
+  "service_control": {"control_root": "/control", "state_root": "/control-state", "timeout": 1800},
+  "commands": {
+    "drain": ["/opt/agent/bin/skeleton-deployment-agent", "--config", "/agent/agent.json", "control", "stop", "web"],
+    "stop": ["/opt/agent/bin/skeleton-deployment-agent", "--config", "/agent/agent.json", "control", "stop", "web"],
+    "restart": ["/opt/agent/bin/skeleton-deployment-agent", "--config", "/agent/agent.json", "control", "restart", "web", "--release", "{release}"],
+    "worker_stop": ["/opt/agent/bin/skeleton-deployment-agent", "--config", "/agent/agent.json", "control", "stop", "worker", "scheduler"],
+    "worker_restart": ["/opt/agent/bin/skeleton-deployment-agent", "--config", "/agent/agent.json", "control", "restart", "worker", "scheduler"]
+  }
+}
+```
+
+Ninguém recebe privilégio Docker: o agente só pede parar e reiniciar os serviços de aplicação, e o container de aplicação só lê o volume de releases e o próprio diretório de controle. Instalações com systemd continuam com os hooks de `systemctl`.
+
 `worker_stop` e `worker_restart` são opcionais, mas vêm juntos: só um deles é recusado (`incomplete_worker_commands`). Um nome inválido ou repetido em `worker_services`, ou igual ao do web ou do migrator, é recusado (`invalid_compose_worker_services`). Sem eles, o worker só pausa pelo marcador de manutenção (heartbeat `paused`), o que não interrompe um job em execução.
 
-**Deploy manual** (sem o agente): pare o worker e o agendador **antes** de `migrate` e suba-os depois do restart do web:
+**Recuperação manual** (agente indisponível, com o operador conduzindo): pare o worker e o agendador **antes** de `migrate` e suba-os depois do restart do web:
 
 ```sh
 sudo systemctl stop skeleton-worker.service skeleton-scheduler.service
@@ -1004,6 +1055,8 @@ sudo systemctl daemon-reload && sudo systemctl restart skeleton-agent
 **Regra de compatibilidade de formato.** O agente da linha N precisa conseguir validar o pacote de release da linha N+1 para se atualizar a partir dele. Por isso, um formato novo de manifesto, de pacote ou de índice só pode ser **emitido** a partir da linha seguinte àquela em que os leitores passaram a aceitá-lo. Limite aceito: se o agente novo não subir por um erro que o `selfcheck` não pegou, o systemd fica reiniciando; a volta é `agent-rollback` seguido de `systemctl restart skeleton-agent`. Um supervisor que não reinicia em saída diferente de zero não serve: use `Restart=on-failure` ou equivalente.
 
 ### Backend Compose
+
+Os arquivos Compose do repositório **não** usam este backend: o serviço `agent` roda o backend diretório e controla os serviços pelos [arquivos de controle](#serviços-em-containers-sem-socket-docker), sem socket Docker (#654). Este backend fica para quem roda o agente no host, com acesso ao Docker dele, e continua com os limites abaixo.
 
 O backend **diretório** prepara um virtualenv por release, troca o ponteiro `current` e usa o supervisor configurado. O backend **Compose** prepara uma imagem por release, roda um container migrator separado e recria o serviço web. São duas formas de executar o mesmo contrato, não duas evidências equivalentes: um ensaio bem-sucedido em diretório não valida Docker, permissões de volumes ou recuperação Compose.
 

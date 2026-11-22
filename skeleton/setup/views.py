@@ -114,7 +114,14 @@ SKIPPED = "skipped"
 logger = logging.getLogger("skeleton.setup")
 MAX_FAILURES = 5
 FAILURE_WINDOW = 15 * 60
-KEYRINGS = ("mfa_encryption_keys", "identity_provider_encryption_keys", "integration_encryption_keys")
+# Generated once by the instance step, whether or not the feature is on: turning billing on later
+# never meets an instance without its keyring (skeleton.E037, #654).
+KEYRINGS = (
+    "mfa_encryption_keys",
+    "identity_provider_encryption_keys",
+    "integration_encryption_keys",
+    "billing_encryption_keys",
+)
 
 
 def _store():
@@ -373,6 +380,8 @@ def instance(request):
         # The address the operator is using right now, without the port.
         "allowed_hosts": request.get_host().split(":")[0],
         "trust_proxy": "HTTP_X_FORWARDED_PROTO" in request.META,
+        # Its origin, as the public URL that links and payment providers need (W037, #654).
+        "public_url": f"{request.scheme}://{request.get_host()}",
     }
     initial.update(_initial("instance"))  # A stored value wins over the suggestion.
     form = forms.InstanceForm(request.POST or None, initial=initial)
@@ -461,6 +470,8 @@ def schema(request):
     except database.DatabaseCheckError:
         runtime = {}
     target = {"name": runtime.get("NAME", ""), "host": runtime.get("HOST", ""), "port": runtime.get("PORT") or 5432}
+    if database.agent_manages_schema():
+        return _agent_schema(request, runtime_dsn, target)
     if request.method == "POST" and form.is_valid():
         owner_password = form.cleaned_data.pop("owner_password", "")
         owner_dsn = form.cleaned_data.pop("owner_url") or database.build_dsn(
@@ -492,6 +503,28 @@ def schema(request):
             return redirect("setup:email")
     status = 400 if request.method == "POST" else 200
     return _step(request, "schema", form, problems=problems, target=target, status=status)
+
+
+def _agent_schema(request, runtime_dsn, target):
+    """The schema step of an agent-managed instance (#652): confirm with the runtime role, no owner."""
+    form = forms.AgentSchemaForm(request.POST or None)
+    problems = []
+    if request.method == "POST" and form.is_valid():
+        try:
+            problems = database.confirm_schema(runtime_dsn)
+        except Exception as error:  # noqa: BLE001 - shown without detail; the DSN never reaches a message
+            logger.error("setup.step_failed step=%s error_class=%s", "schema", type(error).__name__, exc_info=True)
+            form.add_error(
+                None,
+                gettext("A conferência das tabelas falhou (%(__name__)s). Corrija e tente de novo.")
+                % {"__name__": type(error).__name__},
+            )
+        if not form.errors and not problems:
+            _mark("schema")
+            _saved(request, "schema")
+            return redirect("setup:email")
+    status = 400 if request.method == "POST" else 200
+    return _step(request, "schema", form, problems=problems, target=target, agent_schema=True, status=status)
 
 
 def _email_failure(error: BaseException) -> tuple[str | None, str]:

@@ -14,7 +14,7 @@
 {% if loaded %}
 <section class="mt-6" aria-labelledby="available-path">
   <h2 id="available-path" class="section-heading">{% translate "Caminho de atualização" %}</h2>
-  <div class="grid gap-5">{% for card in paths %}{% include "skeleton/web/platform/updates/path.html" %}{% empty %}<p class="text-sm/6 text-body-subtle">{% translate "Nada a atualizar nas fontes consultadas." %}</p>{% endfor %}</div>
+  <div class="grid gap-5">{% for card in paths %}{% include "skeleton/web/platform/updates/path.html" with choose_target=True %}{% empty %}<p class="text-sm/6 text-body-subtle">{% translate "Nada a atualizar nas fontes consultadas." %}</p>{% endfor %}</div>
   {% if current %}<p class="mt-4 text-sm/6 text-body-subtle">{% translate "Atualizado:" %} {% for card in current %}{{ card.name }} {{ card.installed }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
 </section>
 <details class="mt-6">

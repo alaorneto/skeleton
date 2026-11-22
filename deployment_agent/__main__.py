@@ -6,7 +6,7 @@ import sys
 import time
 from typing import Any
 
-from . import selfupdate
+from . import bootstrap, selfupdate
 from .config import Config
 from .server import StatusTickets, serve
 from .service import DeploymentService
@@ -24,6 +24,12 @@ def build_parser() -> argparse.ArgumentParser:
     initialize.add_argument("--inventory", required=True)
     initialize.add_argument("--core-package", required=True)
     initialize.add_argument("--app-package", action="append", default=[])
+    bootstrap = commands.add_parser(
+        "bootstrap", help="Install generation 0 from a signed release package, without adoption (#652)"
+    )
+    bootstrap.add_argument("--release-file", help="A local release package instead of a catalogue source")
+    bootstrap.add_argument("--version", help="The core version to install (default: the newest published)")
+    bootstrap.add_argument("--source", help="The catalogue source id to fetch from")
     commands.add_parser("inventory")
     commands.add_parser("journal")
     status = commands.add_parser("operation")
@@ -58,6 +64,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     commands.add_parser("revoke-status-tickets")
     commands.add_parser("selfcheck", help="Load the configuration and the agent modules; print the version")
+    control = commands.add_parser(
+        "control", help="Ask application containers to stop or restart and wait (service_control, #651)"
+    )
+    control.add_argument("action", choices=("stop", "restart"))
+    control.add_argument("services", nargs="+")
+    control.add_argument("--release", default="")
+    control.add_argument("--operation", default="")
     install = commands.add_parser(
         "agent-install", help="Offline: install or update the agent from a signed release package (agent_root)"
     )
@@ -84,6 +97,9 @@ def revoke_status_tickets(service: DeploymentService) -> JSON:
 OFFLINE = {
     "initialize": lambda service, options: service.initialize(
         options.inventory, core_package=options.core_package, app_packages=options.app_package
+    ),
+    "bootstrap": lambda service, options: bootstrap.install_initial(
+        service, release_file=options.release_file, version=options.version, source_id=options.source
     ),
     "recover": lambda service, options: service.recover(
         options.operation_id, options.action, acknowledge_new_writes=options.acknowledge_new_writes
@@ -121,6 +137,31 @@ ONLINE = {
 }
 
 
+def control_services(config: Config, options: argparse.Namespace) -> JSON:
+    """Write one request per service and wait for every confirmation (deployment_agent.control)."""
+    from pathlib import Path
+
+    from .control import ControlError, request_and_wait
+    from .storage import AgentError
+
+    settings = config.get("service_control")
+    if not settings:
+        raise AgentError("service_control_not_configured")
+    try:
+        states = request_and_wait(
+            Path(settings["control_root"]),
+            Path(settings["state_root"]),
+            list(options.services),
+            options.action,
+            timeout=float(settings.get("timeout", config.get("command_timeout", 1800))),
+            release=options.release,
+            operation=options.operation,
+        )
+    except ControlError as error:
+        raise AgentError(error.code, 409) from None
+    return {"action": options.action, "services": states}
+
+
 def follow_preview(client: Any, options: argparse.Namespace) -> Any:
     """The plan is prepared in the agent (#298): follow it until it is ready (plan) or failed (None)."""
     result = client.preview(options.action, artifacts=options.artifact, app_ids=options.app_id)
@@ -140,6 +181,9 @@ def main() -> int:
         config = Config.load(options.config)
         if options.command == "selfcheck":  # Writes nothing: not even the service's directories.
             print(json.dumps(selfupdate.selfcheck(config), sort_keys=True))
+            return 0
+        if options.command == "control":  # A fixed hook: no journal, no service state.
+            print(json.dumps(control_services(config, options), sort_keys=True))
             return 0
         service = DeploymentService(config)
         if options.command == "serve":

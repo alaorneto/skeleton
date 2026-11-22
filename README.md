@@ -43,7 +43,7 @@ Uma conta é global; o vínculo e o papel da pessoa pertencem a cada organizaç�
 | `/platform/` | Administrador da plataforma | Visão geral, usuários, organizações, aplicativos instalados, catálogo de tabelas e auditoria global, em views próprias do site |
 | `/platform/apps/<app>/availability/` | Administrador da plataforma | Disponibilidade da app: todas as organizações ou só as concedidas; revogar fecha o portão e preserva a escolha da organização |
 | `/o/<org>/catalog/`, `/o/<org>/tables/<table_key>/` | Pessoa com permissão de tabela e vínculo ativo | Viewer de negócio: lista, detalhe e formulário, fora do admin |
-| `/platform/updates/` | Administrador da plataforma, com agente provisionado | Versões instaladas, novas versões, envio de pacote, plano com prévia de impacto, aprovação e acompanhamento das operações |
+| `/platform/updates/` | Administrador da plataforma (o agente roda em todo deployment) | Versões instaladas, novas versões, envio de pacote, plano com prévia de impacto, aprovação e acompanhamento das operações |
 | `/profile/tokens/` | Pessoa autenticada | Criar e revogar tokens de API pessoais, com escopos e validade; o token aparece uma vez ([API](docs/api.md#gestão-de-tokens)) |
 | `/o/<org>/integrations/service-accounts/` | Quem tem `integrations.manage` | Contas de serviço da organização e os tokens delas |
 | `/api/v1/` | Cliente com sessão Django válida ou token de API | Operar recursos autorizados; o token só restringe o papel da pessoa e não alcança a administração ([autenticação por token](docs/api.md#autenticação-por-token)) |
@@ -179,7 +179,7 @@ Após configuração/migrations de SSO, rode `validate_provider_bindings --datab
 
 O núcleo é distribuído como wheel `django-skeleton`, separado de `config` e `applications`. Sua versão tem uma fonte de build em `pyproject.toml`; quando instalado, o código consulta os metadados da distribuição. Uma app usa `manifest.json` para declarar identidade, versão, compatibilidade, arquivos e migrations.
 
-A plataforma envia um pacote assinado `.skapp` e aprova um plano em `/platform/updates/`. Um agente independente prepara outro release, cria backup, executa migrations/checks e reinicia os workers. O processo web não recebe credencial de migration nem executa pip/DDL. Antes de usar a interface, o operador precisa provisionar esse agente, suas raízes privadas e os publicadores confiáveis.
+Todo deployment roda o agente de deployment (#649); só o desenvolvimento local fica sem ele. Com Compose, `docker compose up -d` sobe o serviço `agent`, que instala o release publicado mais novo do core e depois serve o web, o worker e o agendador por um inicializador, sem socket Docker; com systemd, o operador provisiona o agente, suas raízes privadas e os publicadores confiáveis ([deployment](docs/deployment.md#primeira-partida-pelo-agente-containers)). Em `/platform/updates/` a plataforma escolhe a versão do core entre as publicadas, instala apps e aprova cada passo pelo plano. O agente prepara outro release, cria backup, executa migrations/checks e reinicia os serviços. O processo web não recebe credencial de migration nem executa pip/DDL.
 
 ```sh
 .venv/bin/python manage.py package versions --manifest examples/notes/manifest.json
