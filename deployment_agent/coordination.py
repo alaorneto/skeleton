@@ -43,7 +43,7 @@ from .types import JSON
 SCHEMA = "skeleton_deploy"
 # A fixed 64-bit key of the cluster's advisory lock: hashtext-independent, the same in every release.
 LOCK_KEY = 0x736B5F6465706C79  # "sk_deply"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 NODE_ID = re.compile(r"[a-z0-9-]{1,40}")
 ROLES = ("candidate", "follower")
 RENEW_S = 10.0
@@ -82,9 +82,13 @@ DDL = (
     " phase text NOT NULL, release text NOT NULL, release_digest text NOT NULL, base_generation integer NOT NULL,"
     " target_generation integer NOT NULL, nodes jsonb NOT NULL, current_node text NOT NULL DEFAULT '',"
     " started_at timestamptz NOT NULL DEFAULT now(), phase_started_at timestamptz NOT NULL DEFAULT now())",
+    # Version 3 (#689): the agent version every node follows, set by the primary.
+    "CREATE TABLE IF NOT EXISTS skeleton_deploy.agent_target ("
+    " id integer PRIMARY KEY CHECK (id = 1), version text NOT NULL, release text NOT NULL, epoch bigint NOT NULL,"
+    " set_at timestamptz NOT NULL DEFAULT now())",
     "REVOKE ALL ON ALL TABLES IN SCHEMA skeleton_deploy FROM PUBLIC",
-    'GRANT SELECT ON skeleton_deploy."primary", skeleton_deploy.schema_version, skeleton_deploy.rollout'
-    " TO skeleton_agent",
+    'GRANT SELECT ON skeleton_deploy."primary", skeleton_deploy.schema_version, skeleton_deploy.rollout,'
+    " skeleton_deploy.agent_target TO skeleton_agent",
     "GRANT SELECT, INSERT, UPDATE ON skeleton_deploy.node TO skeleton_agent",
 )
 
@@ -271,6 +275,20 @@ class Coordinator:
             " WHERE id = 1 AND epoch = %s AND node_id = %s",
             (Path(release).name, generation, release_digest, self.epoch, self.settings.node_id),
         )
+
+    def set_agent_target(self, version: str, release: str) -> None:
+        """The agent version every node follows (#689), fenced by the epoch."""
+        self.assert_primary()
+        self._lock_conn.execute(
+            "INSERT INTO skeleton_deploy.agent_target (id, version, release, epoch) VALUES (1, %s, %s, %s)"
+            " ON CONFLICT (id) DO UPDATE SET version = excluded.version, release = excluded.release,"
+            " epoch = excluded.epoch, set_at = now()",
+            (version, release, self.epoch),
+        )
+
+    def agent_target(self) -> JSON | None:
+        row = self._execute("SELECT version, release, epoch FROM skeleton_deploy.agent_target WHERE id = 1").fetchone()
+        return None if row is None else {"version": row[0], "release": row[1], "epoch": int(row[2])}
 
     def cluster_release(self) -> JSON | None:
         row = self._execute(

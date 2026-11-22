@@ -287,6 +287,9 @@ ERROR_TEXT = {
         "Um nó não trocou o release depois das migrations. A manutenção continua: veja a recuperação no servidor."
     ),
     "rolling_node_failed": gettext_lazy("Um nó falhou na troca nó a nó e voltou ao release anterior."),
+    "agent_versions_differ": gettext_lazy(
+        "Os agentes dos nós estão em versões diferentes. Atualize o agente antes; nos containers, a imagem de cada nó."
+    ),
 }
 
 

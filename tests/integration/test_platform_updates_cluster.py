@@ -100,3 +100,17 @@ def test_sanitize_keeps_a_closed_shape():
     clean = sanitize_cluster(CLUSTER)
     assert set(clean["primary"]) == {"node_id", "epoch", "renewed_age_s"}
     assert all("token" not in node for node in clean["nodes"])
+
+
+def test_the_panel_shows_each_agent_version_and_warns_when_alive_nodes_differ(admin, monkeypatch):
+    a, b = ({**node, "alive": True} for node in CLUSTER["nodes"])
+    same = {**CLUSTER, "nodes": [{**a, "agent_version": "0.7.0"}, {**b, "agent_version": "0.7.0"}]}
+    agent(monkeypatch, cluster=same)
+    html = admin.get(reverse("platform:updates")).content.decode()
+    assert '<th scope="col">Agente</th>' in html and "0.7.0" in html and "versões diferentes" not in html
+    # A node without a heartbeat does not count: it is not part of the next operation.
+    gone = {**same, "nodes": [same["nodes"][0], {**b, "agent_version": "0.6.0", "alive": False}]}
+    assert sanitize_cluster(gone)["agent_versions_differ"] is False
+    agent(monkeypatch, cluster={**same, "nodes": [same["nodes"][0], {**b, "agent_version": "0.6.0"}]})
+    html = admin.get(reverse("platform:updates")).content.decode()
+    assert "Os agentes dos nós estão em versões diferentes" in html and "0.6.0" in html

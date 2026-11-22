@@ -50,6 +50,9 @@ if TYPE_CHECKING:
     from .service import DeploymentService
 
 RESTART_EXIT_CODE = 75
+# How long the primary waits for the other nodes to follow an agent update before its own (#689).
+CLUSTER_WAIT_S = 900.0
+CLUSTER_POLL_S = 5.0
 DISTRIBUTION = "skeleton-deployment-agent"
 Runner = Callable[..., Any]
 
@@ -259,6 +262,8 @@ def update(
     service: "DeploymentService", release_digest: str, *, actor_id: str | None = None, run: Runner = subprocess.run
 ) -> JSON:
     """``POST /agent/update``: build, test and switch to the agent of an uploaded release package."""
+    if getattr(service, "coordinator", None) is not None:
+        return update_cluster(service, release_digest, actor_id=actor_id, run=run)
     root = agent_root(service.config)
     with deployment_lock(service.store.root):
         service.ensure_available()
@@ -282,6 +287,107 @@ def update(
             },
         )
     return {"state": "restarting", "version": version}
+
+
+def _journal(
+    service: "DeploymentService", previous: str | None, version: str, release: str, actor_id: str | None
+) -> None:
+    journal = service.store.root / "agent-updates"
+    journal.mkdir(exist_ok=True, mode=0o700)
+    atomic_json(
+        journal / f"{uuid4()}.json",
+        {
+            "event": "agent_update",
+            "from": previous,
+            "to": version,
+            "release": release,
+            "actor_id": actor_id,
+            "at": now(),
+        },
+    )
+
+
+def update_cluster(
+    service: "DeploymentService", release_digest: str, *, actor_id: str | None = None, run: Runner = subprocess.run
+) -> JSON:
+    """The agent update of a cluster (#689): every other node first, the primary last.
+
+    The primary checks the package as on one node, records the version every node follows and
+    answers ``rolling``; in the background it waits for the other alive nodes to report it (at most
+    ``CLUSTER_WAIT_S``), then updates itself and restarts. Each other node follows the target in its
+    own loop (``follow_agent_target``).
+    """
+    import threading
+
+    root = agent_root(service.config)
+    coordinator = service.coordinator
+    if coordinator is None:
+        raise AgentError("cluster_not_configured")
+    with deployment_lock(service.store.root):
+        service.ensure_available()
+        path = service.store.path("uploads", artifact_id(release_digest))
+        verified = _verified(service.config, path)
+        target = check_release(service.config, verified, core_publisher=_core_publisher(service))
+        version = verified.manifest["agent"]["version"]
+        coordinator.set_agent_target(version, verified.digest)
+
+    def finish() -> None:
+        import time
+
+        deadline = time.monotonic() + CLUSTER_WAIT_S
+        while time.monotonic() < deadline:
+            others = [
+                node
+                for node in coordinator.nodes()
+                if node["alive"] and node["node_id"] != coordinator.settings.node_id
+            ]
+            if all(node["agent_version"] == version for node in others):
+                break
+            time.sleep(CLUSTER_POLL_S)
+        with deployment_lock(service.store.root, blocking=True):
+            directory = build_version(service.config, verified, target, root=root, run=run)
+            previous = agent_version()
+            switch(root, directory, release=verified.digest, version=version)
+            _journal(service, previous, version, verified.digest, actor_id)
+        restart = getattr(service, "request_restart", None)
+        if restart is not None:
+            restart()
+
+    threading.Thread(target=finish, daemon=False, name="deployment-agent-update").start()
+    return {"state": "rolling", "version": version}
+
+
+def follow_agent_target(service: "DeploymentService", *, run: Runner = subprocess.run) -> bool:
+    """A node that is not the primary follows the cluster's agent version (#689); True when it switched.
+
+    Without ``agent_root`` (containers: the agent comes from the image) nothing changes here and the
+    status shows the difference. The package comes from the primary by its digest over the channel
+    and is checked again (signature, publisher of the installed core, no downgrade) before building.
+    """
+    coordinator = service.coordinator
+    if coordinator is None:
+        return False
+    target = coordinator.agent_target()
+    if target is None or target["version"] == agent_version():
+        return False
+    if not service.config.get("agent_root"):
+        coordinator.problem = "agent_update_manual"
+        return False
+    root = agent_root(service.config)
+    path = service.channel.fetch_artifact(target["release"])
+    verified = _verified(service.config, path)
+    if verified.digest != target["release"] or verified.manifest["agent"]["version"] != target["version"]:
+        raise AgentError("package_verification_failed", 409)
+    built = check_release(service.config, verified, core_publisher=_core_publisher(service))
+    with deployment_lock(service.store.root, blocking=True):
+        directory = build_version(service.config, verified, built, root=root, run=run)
+        previous = agent_version()
+        switch(root, directory, release=verified.digest, version=target["version"])
+        _journal(service, previous, target["version"], verified.digest, None)
+    restart = getattr(service, "request_restart", None)
+    if restart is not None:
+        restart()
+    return True
 
 
 def install_from_file(

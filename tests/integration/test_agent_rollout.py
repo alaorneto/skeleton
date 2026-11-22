@@ -104,7 +104,7 @@ def cluster(tmp_path, monkeypatch):
     primary, follower_node = coordinator("node-a", tmp_path), coordinator("node-b", tmp_path)
     try:
         primary.ensure_schema()
-        for table in ('"primary"', "node", "rollout"):
+        for table in ('"primary"', "node", "rollout", "agent_target"):
             primary._execute(f"DELETE FROM skeleton_deploy.{table}")
         assert primary.try_acquire()
         primary.heartbeat()
@@ -285,3 +285,50 @@ def test_a_node_that_fails_its_turn_goes_back_and_names_itself(cluster, monkeypa
     assert failed.value.details == [{"code": "application_smoke_failed", "component": "node-b"}]
     assert service.active.name == "node-b-old"
     assert service.log[-2:] == [("cutover", "node-b-old"), ("start", "node-b-old")]
+
+
+def test_an_update_does_not_start_while_the_agents_differ(cluster):
+    primary, service, new, release_digest = cluster
+    primary.agent_version = "0.7.0"
+    primary.heartbeat()
+    service.coordinator.agent_version = "0.6.0"
+    service.coordinator.heartbeat()
+    with pytest.raises(AgentError) as refused:
+        rollout.begin(PrimaryService(primary), {"id": "op-v"}, plan_record(new, release_digest))
+    assert refused.value.code == "agent_versions_differ"
+    assert refused.value.details == [{"code": "agent_version", "found": "0.6.0, 0.7.0"}]
+    assert primary._execute("SELECT count(*) FROM skeleton_deploy.rollout").fetchone()[0] == 0
+    service.coordinator.agent_version = "0.7.0"
+    service.coordinator.heartbeat()
+    assert rollout.begin(PrimaryService(primary), {"id": "op-v"}, plan_record(new, release_digest)).nodes == ["node-b"]
+
+
+def test_the_agent_target_is_set_by_the_primary_only_and_followed_once(cluster, monkeypatch):
+    from deployment_agent import selfupdate
+
+    primary, service, new, release_digest = cluster
+    assert service.coordinator.agent_target() is None
+    primary.set_agent_target("0.7.0", "a" * 64)
+    assert service.coordinator.agent_target() == {"version": "0.7.0", "release": "a" * 64, "epoch": primary.epoch}
+    with pytest.raises(AgentError, match="not_primary"):
+        service.coordinator.set_agent_target("0.8.0", "b" * 64)  # Not the lock holder.
+    calls = []
+
+    def failing(service):
+        calls.append(service.coordinator.agent_target()["release"])
+        raise AgentError("package_verification_failed", 409)
+
+    monkeypatch.setattr(selfupdate, "follow_agent_target", failing)
+    follower = rollout.Follower(service)
+    follower.started_services = True
+    follower.follow_agent()
+    follower.follow_agent()  # The same target is tried once: no loop of downloads.
+    assert calls == ["a" * 64] and service.coordinator.problem == "package_verification_failed"
+    primary.set_agent_target("0.7.1", "c" * 64)
+    follower.follow_agent()
+    assert calls == ["a" * 64, "c" * 64]
+    stale = primary.epoch
+    primary.epoch = stale - 1  # A primary that lost the lock and came back.
+    with pytest.raises(AgentError, match="not_primary"):
+        primary.set_agent_target("0.9.0", "d" * 64)
+    assert service.coordinator.agent_target()["release"] == "c" * 64

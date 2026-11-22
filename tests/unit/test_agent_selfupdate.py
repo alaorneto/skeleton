@@ -224,3 +224,119 @@ def test_selfcheck_writes_nothing(tmp_path, monkeypatch):
     assert sorted(tmp_path.rglob("*")) == before
     with pytest.raises(AgentError):
         selfupdate.selfcheck({"storage_root": str(tmp_path / "missing")})
+
+
+class ClusterNode:
+    """The coordination of a cluster (#689), in memory: the target and the other nodes' versions."""
+
+    def __init__(self, root, versions=("0.6.0", "0.6.0", "0.7.0")):
+        self.settings = SimpleNamespace(node_id="node-a")
+        self.is_primary, self.problem, self.target, self.root = True, None, None, root
+        self.versions, self.seen = list(versions), []
+
+    def set_agent_target(self, version, release):
+        self.target = {"version": version, "release": release, "epoch": 1}
+
+    def agent_target(self):
+        return self.target
+
+    def nodes(self):
+        # Whether this node had already switched when the other one was still behind.
+        version = self.versions.pop(0) if len(self.versions) > 1 else self.versions[0]
+        self.seen.append((version, (self.root / "current").exists()))
+        return [
+            {"node_id": "node-a", "alive": True, "agent_version": "0.6.0"},
+            {"node_id": "node-b", "alive": True, "agent_version": version},
+            {"node_id": "node-c", "alive": False, "agent_version": "0.5.0"},  # Gone: not waited for.
+        ]
+
+
+class ArtifactChannel:
+    def __init__(self, path):
+        self.path, self.calls = path, []
+
+    def fetch_artifact(self, digest):
+        self.calls.append(digest)
+        return self.path
+
+
+def test_in_a_cluster_the_primary_sets_the_target_and_switches_after_the_others(agent, monkeypatch):
+    import threading
+
+    monkeypatch.setattr(selfupdate, "CLUSTER_POLL_S", 0.01)
+    restarts = []
+    agent.service.coordinator = ClusterNode(agent.root)
+    agent.service.request_restart = lambda: restarts.append(True)
+    digest = uploaded(agent, release(agent.tmp))
+    assert update(agent, digest) == {"state": "rolling", "version": "0.7.0"}
+    assert agent.service.coordinator.target == {"version": "0.7.0", "release": digest, "epoch": 1}
+    worker = next(thread for thread in threading.enumerate() if thread.name == "deployment-agent-update")
+    worker.join(10)
+    assert agent.service.coordinator.seen == [("0.6.0", False), ("0.6.0", False), ("0.7.0", False)]
+    assert os.readlink(agent.root / "current") == f"versions/0.7.0-{digest[:12]}" and restarts == [True]
+
+
+def test_a_cluster_update_is_refused_like_on_one_node_before_any_target(agent):
+    agent.service.coordinator = ClusterNode(agent.root)
+    agent.service.coordinator.is_primary = False
+    with pytest.raises(AgentError, match="not_primary"):
+        update(agent, "0" * 64)
+    agent.service.coordinator.is_primary = True
+    with pytest.raises(AgentError, match="package_verification_failed"):
+        update(agent, "0" * 64)
+    assert agent.service.coordinator.target is None
+
+
+def follow(agent, path, target_digest, version="0.7.0"):
+    agent.service.coordinator = ClusterNode(agent.root)
+    agent.service.coordinator.target = {"version": version, "release": target_digest, "epoch": 1}
+    agent.service.channel = ArtifactChannel(path)
+    restarts = []
+    agent.service.request_restart = lambda: restarts.append(True)
+    return restarts
+
+
+def test_a_node_follows_the_target_over_the_channel_and_restarts(agent):
+    path = release(agent.tmp)
+    digest = uploaded(agent, path)
+    restarts = follow(agent, path, digest)
+    assert selfupdate.follow_agent_target(agent.service, run=Runner()) is True
+    assert agent.service.channel.calls == [digest] and restarts == [True]
+    assert os.readlink(agent.root / "current") == f"versions/0.7.0-{digest[:12]}"
+    (event,) = (agent.service.store.root / "agent-updates").iterdir()
+    assert json.loads(event.read_text())["to"] == "0.7.0"
+
+
+def test_a_node_refuses_a_tampered_or_unexpected_package_or_an_unapproved_publisher(agent, tmp_path):
+    path = release(agent.tmp)
+    digest = uploaded(agent, path)
+    tampered = tmp_path / "tampered.skapp"
+    tampered.write_bytes(path.read_bytes()[:-20] + b"\0" * 20)
+    follow(agent, tampered, digest)
+    with pytest.raises(AgentError, match="package_verification_failed"):
+        selfupdate.follow_agent_target(agent.service, run=Runner())
+    other = release(tmp_path, "0.7.0", name="other")  # Valid, but not the package the primary set.
+    follow(agent, other, digest)
+    with pytest.raises(AgentError, match="package_verification_failed"):
+        selfupdate.follow_agent_target(agent.service, run=Runner())
+    state = agent.service.state()
+    state["inventory"]["core"]["publisher"] = "another-publisher"
+    selfupdate.atomic_json(agent.service.store.root / "active.json", state)
+    follow(agent, path, digest)
+    with pytest.raises(AgentError, match="agent_publisher_not_allowed"):
+        selfupdate.follow_agent_target(agent.service, run=Runner())
+    assert not (agent.root / "current").exists()
+
+
+def test_without_agent_root_or_with_the_target_installed_a_node_changes_nothing(agent, monkeypatch):
+    path = release(agent.tmp)
+    digest = uploaded(agent, path)
+    restarts = follow(agent, path, digest)
+    del agent.service.config["agent_root"]  # Containers: the agent comes from the image.
+    assert selfupdate.follow_agent_target(agent.service, run=Runner()) is False
+    assert agent.service.coordinator.problem == "agent_update_manual" and agent.service.channel.calls == []
+    agent.service.config["agent_root"] = str(agent.root)
+    monkeypatch.setattr(selfupdate, "agent_version", lambda: "0.7.0")
+    restarts = follow(agent, path, digest)
+    assert selfupdate.follow_agent_target(agent.service, run=Runner()) is False
+    assert agent.service.channel.calls == [] and restarts == []

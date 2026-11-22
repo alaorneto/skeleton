@@ -216,7 +216,9 @@ class ControlHandler(QuietHandler):
         result = self.server.service.update_agent(
             artifact_id(body["release"]), actor_id=identifier(actor) if actor is not None else None
         )
-        self.restart_after_response = True  # The new version is started by the supervisor (#497).
+        # The new version is started by the supervisor (#497); in a cluster the primary restarts
+        # later, after the other nodes (#689).
+        self.restart_after_response = result.get("state") == "restarting"
         return result
 
     def _sources_set(self, body: JSON) -> JSON:
@@ -469,6 +471,7 @@ def serve(service: "DeploymentService") -> int:
         shutdown_request.attach(server)
     server.service = service
     server.tickets = tickets
+    service.request_restart = server.request_restart  # A restart outside a request: the cluster's agent update (#689).
     os.chmod(path, 0o660)
     if service.config.get("socket_gid") is not None:
         os.chown(path, -1, service.config["socket_gid"])

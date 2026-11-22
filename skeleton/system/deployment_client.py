@@ -45,12 +45,15 @@ def sanitize_cluster(raw):
         return {"mode": "single"}
     primary = raw.get("primary")
     nodes = raw.get("nodes") if isinstance(raw.get("nodes"), list) else []
+    clean_nodes = [_closed(node, _NODE_FIELDS) for node in nodes[:64] if isinstance(node, dict)]
+    versions = {node.get("agent_version") for node in clean_nodes if node.get("alive") and node.get("agent_version")}
     return {
         "mode": "cluster",
+        "agent_versions_differ": len(versions) > 1,
         "node_id": raw.get("node_id") if _bounded_text(raw.get("node_id"), 40) else "",
         "is_primary": raw.get("is_primary") is True,
         "primary": _closed(primary, _PRIMARY_FIELDS) if isinstance(primary, dict) else None,
-        "nodes": [_closed(node, _NODE_FIELDS) for node in nodes[:64] if isinstance(node, dict)],
+        "nodes": clean_nodes,
         "problem": raw.get("problem") if _bounded_text(raw.get("problem"), 100) else None,
     }
 

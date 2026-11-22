@@ -89,11 +89,12 @@ class Rollout:
         if coordinator is None:
             return None
         coordinator.assert_primary()
-        nodes = sorted(
-            node["node_id"]
-            for node in coordinator.nodes()
-            if node["alive"] and node["node_id"] != coordinator.settings.node_id
-        )
+        alive = [node for node in coordinator.nodes() if node["alive"]]
+        versions = sorted({node["agent_version"] for node in alive if node["agent_version"]})
+        if len(versions) > 1:
+            # One protocol per operation (#689): update the agents first.
+            raise AgentError("agent_versions_differ", 409, [{"code": "agent_version", "found": ", ".join(versions)}])
+        nodes = sorted(node["node_id"] for node in alive if node["node_id"] != coordinator.settings.node_id)
         plan = record["plan"]
         coordinator._lock_conn.execute(
             "INSERT INTO skeleton_deploy.rollout (operation_id, epoch, mode, phase, release, release_digest,"
@@ -342,6 +343,7 @@ class Follower:
         self.coordinator = _coordinator(service)
         self.done: set[tuple[str, str]] = set()
         self.started_services = False
+        self.agent_attempted: str | None = None  # The agent target already tried, once per target (#689).
 
     def _active(self) -> tuple[Path | None, JSON]:
         try:
@@ -423,6 +425,20 @@ class Follower:
             self.started_services = True
             return
         self.ensure_started()  # The launcher waits for the agent (--wait-for-agent).
+        self.follow_agent()
+
+    def follow_agent(self) -> None:
+        """Outside an operation, follow the agent version the primary set (#689), once per target."""
+        from . import selfupdate
+
+        target = self.coordinator.agent_target()
+        if target is None or target["release"] == self.agent_attempted:
+            return
+        self.agent_attempted = target["release"]
+        try:
+            selfupdate.follow_agent_target(self.service)
+        except AgentError as error:
+            self.coordinator.problem = error.code
 
     def ensure_started(self) -> None:
         """Once per agent start, outside maintenance: start this node's services (--wait-for-agent)."""

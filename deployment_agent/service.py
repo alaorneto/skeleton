@@ -59,6 +59,7 @@ class DeploymentService:
         self.coordinator = coordination.coordinator_for(config, agent_version=selfupdate.agent_version() or "")
         self.channel: Any = None  # The channel between agents, started by serve (#680).
         self.rollout: Any = None  # The operation in flight across the cluster (#681).
+        self.request_restart: Any = None  # Set by serve(): restart outside a request (#689).
 
     def assert_primary(self) -> None:
         """In a cluster, only the primary migrates and changes the shared state (#678)."""

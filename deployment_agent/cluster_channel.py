@@ -154,6 +154,10 @@ def allowed_artifacts(service: Any) -> set[str]:
         inventory = service.state()["inventory"]
     except AgentError:
         inventory = {}
+    coordinator = getattr(service, "coordinator", None)
+    target = coordinator.agent_target() if coordinator is not None else None
+    if target is not None:
+        allowed.add(target["release"])  # The agent version the cluster follows (#689).
     for entry in (inventory.get("core") or {}, *(inventory.get("apps") or [])):
         for key in ("digest", "release_package"):
             if isinstance(entry.get(key), str):
