@@ -315,7 +315,7 @@ def test_a_node_refuses_a_tampered_or_unexpected_package_or_an_unapproved_publis
     follow(agent, tampered, digest)
     with pytest.raises(AgentError, match="package_verification_failed"):
         selfupdate.follow_agent_target(agent.service, run=Runner())
-    other = release(tmp_path, "0.7.0", name="other")  # Valid, but not the package the primary set.
+    other = release(tmp_path, "0.7.1", name="other")  # Valid, but not the package the primary set.
     follow(agent, other, digest)
     with pytest.raises(AgentError, match="package_verification_failed"):
         selfupdate.follow_agent_target(agent.service, run=Runner())

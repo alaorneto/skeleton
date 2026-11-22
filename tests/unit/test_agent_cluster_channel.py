@@ -78,6 +78,10 @@ class Coordinator:
         self.is_primary = primary
         self.epoch = 3 if primary else None
         self.url = url
+        self.target = None
+
+    def agent_target(self):
+        return self.target
 
     def nodes(self):
         return [{"node_id": "node-a"}, {"node_id": "node-b"}]
@@ -195,6 +199,12 @@ def test_artifacts_come_by_digest_only_when_referenced_and_are_checked(pair):
     primary_service.store.plan_rows = [("plan-1", {"plan": {"artifacts": [digest]}}, 0.0)]
     path = follower.fetch_artifact(digest)
     assert path.read_bytes() == data and path.parent == follower_service.store.root / "uploads"
+    # The package of the agent version the cluster follows (#689) is served too.
+    agent_data = b"agent release package"
+    agent_digest = hashlib.sha256(agent_data).hexdigest()
+    primary_service.store.path("uploads", agent_digest).write_bytes(agent_data)
+    primary_service.coordinator.target = {"version": "0.7.0", "release": agent_digest, "epoch": 3}
+    assert follower.fetch_artifact(agent_digest).read_bytes() == agent_data
     # A byte changed on the way (or on the primary): refused, nothing kept.
     tampered = b"tampered package"
     forged = hashlib.sha256(b"what the plan approved").hexdigest()
