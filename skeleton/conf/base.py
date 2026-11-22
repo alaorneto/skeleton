@@ -111,18 +111,29 @@ TEMPLATES = [
 ]
 
 
-def database_config(env, variable, *, conn_max_age=60):
+def database_config(env, variable, *, conn_max_age=None, pooler=None):
     """``DATABASES`` entry of a PostgreSQL URL; empty when the variable is unset (setup, #146).
 
     The data layer is PostgreSQL only (#144): another engine stays in the config only so that
     check ``skeleton.E025`` can refuse it with a clear message. SQLite is never a fallback.
+    Behind a transaction pooler (``DATABASE_TRANSACTION_POOLER``, #676) the startup ``options``
+    are not sent (PgBouncer refuses them; the role's own ``search_path`` applies) and the
+    server-side cursors are off. A DSN may list several hosts for failover (``h1,h2`` with
+    ``target_session_attrs=read-write``).
     """
     if not env.str(variable, default=""):
         return None
+    if conn_max_age is None:
+        conn_max_age = env.int("DATABASE_CONN_MAX_AGE", default=60)
+    if pooler is None:
+        pooler = env.bool("DATABASE_TRANSACTION_POOLER", default=False)
     config = env.db(variable)
     config["ATOMIC_REQUESTS"] = False
     if config["ENGINE"] == "django.db.backends.postgresql":
-        config.setdefault("OPTIONS", {})["options"] = "-c search_path=skeleton,public"
+        if pooler:
+            config["DISABLE_SERVER_SIDE_CURSORS"] = True
+        else:
+            config.setdefault("OPTIONS", {})["options"] = "-c search_path=skeleton,public"
         config["CONN_MAX_AGE"] = conn_max_age
         # A persistent connection may have been closed by the server: probe it before reuse (#333).
         config["CONN_HEALTH_CHECKS"] = conn_max_age != 0

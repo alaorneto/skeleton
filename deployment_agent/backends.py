@@ -35,6 +35,25 @@ if TYPE_CHECKING:
 MAX_COMMAND_LOG_BYTES = 256 * 1024
 
 
+def host_lists(netloc: str) -> tuple[str, str]:
+    """``PGHOST`` and ``PGPORT`` of a DSN with one or several hosts (failover, #676).
+
+    ``user:pw@h1:5432,[::1]:5433`` gives ``("h1,::1", "5432,5433")``; a host without a port gets 5432.
+    """
+    hosts, ports = [], []
+    for item in netloc.rsplit("@", 1)[-1].split(","):
+        if item.startswith("["):
+            host, _, rest = item[1:].partition("]")
+            port = rest.removeprefix(":")
+        else:
+            host, _, port = item.partition(":")
+        if not host or (port and not port.isdigit()):
+            raise AgentError("invalid_database_host")
+        hosts.append(unquote(host))
+        ports.append(port or "5432")
+    return ",".join(hosts), ",".join(ports)
+
+
 class Backend:
     def __init__(self, config: "Config", store: "Store") -> None:
         self.config = config
@@ -312,10 +331,11 @@ class Backend:
             url = urlsplit(read_environment(self.config["backup_env_file"])["MIGRATION_DATABASE_URL"])
         else:
             url = urlsplit(self.config.environment("migration", release)["MIGRATION_DATABASE_URL"])
+        hosts, ports = host_lists(url.netloc)
         result.update(
             {
-                "PGHOST": url.hostname or "",
-                "PGPORT": str(url.port or 5432),
+                "PGHOST": hosts,
+                "PGPORT": ports,
                 "PGDATABASE": unquote(url.path.lstrip("/")),
                 "PGUSER": unquote(url.username or ""),
                 "PGPASSWORD": unquote(url.password or ""),
@@ -327,6 +347,7 @@ class Backend:
             "sslcert": "PGSSLCERT",
             "sslkey": "PGSSLKEY",
             "options": "PGOPTIONS",
+            "target_session_attrs": "PGTARGETSESSIONATTRS",
         }
         for key, values in parse_qs(url.query).items():
             if key not in allowed or len(values) != 1:

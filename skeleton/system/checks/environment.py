@@ -72,3 +72,55 @@ def cache_prefix_checks(app_configs=None, **kwargs):
             id="skeleton.W049",
         )
     ]
+
+
+def multi_host_problems(databases) -> list:
+    """skeleton.W050: several hosts without ``target_session_attrs`` may land on a read-only replica (#676)."""
+    problems = []
+    for alias, config in databases.items():
+        if "," in str(config.get("HOST") or "") and not (config.get("OPTIONS") or {}).get("target_session_attrs"):
+            problems.append(
+                Warning(
+                    f"DATABASES[{alias!r}] lists several hosts without target_session_attrs.",
+                    hint="Add ?target_session_attrs=read-write to the URL, or a connection may reach a read-only replica.",
+                    id="skeleton.W050",
+                )
+            )
+    return problems
+
+
+@register(deploy=True)
+def multi_host_checks(app_configs=None, **kwargs):
+    from django.conf import settings
+
+    return multi_host_problems(settings.DATABASES)
+
+
+def pooler_search_path_problems(alias, cursor) -> list:
+    cursor.execute("SHOW search_path")
+    path = [item.strip().strip('"') for item in cursor.fetchone()[0].split(",")]
+    if path and path[0] == "skeleton":
+        return []
+    return [
+        Error(
+            f"DATABASES[{alias!r}] behind a transaction pooler: the role's search_path does not start with skeleton.",
+            hint="ALTER ROLE skeleton_runtime SET search_path TO skeleton, public (deploy/postgres/bootstrap.sql).",
+            id="skeleton.E050",
+        )
+    ]
+
+
+@register("database")
+def pooler_checks(app_configs=None, databases=None, **kwargs):
+    """skeleton.E050: behind a transaction pooler no startup options go out, so the role needs its search_path."""
+    from django.conf import settings
+    from django.db import connections
+
+    problems = []
+    for alias in databases or ():
+        config = settings.DATABASES.get(alias, {})
+        if config.get("ENGINE") != POSTGRESQL_ENGINE or not config.get("DISABLE_SERVER_SIDE_CURSORS"):
+            continue
+        with connections[alias].cursor() as cursor:
+            problems.extend(pooler_search_path_problems(alias, cursor))
+    return problems

@@ -110,7 +110,7 @@ def migrate_settings(base):
     from skeleton.conf.base import database_config
 
     # The owner credential is transient: environment only, never the instance store.
-    database = database_config(env, "MIGRATION_DATABASE_URL", conn_max_age=0)
+    database = database_config(env, "MIGRATION_DATABASE_URL", conn_max_age=0, pooler=False)  # Owner: always direct.
     DATABASES = {"default": database} if database else {}
     # Migrations do not authenticate or contact IdPs; runtime settings own provider configuration.
     SOCIALACCOUNT_PROVIDERS = {}

@@ -165,15 +165,36 @@ def _driver_problem(exc: Exception) -> DatabaseCheckError:
     )
 
 
+def hosts_of(config: dict) -> list[tuple[str, int]]:
+    """Every host and port of a DSN; ``h1:5432,h2:5432`` is a list for failover (#676).
+
+    One port for every host is accepted, as in libpq; a different count of hosts and ports is refused.
+    """
+    hosts = [item.strip() for item in str(config.get("HOST") or "").split(",")]
+    raw_ports = [item.strip() for item in str(config.get("PORT") or "").split(",")]
+    if raw_ports == [""]:
+        raw_ports = [str(DEFAULT_PORT)]
+    if len(raw_ports) == 1:
+        raw_ports *= len(hosts)
+    if len(raw_ports) != len(hosts) or not all(port.isdigit() for port in raw_ports):
+        raise DatabaseCheckError(gettext("A lista de portas não corresponde à lista de servidores."), code="ports")
+    return [(host, int(port)) for host, port in zip(hosts, raw_ports, strict=True)]
+
+
+# libpq parameters a DSN query may carry to the setup's connection (sslmode, failover).
+CONNECT_OPTIONS = ("sslmode", "sslrootcert", "sslcert", "sslkey", "target_session_attrs")
+
+
 def _connect(dsn: str):
     import psycopg
 
     config = parse(dsn)
-    host = str(config.get("HOST") or "")
-    port = int(config.get("PORT") or DEFAULT_PORT)
-    problem = _network_problem(host, port)
+    problems = [_network_problem(host, port) for host, port in hosts_of(config)]
+    # With several hosts, one that answers is enough: libpq tries them in order (#676).
+    problem = None if any(item is None for item in problems) else problems[0]
     sqlstate, error_class = None, None
     if problem is None:
+        extra = {key: value for key, value in (config.get("OPTIONS") or {}).items() if key in CONNECT_OPTIONS}
         try:
             return psycopg.connect(
                 dbname=config["NAME"],
@@ -183,6 +204,7 @@ def _connect(dsn: str):
                 port=config.get("PORT") or None,
                 connect_timeout=CONNECT_TIMEOUT,
                 options=f"-c search_path={SCHEMA},public",
+                **extra,
             )
         except psycopg.Error as exc:
             # Never echo the driver message: it can carry the host and the user.

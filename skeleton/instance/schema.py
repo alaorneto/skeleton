@@ -254,6 +254,16 @@ _SPECS = (
         True,
         True,
     ),
+    SettingSpec(
+        "database_transaction_pooler",
+        "DATABASE_TRANSACTION_POOLER",
+        "bool",
+        "Banco atrás de um pooler em modo transação (PgBouncer)",
+        _bool,
+    ),
+    SettingSpec(
+        "database_conn_max_age", "DATABASE_CONN_MAX_AGE", "int", "Segundos de reuso de uma conexão ao banco", _int(0)
+    ),
     SettingSpec("cache_url", "CACHE_URL", "url", "Cache compartilhado", _url("cache_url_config"), True),
     SettingSpec(
         "cache_key_prefix",
