@@ -20,6 +20,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods, require_safe
+from packaging.version import InvalidVersion, Version
 
 from skeleton.accounts.reauthentication import recent_authentication_required
 from skeleton.common.exceptions import ConcurrentUpdate
@@ -421,6 +422,24 @@ def _text(value, maximum=200):
     return value if isinstance(value, str) and 0 < len(value) <= maximum else None
 
 
+CORE_COMPONENT = "django-skeleton"
+# The core version the operator chose (#653): only a preference of this session, never trust; the
+# agent revalidates every step, and the target is checked against the fresh paths on every use.
+TARGET_SESSION_KEY = "skeleton_updates_core_target"
+TARGET_UNREACHABLE = gettext_lazy(
+    "A versão {target} escolhida deixou de ser alcançável a partir da instalada (índice vencido, "
+    "versão retirada ou linha intermediária faltando). Verifique as fontes e escolha outra."
+)
+
+
+def _steps(value):
+    return [
+        {"version": step["version"], "source_id": step["source_id"]}
+        for step in (value if isinstance(value, list) else [])
+        if isinstance(step, dict) and _text(step.get("version")) and _text(step.get("source_id"))
+    ]
+
+
 def update_paths(status, names=None):
     """Cards of the agent's update paths (#500); unexpected shapes are dropped, never a 500."""
     names = names or {}
@@ -428,15 +447,17 @@ def update_paths(status, names=None):
     for path in status.get("paths") or () if isinstance(status, dict) else ():
         if not isinstance(path, dict) or not _text(path.get("component_id")):
             continue
-        steps = [
-            {"version": step["version"], "source_id": step["source_id"]}
-            for step in (path.get("steps") if isinstance(path.get("steps"), list) else [])
-            if isinstance(step, dict) and _text(step.get("version")) and _text(step.get("source_id"))
-        ]
+        steps = _steps(path.get("steps"))
+        targets = []
+        if path["component_id"] == CORE_COMPONENT:
+            for target in path.get("targets") if isinstance(path.get("targets"), list) else ():
+                target_steps = _steps(target.get("steps")) if isinstance(target, dict) else []
+                if target_steps and _text(target.get("version")) == target_steps[-1]["version"]:
+                    targets.append({"version": target["version"], "steps": target_steps})
         latest = _text(path.get("latest"))
         blocked = BLOCKED_TEXT.get(path.get("blocked"))
         component = path["component_id"]
-        default = gettext("Núcleo") if component == "django-skeleton" else component
+        default = gettext("Núcleo") if component == CORE_COMPONENT else component
         cards.append(
             {
                 "component_id": component,
@@ -445,9 +466,41 @@ def update_paths(status, names=None):
                 "latest": latest,
                 "steps": steps,
                 "blocked": str(blocked).format(latest=latest or "—") if blocked else None,
+                "targets": targets,
+                "target": None,
             }
         )
     return cards
+
+
+def _version_at_least(installed, target):
+    try:
+        return Version(installed) >= Version(target)
+    except (InvalidVersion, TypeError):
+        return False
+
+
+def toward_target(cards, target):
+    """The core card steered to the chosen ``target`` (#653); returns ``(cards, reached)``.
+
+    Reachable: the steps to it. Reached (installed at or above it): no core step. Otherwise no
+    step and the refusal, so a stale choice never falls back to another version silently.
+    """
+    if not target:
+        return cards, False
+    reached = False
+    for card in cards:
+        if card["component_id"] != CORE_COMPONENT:
+            continue
+        chosen = next((item for item in card["targets"] if item["version"] == target), None)
+        card["target"] = target
+        if _version_at_least(card["installed"], target):
+            card["steps"], card["blocked"], reached = [], None, True
+        elif chosen is not None:
+            card["steps"], card["blocked"] = chosen["steps"], None
+        else:
+            card["steps"], card["blocked"] = [], str(TARGET_UNREACHABLE).format(target=target)
+    return cards, reached
 
 
 def _source_rows(status):
@@ -497,6 +550,15 @@ def available(request):
         _error(request, exc)
     status = status if isinstance(status, dict) else {}
     paths = update_paths(status, _component_names() if status.get("paths") else {})
+    target = _text(request.GET.get("target"), 64)
+    if target is None:
+        target = request.session.get(TARGET_SESSION_KEY)
+    elif target == "latest":  # The default path again: forget the chosen version.
+        request.session.pop(TARGET_SESSION_KEY, None)
+        target = None
+    paths, reached = toward_target(paths, target)
+    if reached:
+        request.session.pop(TARGET_SESSION_KEY, None)
     return render(
         request,
         "skeleton/web/platform/updates/available.html",
@@ -690,6 +752,24 @@ def add_dependency(request):
         return _preview_failure(request, form, exc)
 
 
+def _target_refusal(identifiers, target):
+    """Why the posted core ``target`` cannot be followed now (#653), or ``None``.
+
+    The form is untrusted: the target must be one the fresh paths offer, and the step must be
+    the first one toward it. The agent still revalidates the step (lines, downgrade, signature).
+    """
+    if len(target) > 64:
+        return str(TARGET_UNREACHABLE).format(target="—")
+    cards, _reached = toward_target(update_paths(agent_client().update_status()), target)
+    core = next((card for card in cards if card["component_id"] == CORE_COMPONENT), None)
+    if core is None or not core["steps"]:
+        return core["blocked"] if core and core["blocked"] else str(TARGET_UNREACHABLE).format(target=target)
+    first = core["steps"][0]
+    if (first["version"], first["source_id"]) != (identifiers["version"], identifiers["source_id"]):
+        return str(TARGET_UNREACHABLE).format(target=target)
+    return None
+
+
 @platform_page(capability="updates.operate", writes=True)
 @require_http_methods(["POST"])
 @recent_authentication_required
@@ -698,6 +778,15 @@ def fetch_release(request):
         identifiers = {name: request.POST.get(name, "") for name in ("component_id", "version", "source_id")}
         if any(not value or len(value) > 128 for value in identifiers.values()):
             return HttpResponse(gettext("Identificação de release inválida."), status=400)
+        target = request.POST.get("target", "")
+        if identifiers["component_id"] == CORE_COMPONENT and target:
+            refusal = _target_refusal(identifiers, target)
+            if refusal is not None:
+                messages.error(request, refusal)
+                return redirect("platform:updates-available")
+            request.session[TARGET_SESSION_KEY] = target
+        elif identifiers["component_id"] == CORE_COMPONENT:
+            request.session.pop(TARGET_SESSION_KEY, None)
         artifact = agent_client().fetch_release(**identifiers)
         digest, action = plan_artifact(artifact)
         blocking = _agent_behind(artifact)
@@ -857,7 +946,12 @@ def operation(request, operation_id):
     next_steps = None
     if row.state == "succeeded":
         try:
-            next_steps = [card for card in update_paths(agent_client().update_status()) if card["steps"]]
+            cards, reached = toward_target(
+                update_paths(agent_client().update_status()), request.session.get(TARGET_SESSION_KEY)
+            )
+            if reached:
+                request.session.pop(TARGET_SESSION_KEY, None)
+            next_steps = [card for card in cards if card["steps"] or (card["target"] and card["blocked"])]
         except (ValueError, RuntimeError, OSError, TypeError):
             next_steps = None  # Only hides the section; the operation page never breaks for it.
     return render(

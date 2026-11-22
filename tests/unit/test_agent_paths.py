@@ -80,3 +80,46 @@ def test_steps_are_bounded():
 def test_malformed_entries_are_never_steps(bad):
     result = path("0.5.2", [{**entry("0.6.0"), **bad}])
     assert result["steps"] == []
+
+
+# --------------------------------------------------------------------------- chosen target (#653)
+
+PUBLISHED = [entry("0.3.1"), entry("0.4.0"), entry("0.4.2"), entry("0.5.0")]
+
+
+def test_reachable_targets_are_the_newest_of_each_line():
+    from deployment_agent.paths import reachable_targets
+
+    targets = reachable_targets("0.3.0", PUBLISHED, enforce_lines=True)
+    assert [target["version"] for target in targets] == ["0.3.1", "0.4.2", "0.5.0"]
+    chosen = targets[-1]["steps"]
+    assert [step["version"] for step in chosen] == ["0.4.2", "0.5.0"]
+    full = component_path("django-skeleton", "core", "0.3.0", PUBLISHED, enforce_lines=True, with_targets=True)
+    assert full["targets"] == targets and "targets" not in path("0.3.0", PUBLISHED)
+
+
+def test_steps_to_a_target(subtests):
+    from deployment_agent.paths import steps_to
+
+    for case, installed, entries, target, expected in (
+        ("patch skipped", "0.3.0", PUBLISHED, "0.4.2", ["0.4.2"]),
+        ("older patch of a line", "0.3.0", PUBLISHED, "0.4.0", ["0.4.0"]),
+        ("same line", "0.3.0", PUBLISHED, "0.3.1", ["0.3.1"]),
+        ("missing intermediate line", "0.3.0", [entry("0.3.1"), entry("0.5.0")], "0.5.0", None),
+        ("not published", "0.3.0", PUBLISHED, "0.4.1", None),
+        ("installed already", "0.5.0", PUBLISHED, "0.5.0", None),
+        ("downgrade", "0.5.0", PUBLISHED, "0.4.2", None),
+        ("incompatible target", "0.3.0", [entry("0.3.1", compatible=False)], "0.3.1", None),
+        ("not a version", "0.3.0", PUBLISHED, "latest", None),
+    ):
+        with subtests.test(case=case):
+            steps = steps_to(installed, entries, target, enforce_lines=True)
+            assert (None if steps is None else [step["version"] for step in steps]) == expected
+
+
+def test_jumps_allowed_reach_a_target_in_one_step():
+    from deployment_agent.paths import steps_to
+
+    entries = [entry("0.3.1"), entry("0.5.0", from_versions=">=0.3.0,<=0.5.0")]
+    assert steps_to("0.3.0", entries, "0.5.0", enforce_lines=True) is None
+    assert [step["version"] for step in steps_to("0.3.0", entries, "0.5.0", enforce_lines=False)] == ["0.5.0"]

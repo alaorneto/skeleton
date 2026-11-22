@@ -257,13 +257,16 @@ def expiring(monkeypatch):
 
 
 def core_path(installed="0.6.0", latest=None, steps=(), blocked=None):
+    steps = list(steps)
     return {
         "component_id": "django-skeleton",
         "kind": "core",
         "installed": installed,
         "latest": latest,
-        "steps": list(steps),
+        "steps": steps,
         "blocked": blocked,
+        # One step per line here: every step is also a target the operator may choose (#653).
+        "targets": [{"version": step["version"], "steps": steps[: index + 1]} for index, step in enumerate(steps)],
     }
 
 

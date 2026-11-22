@@ -64,8 +64,11 @@ CONFIG=/srv/skeleton/private/agent.json
 
 1. Em "Fontes", cadastre o repositório (`dono/nome`) e escolha o publicador entre os aprovados no servidor. Sem nenhuma fonte GitHub, o formulário já sugere o repositório oficial, `alaorneto/skeleton`.
 2. Em "Novas versões", "Verificar agora" consulta as fontes. A página mostra a última consulta e, para o núcleo e cada app, a versão instalada, a mais nova e os passos.
-3. "Preparar este passo" (só no primeiro passo) baixa o pacote pelo agente e abre o plano. Confirme como no envio por arquivo.
-4. Ao fim da operação, a página dela oferece o próximo passo, até não haver mais atualizações pendentes.
+3. Para o núcleo, "Atualizar até a versão" escolhe o alvo entre as versões alcançáveis a partir da instalada (#653): a mais nova de cada linha que o caminho alcança, lida dos índices verificados, sem rede; a mais nova de todas vem marcada. De `0.3.0`, com `0.3.1`, `0.4.0`, `0.4.2` e `0.5.0` publicadas, os alvos são `0.3.1`, `0.4.2` e `0.5.0`, e escolher `0.5.0` mostra os passos `0.4.2 → 0.5.0`. Sem escolha, o alvo é a mais nova alcançável. Apps seguem sempre até a mais nova.
+4. "Preparar este passo" (só no primeiro passo) baixa o pacote pelo agente e abre o plano. Confirme como no envio por arquivo: cada passo tem prévia e confirmação próprias, com autenticação recente e `updates.operate`; nada é aplicado sozinho.
+5. Ao fim da operação, a página dela oferece o próximo passo rumo ao alvo escolhido; ao chegar nele, nenhum passo do núcleo é oferecido e a escolha é esquecida.
+
+O alvo fica só na sessão de quem escolheu e nunca vale como confiança: a tela confere de novo, a cada passo, que ele continua entre os alcançáveis e que o passo pedido é o primeiro rumo a ele, e o agente revalida o passo (assinatura, linha minor, versão abaixo da instalada). Um alvo que deixou de ser alcançável (índice vencido, versão retirada, linha intermediária faltando) é recusado com aviso, nunca trocado por outra versão.
 
 Pelo shell: `check-updates`, `update-status` (sem rede), `sources` e `fetch-release <component_id> <versão> <source_id>`.
 
@@ -237,7 +240,7 @@ Num servidor de teste Linux com systemd e PostgreSQL, com um repositório de tes
 4. Cadastre em "Fontes" o `dono/nome` do repositório de teste; "Verificar agora"; confira o caminho com dois passos e o botão só no primeiro.
 5. Tente enviar direto o pacote da segunda linha; confira a recusa com o texto de salto de versão.
 6. Atualize o agente pela tela; confira a versão nova em "Versões instaladas".
-7. Conclua os dois passos; confira que a página da operação oferece o passo seguinte e que a faixa de aviso some no fim.
+7. Conclua os dois passos; confira que a página da operação oferece o passo seguinte e que a faixa de aviso some no fim. Com três releases em linhas seguidas, escolha em "Atualizar até a versão" a do meio, conclua os passos até ela e confira que, ao chegar, nenhum passo do núcleo é oferecido (#653).
 8. Rode `agent-rollback` e reinicie; confira a versão anterior do agente.
 9. Numa instalação sem agente (`compose.sandbox.yaml`), defina `SKELETON_UPDATE_REPOSITORY`, rode o job e veja a faixa informativa.
 10. Confira nos logs do agente e do web que nenhum token, chave ou URL de download assinada aparece.
