@@ -4,7 +4,9 @@ Lists every catalog key with its effective origin (environment, instance SQLite,
 lets the platform administrator change the keys that the environment does not override.
 Secrets are never rendered: the page shows only whether one is set. Every change needs a
 recent authentication and is recorded in the store's change log and as a security event,
-always without the value. Changes take effect after a restart.
+always without the value. Changes take effect after a restart. In cluster mode (#673) the page
+is read-only: the configuration comes from the environment of every node, and both writes answer
+409 ``instance_cluster_mode``.
 """
 
 from __future__ import annotations
@@ -12,13 +14,14 @@ from __future__ import annotations
 from django import forms
 from django.conf import settings
 from django.contrib import messages
+from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.http import require_http_methods
 
 from skeleton.accounts.reauthentication import recent_authentication_required
 from skeleton.common.logging import security_event
-from skeleton.instance.resolve import ORIGIN_ENV, resolve_instance_settings
+from skeleton.instance.resolve import ORIGIN_ENV, is_cluster, resolve_instance_settings
 from skeleton.instance.schema import CATALOG
 from skeleton.instance.writer import can_clear, clear_setting, write_setting
 
@@ -33,7 +36,7 @@ class SettingForm(forms.Form):
     value = forms.CharField(required=False, max_length=2000, strip=False)
 
 
-def _rows():
+def _rows(cluster: bool):
     rows = []
     for item in resolve_instance_settings(settings.BASE_DIR):
         spec = CATALOG[item.key]
@@ -52,19 +55,28 @@ def _rows():
                 "secret": spec.secret,
                 "origin": item.origin,
                 "value": shown,
-                "editable": item.origin != ORIGIN_ENV,
-                "clearable": item.origin == "instance" and can_clear(spec),
+                "editable": not cluster and item.origin != ORIGIN_ENV,
+                "clearable": not cluster and item.origin == "instance" and can_clear(spec),
             }
         )
     return rows
 
 
 def _page(request, *, form=None, status=200):
+    cluster = is_cluster()
     return render(
         request,
         "skeleton/web/platform/instance.html",
-        {"platform_section": "instance", "rows": _rows(), "form": form, "mask": MASK},
+        {"platform_section": "instance", "rows": _rows(cluster), "form": form, "mask": MASK, "cluster": cluster},
         status=status,
+    )
+
+
+def _cluster_refusal() -> HttpResponse:
+    return HttpResponse(
+        gettext("instance_cluster_mode: no modo cluster a configuração vem do ambiente de cada nó."),
+        status=409,
+        content_type="text/plain; charset=utf-8",
     )
 
 
@@ -90,6 +102,8 @@ def instance(request):
 @require_http_methods(["POST"])
 @recent_authentication_required
 def instance_setting(request):
+    if is_cluster():
+        return _cluster_refusal()
     form = SettingForm(request.POST)
     if set(request.POST) - {"key", "action", "value", "csrfmiddlewaretoken"} or not form.is_valid():
         return _page(request, form=form, status=400)
@@ -129,6 +143,8 @@ def instance_setting(request):
 def instance_restart(request):
     from skeleton.setup.restart import request_restart
 
+    if is_cluster():
+        return _cluster_refusal()
     how = request_restart()
     security_event("instance.restart_requested", reason_code=how, source=f"platform:{request.user.pk}")
     if how == "manual":

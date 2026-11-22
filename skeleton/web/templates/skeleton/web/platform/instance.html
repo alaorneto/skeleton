@@ -3,7 +3,8 @@
 {% block content %}
 <div class="page-header"><div class="min-w-0"><h1>{% translate "Configuração da instância" %}</h1>
 <p class="page-description">{% translate "Chaves do catálogo e a origem de cada valor: o ambiente vence o SQLite da instância, que vence o padrão. Chaves que vêm do ambiente ficam somente leitura. Segredos nunca são exibidos. As mudanças valem depois do reinício." %}</p></div>
-<form method="post" action="{% url 'platform:instance-restart' %}">{% csrf_token %}<button type="submit" class="btn btn-secondary">{% translate "Pedir reinício" %}</button></form></div>
+{% if not cluster %}<form method="post" action="{% url 'platform:instance-restart' %}">{% csrf_token %}<button type="submit" class="btn btn-secondary">{% translate "Pedir reinício" %}</button></form>{% endif %}</div>
+{% if cluster %}<div class="alert mb-4" role="status">{% include "skeleton/web/components/icon.html" with name="info" %}<div class="min-w-0">{% translate "Configuração gerida pelo ambiente (modo cluster): os mesmos valores valem em todos os nós. Mude o arquivo de ambiente ou o cofre de segredos e reinicie os nós." %}</div></div>{% endif %}
 {% if form and form.errors %}{% include "skeleton/web/components/form-errors.html" %}{% endif %}
 <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Chave" %}</th><th scope="col">{% translate "Origem" %}</th><th scope="col">{% translate "Valor" %}</th><th scope="col">{% translate "Alterar" %}</th></tr></thead><tbody>
 {% for row in rows %}<tr>
@@ -15,7 +16,7 @@
     <input id="value-{{ row.key }}" name="value" {% if row.secret %}type="password" autocomplete="new-password" placeholder="{% translate "novo valor" %}"{% else %}type="text" value="{{ row.value }}"{% endif %}>
     <button type="submit" name="action" value="set" class="btn btn-primary btn-sm">{% translate "Gravar" %}</button>
     {% if row.clearable %}<button type="submit" name="action" value="clear" class="btn btn-secondary btn-sm">{% translate "Voltar ao padrão" %}</button>{% endif %}
-  </form>{% else %}<span class="text-body-subtle">{% translate "Somente leitura (ambiente)" %}</span>{% endif %}</td>
+  </form>{% elif cluster %}<span class="text-body-subtle">{% translate "Somente leitura (modo cluster)" %}</span>{% else %}<span class="text-body-subtle">{% translate "Somente leitura (ambiente)" %}</span>{% endif %}</td>
 </tr>{% endfor %}
 </tbody></table></div>
 <p class="mt-4 text-sm/6 text-body-subtle">{% translate "Cada alteração exige autenticação recente e fica registrada (chave, ação e quem alterou, nunca o valor). A URL do banco passa pela mesma validação de privilégios do setup." %}</p>

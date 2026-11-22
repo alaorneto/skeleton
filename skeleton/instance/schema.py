@@ -495,6 +495,9 @@ _SPECS = (
     ),
     SettingSpec("files_backend", "SKELETON_FILES_BACKEND", "str", "Armazenamento de anexos", _choice("local", "s3")),
     SettingSpec("files_root", "SKELETON_FILES_ROOT", "path", "Pasta local dos anexos", _required_text),
+    SettingSpec(
+        "files_shared", "SKELETON_FILES_SHARED", "bool", "Pasta dos anexos compartilhada por todos os nós", _bool
+    ),
     SettingSpec("files_s3_bucket", "SKELETON_FILES_S3_BUCKET", "str", "Bucket S3 dos anexos", _required_text),
     SettingSpec("files_s3_region", "SKELETON_FILES_S3_REGION", "str", "Região S3", _required_text),
     SettingSpec("files_s3_endpoint", "SKELETON_FILES_S3_ENDPOINT", "str", "Endpoint S3", _required_text),
@@ -508,6 +511,7 @@ BOOTSTRAP_ENV = (
     "DJANGO_SETTINGS_MODULE",
     "SKELETON_INSTANCE_DB",
     "SKELETON_INSTANCE_KEY_FILE",
+    "SKELETON_INSTANCE_MODE",
     "SKELETON_PROJECT_ROOT",
     "SKELETON_DEPLOYMENT_INVENTORY",
     "SKELETON_MAINTENANCE_MARKER",

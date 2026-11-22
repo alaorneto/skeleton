@@ -27,6 +27,15 @@ def production_settings(base):
     DEBUG = base["DEBUG"]
     from django.core.exceptions import ImproperlyConfigured
 
+    if base["SKELETON_INSTANCE_MODE"] == "cluster":
+        # Cluster mode never enters the setup (#673): say what the environment lacks, without values.
+        from skeleton.instance.resolve import missing_for_setup
+
+        missing = missing_for_setup(BASE_DIR)
+        if missing:
+            raise ImproperlyConfigured(
+                "Modo cluster: faltam no ambiente as chaves " + ", ".join(missing) + " (o setup não roda em cluster)."
+            )
     SECRET_KEY = env("DJANGO_SECRET_KEY")
     ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS")
     organization_base = base["SKELETON_ORGANIZATION_BASE_DOMAIN"]

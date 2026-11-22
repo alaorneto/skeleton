@@ -4,12 +4,14 @@ import environ
 
 from skeleton.conf.mailers import mailer_from_url
 from skeleton.conf.paths import project_root
-from skeleton.instance.resolve import instance_env, instance_paths
+from skeleton.instance.resolve import instance_env, instance_mode, instance_paths
 
 BASE_DIR = project_root()
 environ.Env.read_env(BASE_DIR / ".env", overwrite=False)
 # Catalog keys resolve environment > instance SQLite > default (#143); other names read the environment.
 env = instance_env(BASE_DIR)
+# standalone (default) or cluster (#673): in cluster the configuration is the environment only.
+SKELETON_INSTANCE_MODE = instance_mode()
 SECRET_KEY = env("DJANGO_SECRET_KEY", default="development-only-not-for-deployment")
 DEBUG = False
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.1", "testserver"])
@@ -198,6 +200,8 @@ FILE_UPLOAD_HANDLERS = [
     "django.core.files.uploadhandler.TemporaryFileUploadHandler",
 ]
 # Default quota of live attachment bytes per organization (empty: unlimited); the platform overrides it.
+# SKELETON_FILES_ROOT is a volume shared by every node (NFS, EFS, CephFS); checked in cluster mode (#673).
+SKELETON_FILES_SHARED = env.bool("SKELETON_FILES_SHARED", default=False)
 SKELETON_FILES_ORG_QUOTA_BYTES = env.int("SKELETON_FILES_ORG_QUOTA_BYTES", default=0) or None
 # Deleted attachments keep their bytes this long, then files.purge removes them (#192).
 SKELETON_FILES_DELETED_RETENTION_DAYS = env.int("SKELETON_FILES_DELETED_RETENTION_DAYS", default=90)

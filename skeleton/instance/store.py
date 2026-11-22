@@ -151,6 +151,14 @@ class InstanceStore:
             connection.execute("COMMIT")
         return bool(removed)
 
+    def log_change(self, key: str, action: str, source: str) -> None:
+        """A change-log row without any value (an export, #673)."""
+        with closing(self._connect(create=False)) as connection:
+            connection.execute(
+                "INSERT INTO change_log (key, action, source, changed_at) VALUES (?, ?, ?, ?)",
+                (key, action, source, _now()),
+            )
+
     def changes(self) -> list[tuple[str, str, str, str]]:
         if not self.exists():
             return []
