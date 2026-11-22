@@ -802,6 +802,40 @@ O worker (`manage.py run_worker`) e o agendador de periódicos (`manage.py run_s
 | `start` (depois do cutover) | Executa o hook `restart` e depois `worker_restart`: o worker sobe com o código do release novo |
 | Compose | Liste os serviços em `"compose": {"worker_services": ["worker", "scheduler"]}`. O agente gera para eles o mesmo override de imagem e ambiente runtime do web (recusa `MIGRATION_DATABASE_URL`), para-os com `compose stop` no `drain` e os recria com `compose up --force-recreate` no `start` |
 
+### Serviços em containers sem socket Docker
+
+Em containers (Compose, Coolify), o agente controla `web`, `worker` e `scheduler` sem acesso ao Docker (#651): o socket Docker equivale a root no host, e o Coolify gera o próprio projeto Compose, que desfaria o que o agente recriasse. Cada container de aplicação parte pelo **inicializador** `python -m deployment_agent.launcher` (biblioteca padrão apenas), e os dois lados conversam por arquivos em volumes compartilhados:
+
+| Arquivo | Quem grava | Conteúdo |
+|---|---|---|
+| `<control_root>/<serviço>/request.json` | só o agente (o container monta só leitura) | `{"id", "action", "release", "operation"}`, com `action` `stop` ou `restart`, gravado de forma atômica |
+| `<state_root>/<serviço>/state.json` | só o inicializador daquele serviço (o agente monta só leitura) | `{"id", "state", "release", "pid"}`: o último pedido aplicado e o estado `running`, `stopped`, `waiting` (sem release ativo), `failed` (com `reason`) ou `exited` |
+
+O inicializador resolve o ponteiro do release ativo e recusa um que saia da raiz de releases (`active_release_outside_root`) ou que não tenha `.venv` (`active_release_incomplete`); executa o comando com o virtualenv e o ambiente que o agente dá a um release (`SKELETON_PROJECT_ROOT`, `SKELETON_DEPLOYMENT_INVENTORY`, `STATIC_ROOT`, `PYTHONPATH`), trocando `{release}`, `{venv}` e `{python}` no comando, e tira `MIGRATION_DATABASE_URL` do ambiente do processo filho. Sem release ativo, espera (`waiting`) e sobe assim que houver um. Cada pedido é aplicado uma vez só (pelo `id`): `stop` manda SIGTERM, espera `--grace` segundos (depois SIGKILL) e fica parado, também depois de o container reiniciar; `restart` para o filho e sobe o release que o ponteiro indica agora. Um pedido malformado vai para o log e é ignorado. Um filho que termina sozinho encerra o inicializador com o código dele, e vale a política de reinício do container.
+
+```sh
+python -m deployment_agent.launcher --service worker --control /control --state /control-state \
+  --releases-root /releases --active /releases/current --grace 300 \
+  -- {python} manage.py run_worker --queues default
+```
+
+No agente, a chave opcional `service_control` (`control_root` e `state_root` absolutos e diferentes, `timeout` positivo em segundos, padrão `command_timeout`; senão `invalid_service_control`) liga o subcomando `control`, usado como hook fixo do backend diretório. Ele grava um pedido por serviço e só retorna quando todos confirmaram, ou falha com `service_control_timeout` ou `service_control_failed` (sem `service_control`, `service_control_not_configured`):
+
+```json
+{
+  "service_control": {"control_root": "/control", "state_root": "/control-state", "timeout": 1800},
+  "commands": {
+    "drain": ["/opt/agent/bin/skeleton-deployment-agent", "--config", "/agent/agent.json", "control", "stop", "web"],
+    "stop": ["/opt/agent/bin/skeleton-deployment-agent", "--config", "/agent/agent.json", "control", "stop", "web"],
+    "restart": ["/opt/agent/bin/skeleton-deployment-agent", "--config", "/agent/agent.json", "control", "restart", "web", "--release", "{release}"],
+    "worker_stop": ["/opt/agent/bin/skeleton-deployment-agent", "--config", "/agent/agent.json", "control", "stop", "worker", "scheduler"],
+    "worker_restart": ["/opt/agent/bin/skeleton-deployment-agent", "--config", "/agent/agent.json", "control", "restart", "worker", "scheduler"]
+  }
+}
+```
+
+Ninguém recebe privilégio Docker: o agente só pede parar e reiniciar os serviços de aplicação, e o container de aplicação só lê o volume de releases e o próprio diretório de controle. Instalações com systemd continuam com os hooks de `systemctl`.
+
 `worker_stop` e `worker_restart` são opcionais, mas vêm juntos: só um deles é recusado (`incomplete_worker_commands`). Um nome inválido ou repetido em `worker_services`, ou igual ao do web ou do migrator, é recusado (`invalid_compose_worker_services`). Sem eles, o worker só pausa pelo marcador de manutenção (heartbeat `paused`), o que não interrompe um job em execução.
 
 **Deploy manual** (sem o agente): pare o worker e o agendador **antes** de `migrate` e suba-os depois do restart do web:

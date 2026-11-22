@@ -142,6 +142,20 @@ def _validate_optional(values: JSON) -> None:
             value = values[key]
             if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
                 raise AgentError("invalid_numeric_setting")
+    control = values.get("service_control")
+    if control is not None and (
+        not isinstance(control, dict)
+        or set(control) - {"control_root", "state_root", "timeout"}
+        or not _absolute(control.get("control_root"))
+        or not _absolute(control.get("state_root"))
+        or control["control_root"] == control["state_root"]
+        or (
+            "timeout" in control
+            and (isinstance(control["timeout"], bool) or not isinstance(control["timeout"], (int, float)))
+        )
+        or control.get("timeout", 1) <= 0
+    ):
+        raise AgentError("invalid_service_control")  # Containers without the Docker socket (#651).
     # Self-update (#497): the agent's own versions live under agent_root.
     if "agent_root" in values and (not _absolute(values["agent_root"]) or not Path(values["agent_root"]).is_dir()):
         raise AgentError("invalid_agent_root")
