@@ -16,10 +16,26 @@ ROOT = Path(__file__).resolve().parents[2]
 PYTHON = str(ROOT / ".venv/bin/python")
 
 
+def render(env, *arguments):
+    result = subprocess.run(
+        ["docker", "compose", *arguments, "config", "--format", "json"],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return json.loads(result.stdout)
+
+
 @pytest.fixture
-def composition():
+def composition(tmp_path):
     if shutil.which("docker") is None:
         pytest.skip("Renderizar o Compose exige o CLI do Docker.")
+    # The production file is an application node of a cluster (#685): its variables and the
+    # instance file exported by instance export-env (here nearly empty: the overrides below win).
+    instance = tmp_path / "instance.env"
+    instance.write_text("SKELETON_PUBLIC_URL=https://production.example.test\n", encoding="utf-8")
     env = dict(
         os.environ,
         POSTGRES_PASSWORD="disposable-pg-password",
@@ -37,20 +53,24 @@ def composition():
         DJANGO_TRUST_PROXY="true",
         DJANGO_CSRF_TRUSTED_ORIGINS="https://frontend.example.test",
         DJANGO_HEALTH_HOST="production.example.test",
+        SKELETON_INSTANCE_ENV_FILE=str(instance),
+        SKELETON_NODE_ID="node-a",
+        SKELETON_CLUSTER_URL="https://node-a.internal:9443",
+        SKELETON_CLUSTER_DIR=str(tmp_path),
+        SKELETON_RUNTIME_DATABASE_URL="postgres://skeleton_runtime:fixture@db.example.test:5432/skeleton",
+        DATA_BIND_ADDRESS="10.0.0.5",
+        DATA_CLIENT_CIDR="10.0.1.0/24",
+        DATA_TLS_DIR=str(tmp_path),
+        POSTGRES_PORT="5433",
+        REDIS_PORT="6380",
     )
-    result = subprocess.run(
-        ["docker", "compose", "config", "--format", "json"],
-        cwd=ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return json.loads(result.stdout), env
+    return render(env), env
 
 
 def test_rd07_rendered_redis_health_authenticates_real_server(composition, tmp_path):
-    config, env = composition
+    _, env = composition
+    # Redis lives on the data server since #679/#685.
+    config = render(env, "-p", "rd07", "-f", "deploy/data-server/compose.yaml")
     server = shutil.which("redis-server") or str(ROOT / ".private/runtime/redis/redis-8.8.3/src/redis-server")
     cli = shutil.which("redis-cli") or str(ROOT / ".private/runtime/redis/redis-8.8.3/src/redis-cli")
     socket_path = str(tmp_path / "redis.sock")
@@ -93,8 +113,8 @@ def test_rd08_compose_forwarding_enables_https_and_trusted_csrf_origin(compositi
     web = config["services"]["web"]["environment"]
     assert "DJANGO_TRUST_PROXY" not in web and web["DJANGO_SETTINGS_MODULE"] == "config.settings.production"
     env.update(web)
-    env.pop("SKELETON_INSTANCE_DB")
-    env.pop("SKELETON_INSTANCE_KEY_FILE")
+    env.pop("SKELETON_INSTANCE_DB", None)
+    env.pop("SKELETON_INSTANCE_KEY_FILE", None)
     code = """
 import django; django.setup()
 from django.http import HttpResponse
