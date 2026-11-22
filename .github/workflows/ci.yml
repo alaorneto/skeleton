@@ -353,6 +353,30 @@ jobs:
             echo "compose.sandbox.yaml aceitou REDIS_PASSWORD ausente" >&2
             exit 1
           fi
+      - name: Validar o compose do servidor de dados (#679)
+        env:
+          DATA_BIND_ADDRESS: 10.0.0.5
+          DATA_CLIENT_CIDR: 10.0.1.0/24
+          DATA_TLS_DIR: /srv/data/tls
+          POSTGRES_PORT: "5433"
+          REDIS_PORT: "6380"
+          POSTGRES_PASSWORD: ci
+          SKELETON_OWNER_DB_PASSWORD: ci
+          SKELETON_RUNTIME_DB_PASSWORD: ci
+          REDIS_PASSWORD: ci
+        run: |
+          config=$(docker compose -p ci-a -f deploy/data-server/compose.yaml --profile pooler config --format json)
+          # Só o endereço privado do servidor de dados; nada em 0.0.0.0.
+          echo "$config" | jq -e '[.services[] | .ports[]? | .host_ip] | all(. == "10.0.0.5")'
+          echo "$config" | jq -e '.services.postgres.environment.DATA_CLIENT_CIDR == "10.0.1.0/24"'
+          echo "$config" | jq -e '.services.postgres.command | index("ssl=on") != null'
+          # Sem uma variável obrigatória, o compose recusa.
+          for name in DATA_BIND_ADDRESS DATA_CLIENT_CIDR DATA_TLS_DIR POSTGRES_PORT SKELETON_RUNTIME_DB_PASSWORD REDIS_PASSWORD; do
+            if env -u "$name" docker compose -p ci-a -f deploy/data-server/compose.yaml config --quiet 2>/dev/null; then
+              echo "deploy/data-server/compose.yaml aceitou $name ausente" >&2
+              exit 1
+            fi
+          done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: core-wheel

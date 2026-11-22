@@ -124,3 +124,39 @@ def pooler_checks(app_configs=None, databases=None, **kwargs):
         with connections[alias].cursor() as cursor:
             problems.extend(pooler_search_path_problems(alias, cursor))
     return problems
+
+
+def other_databases(cursor) -> list[str]:
+    """The databases of the cluster, besides this one and the templates, the role may connect to."""
+    cursor.execute(
+        "SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate"
+        " AND datname <> current_database() AND has_database_privilege(current_user, datname, 'CONNECT')"
+        " ORDER BY datname"
+    )
+    return [row[0] for row in cursor.fetchall()]
+
+
+@register("database")
+def cluster_isolation_checks(app_configs=None, databases=None, **kwargs):
+    """skeleton.W051: one PostgreSQL cluster per instance (#679); the runtime role reaches only its database."""
+    from django.conf import settings
+    from django.db import connections
+
+    problems = []
+    for alias in databases or ():
+        if settings.DATABASES.get(alias, {}).get("ENGINE") != POSTGRESQL_ENGINE:
+            continue
+        with connections[alias].cursor() as cursor:
+            reachable = other_databases(cursor)
+        if reachable:
+            problems.append(
+                Warning(
+                    f"DATABASES[{alias!r}]: the role may connect to other databases of its cluster: "
+                    + ", ".join(reachable)
+                    + ".",
+                    hint="Run one PostgreSQL cluster per instance and REVOKE CONNECT ON DATABASE <name> FROM PUBLIC "
+                    "on the others (deploy/data-server/).",
+                    id="skeleton.W051",
+                )
+            )
+    return problems

@@ -11,4 +11,14 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
     -v runtime_password="$SKELETON_RUNTIME_DB_PASSWORD" <<'SQL'
 ALTER ROLE skeleton_owner PASSWORD :'owner_password';
 ALTER ROLE skeleton_runtime PASSWORD :'runtime_password';
+-- One cluster per instance (#679): the instance's roles reach only its own database.
+REVOKE CONNECT ON DATABASE postgres FROM PUBLIC;
 SQL
+
+# The followers' role of a cluster of agents (#678), only when the variable is set.
+if [ -n "${SKELETON_AGENT_DB_PASSWORD:-}" ]; then
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+        -v agent_password="$SKELETON_AGENT_DB_PASSWORD" <<'SQL'
+ALTER ROLE skeleton_agent PASSWORD :'agent_password';
+SQL
+fi
