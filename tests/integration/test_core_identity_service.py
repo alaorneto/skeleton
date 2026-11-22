@@ -139,6 +139,46 @@ def test_update_my_preferences_with_cas(scenario):
 
 
 @pytest.mark.needs_example_app
+def test_update_my_preferences_changes_the_color_scheme_with_cas(scenario):
+    service = IdentityService()
+    with acting_as(scenario.member, scenario.a) as actor:
+        me = service.me(actor=actor)
+    assert me.color_scheme == ""  # A new profile follows the system (#666).
+    updated = scenario.caller(
+        lambda actor: service.update_my_preferences(actor=actor, expected_revision=me.revision, color_scheme="dark")
+    )()
+    assert (updated.color_scheme, updated.revision) == ("dark", me.revision + 1)
+    first = scenario.caller(
+        lambda actor: service.update_my_preferences(actor=actor, expected_revision=me.revision + 1, color_scheme="")
+    )
+    second = scenario.caller(
+        lambda actor: service.update_my_preferences(
+            actor=actor, expected_revision=me.revision + 1, color_scheme="light"
+        )
+    )
+    assert_cas_conflict(first, second)
+    with acting_as(scenario.member, scenario.a) as actor:
+        current = service.me(actor=actor).revision
+        for value in ("sepia", "DARK", 1):
+            with pytest.raises(InvalidInput):
+                service.update_my_preferences(actor=actor, expected_revision=current, color_scheme=value)
+        with pytest.raises(InvalidInput):
+            service.update_my_profile(
+                actor=actor,
+                expected_user_revision=service.me(actor=actor).user_revision,
+                expected_revision=current,
+                changes=(("color_scheme", "sepia"),),
+            )
+    assert_rejects_other_actor(
+        scenario.caller(
+            lambda actor: service.update_my_preferences(
+                actor=scenario.denied, expected_revision=current, color_scheme="dark"
+            )
+        )
+    )
+
+
+@pytest.mark.needs_example_app
 def test_get_person_reads_membership_user_and_profile_in_one_query(scenario):
     """No separate UserProfile query after the membership (#231)."""
     from django.db import connection

@@ -65,7 +65,12 @@ def _identity(user: Any) -> dict[str, Any]:
         },
         "profile": None
         if profile is None
-        else {"display_name": profile.display_name, "language": profile.language, "timezone": profile.timezone},
+        else {
+            "display_name": profile.display_name,
+            "language": profile.language,
+            "timezone": profile.timezone,
+            "color_scheme": profile.color_scheme,
+        },
         "api_tokens": tokens,
     }
 

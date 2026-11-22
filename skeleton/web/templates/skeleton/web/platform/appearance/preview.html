@@ -1,6 +1,6 @@
 {% extends "skeleton/web/platform/base.html" %}
 {% load i18n %}{% block page_title %}{% blocktranslate trimmed with name=theme_name %}Pré-visualização: {{ name }}{% endblocktranslate %}{% endblock %}
-{% block theme_link %}<link rel="stylesheet" href="{{ preview_css_url }}">{% endblock %}
+{% block theme_link %}<link rel="stylesheet" href="{{ preview_css_url }}{% if color_scheme %}{% if "?" in preview_css_url %}&amp;{% else %}?{% endif %}scheme={{ color_scheme }}{% endif %}">{% endblock %}
 {% block content %}
 <div class="max-w-4xl">
 <div class="page-header">
@@ -18,7 +18,7 @@
 {% if package.footer_text %}<div><dt>{% translate "Rodapé" %}</dt><dd>{{ package.footer_text }}</dd></div>{% endif %}
 <div><dt>{% translate "Digest" %}</dt><dd><code>{{ package.digest }}</code></dd></div>
 </dl></section>{% endif %}
-{% if preview_logo_url %}<section class="card mb-6" aria-labelledby="preview-logo"><h2 id="preview-logo" class="section-heading">{% translate "Logo do tema" %}</h2><picture>{% if preview_logo_dark_url %}<source srcset="{{ preview_logo_dark_url }}" media="(prefers-color-scheme: dark)">{% endif %}<img class="h-8 w-auto max-w-32 rounded-base object-contain" src="{{ preview_logo_url }}" alt="{% translate "Logo do tema" %}"></picture></section>{% endif %}
+{% if preview_logo_url %}<section class="card mb-6" aria-labelledby="preview-logo"><h2 id="preview-logo" class="section-heading">{% translate "Logo do tema" %}</h2>{% if preview_logo_dark_url and color_scheme == "dark" %}<img class="h-8 w-auto max-w-32 rounded-base object-contain" src="{{ preview_logo_dark_url }}" alt="{% translate "Logo do tema" %}">{% elif preview_logo_dark_url and color_scheme != "light" %}<picture><source srcset="{{ preview_logo_dark_url }}" media="(prefers-color-scheme: dark)"><img class="h-8 w-auto max-w-32 rounded-base object-contain" src="{{ preview_logo_url }}" alt="{% translate "Logo do tema" %}"></picture>{% else %}<img class="h-8 w-auto max-w-32 rounded-base object-contain" src="{{ preview_logo_url }}" alt="{% translate "Logo do tema" %}">{% endif %}</section>{% endif %}
 <nav class="link-tabs mb-6" aria-label="{% translate "Abas de exemplo" %}"><a href="#preview-components" aria-current="page">{% translate "Componentes" %}</a><a href="#preview-table">{% translate "Tabela" %}</a><a href="#preview-form">{% translate "Formulário" %}</a></nav>
 <section id="preview-components" class="card mb-6" aria-labelledby="preview-buttons">
   <h2 id="preview-buttons" class="section-heading">{% translate "Botões e selos" %}</h2>

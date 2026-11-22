@@ -49,7 +49,7 @@ O administrador da plataforma define em `/platform/appearance/` o nome do produt
 
 - **Folha do tema:** `base.html` (e o portal e as páginas de erro) põe `<link rel="stylesheet" href="{{ instance_brand.theme_url }}">` no bloco `theme_link`, **depois** do `site.css` e **antes** do `<style nonce>` da organização, que vence pela ordem. Sem tema ativo não há `<link>`: o HTML fica igual ao de antes. O CSS livre nunca é embutido no HTML.
 - **Nome:** `site_name` é o nome da organização no host dela, senão `instance_brand.name`, senão "Skeleton". Os títulos terminam com `· {{ site_name }}` e a plataforma com `Plataforma · {{ site_name }}`.
-- **Logo do cabeçalho:** logo da organização → logo da instância (o enviado ou, sem ele, o do tema ativo de pacote, inclusive SVG) (`components/instance-logo.html`, um `<picture>` com `<source media="(prefers-color-scheme: dark)">` só quando há a variante escura) → ícone do núcleo. O leiaute de entrada mostra o logo ou o nome da instância no cartão.
+- **Logo do cabeçalho:** logo da organização → logo da instância (o enviado ou, sem ele, o do tema ativo de pacote, inclusive SVG) (`components/instance-logo.html`, um `<picture>` com `<source media="(prefers-color-scheme: dark)">` só quando há a variante escura e a pessoa segue o sistema; com o modo forçado, o servidor escolhe a imagem) → ícone do núcleo. O leiaute de entrada mostra o logo ou o nome da instância no cartão.
 - **Favicon:** ícone da organização → ícone da instância (`/brand/icon/?v=…`, o enviado ou, sem ele, o do tema ativo de pacote) → `favicon.svg`. `/favicon.ico` segue a mesma ordem. **Manifesto:** no host da organização, `/site/manifest.webmanifest`; no domínio principal, `/brand/manifest.webmanifest` (`instance_brand.manifest_url`), só quando a instância tem nome, ícone ou cor. `theme-color`: cor da organização, senão a do tema da instância.
 - **Rodapé:** com nome ou rodapé da instância, `footer_text` e `site_name`; sem nada, a frase e o "Skeleton" de sempre.
 - **Páginas de erro:** `error_base.html` usa `{% load appearance %}{% appearance_cached as brand %}`, que lê só a memória do processo (nunca o banco), e continua sem `{% url %}` nem variável de contexto.
@@ -62,7 +62,13 @@ Para criar um tema a partir de um sistema de design, veja [criar e publicar um t
 
 ### Modo escuro
 
-Segue `prefers-color-scheme`, sem script e sem flash, compatível com CSP.
+Cada pessoa escolhe **Claro**, **Escuro** ou **Seguir o sistema** (o padrão), sem script e sem flash, compatível com CSP (epic [#667](https://github.com/alaorneto/skeleton/issues/667)).
+
+- **Onde escolher:** em `/profile/` (campo "Tema") e no menu da conta do cabeçalho, com três botões de envio num `<form method="post">` para `/me/appearance/` (CSRF e a revisão do perfil; o formulário nunca leva o caminho da página, e a volta é pelo `Referer`, aceito só quando é do mesmo host, senão `/profile/`). Revisão desatualizada não muda nada e avisa. O seletor só aparece numa resposta com token CSRF.
+- **Onde fica:** `UserProfile.color_scheme` (`""`, `light`, `dark`) é a fonte de verdade; o cookie `sk_color_scheme` (só `light` ou `dark`, `HttpOnly`, `SameSite=Lax`, um ano, com o domínio do cookie de sessão) espelha a escolha para as telas antes do login e depois do logout no mesmo navegador. `skeleton/web/color_scheme.py` resolve a ordem perfil → cookie → sistema; o `ColorSchemeMiddleware` grava `request.color_scheme` e acerta o cookie quando ele diverge do perfil (fora de `/api/`).
+- **Como sai:** `<html data-color-scheme="light|dark">` só quando o modo é forçado, e `<meta name="color-scheme">` com o modo (ou `light dark`). Em `frontend/src/tokens.css`, o variant `dark` casa `[data-color-scheme=dark]` ou, dentro de `@media (prefers-color-scheme: dark)`, o que não está sob `[data-color-scheme=light]`, sempre em `:where()`, para manter a especificidade de `:root`. Nunca a classe `dark`: ela ligaria o bloco `.dark` do Flowbite.
+- **Tema e marca:** a folha do tema vem com `&scheme=` ([aparência](appearance.md#rotas-públicas)) e o `<style>` da organização passa pela mesma troca das consultas `prefers-color-scheme` (`skeleton/appearance/color_scheme.py`), então os temas continuam escrevendo `@media (prefers-color-scheme: dark)`.
+- **Seguem o sistema:** páginas de erro (sem contexto), setup, manutenção e e-mails.
 
 ### Tipografia
 

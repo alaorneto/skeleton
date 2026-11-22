@@ -172,8 +172,8 @@ def _anonymize(person: User, *, using: str, now: Any) -> None:
     )
     profile = UserProfile.all_objects.filter(user_id=person.pk).first()
     if profile is not None:
-        profile.display_name, profile.timezone, profile.language = "", "", ""
-        profile.save(update_fields=["display_name", "timezone", "language"])
+        profile.display_name, profile.timezone, profile.language, profile.color_scheme = "", "", "", ""
+        profile.save(update_fields=["display_name", "timezone", "language", "color_scheme"])
     EmailAddress.objects.filter(user_id=person.pk).delete()
     # SOCIALACCOUNT_STORE_TOKENS is off and the runtime role only reads socialaccount_socialtoken:
     # delete without the cascade collector, whose (always empty) DELETE there would be refused.

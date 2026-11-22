@@ -49,6 +49,7 @@ def test_the_export_covers_every_organization_of_the_person_and_nothing_of_other
     run_pending_jobs()
     data = exported(login(scenario.member))
     assert data["identity"]["email"] == scenario.member.email
+    assert data["profile"]["color_scheme"] == ""  # The colour scheme preference is exported (#666).
     assert {item["sysid"] for item in data["organizations"]} == {str(scenario.a.pk), str(scenario.b.pk)}
     assert all(len(item["notifications"]) == 1 for item in data["organizations"])
     text = json.dumps(data)

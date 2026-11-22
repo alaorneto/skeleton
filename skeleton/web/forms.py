@@ -19,6 +19,11 @@ class ProfileForm(forms.Form):
         required=False,
         help_text=gettext_lazy("Em branco, vale o padrão da organização ou da instância."),
     )
+    color_scheme = forms.ChoiceField(
+        label=gettext_lazy("Tema"),
+        required=False,
+        help_text=gettext_lazy("Seguir o sistema usa o modo claro ou escuro do seu dispositivo."),
+    )
     user_revision = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
     profile_revision = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
 
@@ -32,6 +37,22 @@ class ProfileForm(forms.Form):
             (zone, zone) for zone in sorted(available_timezones())
         ]
         self.fields["language"].choices = [("", gettext("Padrão")), *settings.LANGUAGES]
+        from skeleton.accounts.models import ColorScheme
+
+        self.fields["color_scheme"].choices = ColorScheme.choices
+
+
+class ColorSchemeForm(forms.Form):
+    """The quick switch of the user menu (#666): one of the three buttons and the profile revision."""
+
+    color_scheme = forms.ChoiceField(required=False)
+    expected_revision = forms.IntegerField(min_value=1)
+
+    def __init__(self, *args, **kwargs):
+        from skeleton.accounts.models import ColorScheme
+
+        super().__init__(*args, **kwargs)
+        self.fields["color_scheme"].choices = ColorScheme.choices
 
 
 def _model_form_field(field):

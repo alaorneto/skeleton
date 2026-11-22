@@ -66,7 +66,7 @@ O núcleo é construído sobre tokens CSS. O tema troca os tokens; os componente
 | Tipografia do corpo | uma entrada em `fonts` e `tokens.font_family` (vira a primeira família de `--font-sans`) |
 | Tipografia dos títulos | outra entrada em `fonts` e uma regra como `h1, h2, .page-header h1 { font-family: "Aurora Display", var(--font-sans); }` |
 | Sombras | `--shadow-card` e `--shadow-pop` |
-| Modo escuro | `@media (prefers-color-scheme: dark) { :root { … } }` no `theme.css`; nunca `data-theme` nem script |
+| Modo escuro | `@media (prefers-color-scheme: dark) { :root { … } }` no `theme.css`; nunca `data-theme`, `[data-color-scheme]` nem script. Quando a pessoa força o modo claro ou escuro, o núcleo serve o mesmo `theme.css` com a consulta resolvida para a escolha dela (#665): o tema não precisa saber da preferência |
 | Logo horizontal | `images.logo` (cabeçalho e e-mails) |
 | Logo para fundo escuro | `images.logo_dark` |
 | Símbolo / favicon | `images.icon` (PNG 512 × 512) |

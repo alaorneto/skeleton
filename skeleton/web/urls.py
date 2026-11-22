@@ -31,6 +31,7 @@ app_name = "web"
 urlpatterns = [
     path("", views.home, name="home"),
     path("profile/", views.profile, name="profile"),
+    path("me/appearance/", views.color_scheme, name="color-scheme"),
     # The portal of external people (#533); its app routes are mounted by app_routing.
     path("portal/", portal_views.portal, name="portal"),
     path("portal/<uuid:organization_id>/", portal_views.portal_organization, name="portal-organization"),

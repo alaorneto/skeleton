@@ -31,6 +31,12 @@
   :root {
     color-scheme: light dark;
   }
+  :root[data-color-scheme="light"] {
+    color-scheme: light;
+  }
+  :root[data-color-scheme="dark"] {
+    color-scheme: dark;
+  }
   html {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
@@ -236,6 +242,16 @@
   }
   .dropdown-footer {
     @apply mt-1 border-t border-default pt-1;
+  }
+  /* Tema claro, escuro ou do sistema no menu da conta (#666): três botões de envio, sem script. */
+  .scheme-options {
+    @apply grid grid-cols-3 gap-1 px-1.5 pb-1.5;
+  }
+  .scheme-option {
+    @apply flex cursor-pointer flex-col items-center gap-1 rounded-base px-2 py-1.5 text-xs/4 font-medium text-body transition-colors hover:bg-neutral-tertiary hover:text-heading aria-pressed:bg-brand-softer aria-pressed:text-fg-brand;
+    & svg {
+      @apply size-4 shrink-0;
+    }
   }
 
   /* Áreas com menu lateral (organização, plataforma). */

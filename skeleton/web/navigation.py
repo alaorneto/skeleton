@@ -370,6 +370,30 @@ def _access_navigation(organization_id: Any, resource: str | None, capabilities:
 
 
 def organization_shell(request: HttpRequest) -> dict[str, Any]:
+    """The shell of every page, rendered in the person's colour scheme (#665)."""
+    from .color_scheme import resolve, with_scheme
+
+    scheme = getattr(request, "color_scheme", None)
+    if scheme is None:  # Rendered without the middleware (a test client view, a bare request).
+        scheme = resolve(request)
+    shell = _organization_shell(request)
+    shell["color_scheme"] = scheme
+    if scheme:
+        from skeleton.appearance.color_scheme import force_color_scheme
+
+        brand = dict(shell["instance_brand"])
+        brand["theme_url"] = with_scheme(brand["theme_url"], scheme)
+        shell["instance_brand"] = brand
+        organization_brand = shell.get("organization_brand")
+        if organization_brand and organization_brand.get("css"):
+            shell["organization_brand"] = {
+                **organization_brand,
+                "css": force_color_scheme(organization_brand["css"], scheme),
+            }
+    return shell
+
+
+def _organization_shell(request: HttpRequest) -> dict[str, Any]:
     from skeleton.appearance.snapshot import current_appearance
 
     from .instance_brand import instance_brand, is_safe_path

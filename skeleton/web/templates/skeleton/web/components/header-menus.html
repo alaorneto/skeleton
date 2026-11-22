@@ -46,6 +46,16 @@ JavaScript) as mesmas listas aparecem empilhadas dentro do menu principal.
       <ul class="dropdown-list">
         <li><a class="nav-link" href="{{ profile_url }}"{% if request.path == profile_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="user" %}{% translate "Minha conta" %}</a></li>
       </ul>
+      {% if csrf_token and user.profile.revision %}{# Light, dark or the system's (#666): three submit buttons, no script; back by Referer. #}
+      <form class="dropdown-footer" method="post" action="{% url 'web:color-scheme' %}">{% csrf_token %}<input type="hidden" name="expected_revision" value="{{ user.profile.revision }}">
+        <p class="dropdown-heading" id="color-scheme-label">{% translate "Tema" %}</p>
+        <div class="scheme-options" role="group" aria-labelledby="color-scheme-label">
+          <button type="submit" class="scheme-option" name="color_scheme" value="light" aria-pressed="{% if color_scheme == "light" %}true{% else %}false{% endif %}">{% include "skeleton/web/components/icon.html" with name="sun" %}{% translate "Claro" %}</button>
+          <button type="submit" class="scheme-option" name="color_scheme" value="dark" aria-pressed="{% if color_scheme == "dark" %}true{% else %}false{% endif %}">{% include "skeleton/web/components/icon.html" with name="moon" %}{% translate "Escuro" %}</button>
+          <button type="submit" class="scheme-option" name="color_scheme" value="" aria-pressed="{% if not color_scheme %}true{% else %}false{% endif %}">{% include "skeleton/web/components/icon.html" with name="computer" %}{% translate "Sistema" %}</button>
+        </div>
+      </form>
+      {% endif %}
       <div class="dropdown-footer"><a class="nav-link" href="{% url 'account_logout' %}">{% include "skeleton/web/components/icon.html" with name="logout" %}{% translate "Sair" %}</a></div>
     </div>
   </div>

@@ -50,6 +50,8 @@ class UserProfileInfo:
     # What applies in the current context: profile, then organization, then instance (#170).
     effective_language: str = ""
     effective_timezone: str = ""
+    # "" follows the operating system, else "light" or "dark" (#666, since 0.4.0).
+    color_scheme: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,6 +100,7 @@ def _me(user: Any) -> UserProfileInfo:
         profile_display_name=profile.display_name,
         effective_language=effective.language,
         effective_timezone=effective.timezone,
+        color_scheme=profile.color_scheme,
     )
 
 
@@ -191,19 +194,25 @@ class IdentityService(ServiceAPI):
         expected_revision: int,
         language: str | None = None,
         timezone: str | None = None,
+        color_scheme: str | None = None,
     ) -> UserProfileInfo:
-        """Change the actor's own language and/or time zone.
+        """Change the actor's own language, time zone and/or colour scheme.
 
         Autorização: só o próprio ator; ninguém altera preferências de outra pessoa.
-        Erros: InvalidInput para idioma ou fuso inválido ou nada a alterar; Conflict("stale_revision")
+        Erros: InvalidInput para idioma, fuso ou tema inválido ou nada a alterar; Conflict("stale_revision")
         se ``expected_revision`` não for a revisão atual do perfil.
-        Efeitos: atualiza o perfil na transação do chamador (auditado).
+        Efeitos: atualiza o perfil na transação do chamador (auditado). ``color_scheme`` (desde
+        0.4.0) é ``""`` (seguir o sistema), ``"light"`` ou ``"dark"``.
         """
         from skeleton.accounts.services import update_profile
 
-        data = {name: value for name, value in (("language", language), ("timezone", timezone)) if value is not None}
+        data = {
+            name: value
+            for name, value in (("language", language), ("timezone", timezone), ("color_scheme", color_scheme))
+            if value is not None
+        }
         if not data:
-            raise InvalidInput({"non_field_errors": [gettext("Informe language ou timezone.")]})
+            raise InvalidInput({"non_field_errors": [gettext("Informe language, timezone ou color_scheme.")]})
         if type(expected_revision) is not int:
             raise InvalidInput({"expected_revision": [gettext("Use a revisão inteira do perfil.")]})
         update_profile(actor, data=data, profile_revision=expected_revision)
@@ -221,7 +230,8 @@ class IdentityService(ServiceAPI):
         """Change the actor's own name and profile fields with CAS on both identity and profile.
 
         Autorização: só o próprio ator. Campos aceitos: ``first_name``, ``last_name``,
-        ``display_name``, ``timezone`` e ``language``; nunca email, senha ou flags.
+        ``display_name``, ``timezone``, ``language`` e ``color_scheme`` (desde 0.4.0); nunca
+        email, senha ou flags.
         Erros: InvalidInput para campo desconhecido ou valor inválido; Conflict("stale_revision")
         se qualquer uma das revisões não for a atual.
         Efeitos: atualiza identidade e perfil na transação do chamador (auditados).

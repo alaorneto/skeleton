@@ -121,12 +121,22 @@ class User(SystemRecord, AbstractBaseUser, PermissionsMixin):
         return is_platform_admin(self)
 
 
+class ColorScheme(models.TextChoices):
+    """The colour scheme of the interface (#666): blank follows the operating system."""
+
+    SYSTEM = "", gettext_lazy("Seguir o sistema")
+    LIGHT = "light", gettext_lazy("Claro")
+    DARK = "dark", gettext_lazy("Escuro")
+
+
 class UserProfile(SystemRecord):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="profile")
     display_name = models.CharField(max_length=150, blank=True)
     # Blank follows the organization, then the instance (#170).
     timezone = models.CharField(max_length=64, blank=True, default="")
     language = models.CharField(max_length=16, blank=True, default="")
+    # Blank follows the operating system; mirrored in the sk_color_scheme cookie (#666).
+    color_scheme = models.CharField(max_length=8, blank=True, default="", choices=ColorScheme.choices)
     immutable_fields = ("user_id",)
 
     def clean(self):
@@ -138,6 +148,8 @@ class UserProfile(SystemRecord):
                 raise ValidationError({"timezone": gettext("Fuso horário inválido.")}) from None
         if self.language and self.language not in {code for code, _ in settings.LANGUAGES}:
             raise ValidationError({"language": gettext("Idioma não suportado.")})
+        if self.color_scheme not in ColorScheme.values:
+            raise ValidationError({"color_scheme": gettext("Tema não suportado.")})
 
     def __str__(self):
         return self.display_name or str(self.user_id)
