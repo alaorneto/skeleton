@@ -2,6 +2,30 @@
 
 As versões a partir da primeira, `v0.1.0`, são escritas pelo workflow de release (`release.py run`, skill dev-workflow): não edite este arquivo à mão. O nível de cada versão e os PRs e issues incluídos seguem [docs/workflow.md](docs/workflow.md#versão).
 
+## [0.4.0](https://github.com/alaorneto/skeleton/compare/v0.3.1...v0.4.0) — 2026-11-22
+
+### Funcionalidades
+
+- Renderizar o modo claro ou escuro escolhido, além do modo do sistema ([#665](https://github.com/alaorneto/skeleton/issues/665)) — PR [#668](https://github.com/alaorneto/skeleton/pull/668)
+- Guardar no perfil a escolha de tema e oferecer o seletor em /profile/ e no menu do usuário ([#666](https://github.com/alaorneto/skeleton/issues/666)) — PR [#668](https://github.com/alaorneto/skeleton/pull/668)
+- Controlar web, worker e agendador em containers sem socket Docker ([#651](https://github.com/alaorneto/skeleton/issues/651)) — PR [#664](https://github.com/alaorneto/skeleton/pull/664)
+- Instalar o core pelo agente a partir de um pacote de release assinado na primeira partida ([#652](https://github.com/alaorneto/skeleton/issues/652)) — PR [#664](https://github.com/alaorneto/skeleton/pull/664)
+- Escolher a versão-alvo do core em /platform/updates/ e conduzir os passos ([#653](https://github.com/alaorneto/skeleton/issues/653)) — PR [#664](https://github.com/alaorneto/skeleton/pull/664)
+- Subir o agente em todo Compose e ligar todas as funcionalidades no sandbox ([#654](https://github.com/alaorneto/skeleton/issues/654)) — PR [#664](https://github.com/alaorneto/skeleton/pull/664)
+- Link de assinatura por calendário, revogável e com a autorização relida a cada pedido ([#669](https://github.com/alaorneto/skeleton/issues/669)) — PR [#671](https://github.com/alaorneto/skeleton/pull/671)
+- Tela de calendários compartilhados, calendário gerenciado por app e calendar_links no CalendarService ([#670](https://github.com/alaorneto/skeleton/issues/670)) — PR [#671](https://github.com/alaorneto/skeleton/pull/671)
+
+### Documentação
+
+- Documentar o agente como parte obrigatória de todo deployment ([#655](https://github.com/alaorneto/skeleton/issues/655)) — PR [#664](https://github.com/alaorneto/skeleton/pull/664)
+
+### Manutenção
+
+- Versionar a chave pública do publicador oficial e usar o repositório oficial como fonte padrão ([#656](https://github.com/alaorneto/skeleton/issues/656)) — PR [#664](https://github.com/alaorneto/skeleton/pull/664)
+- **deps:** bump keycloak/keycloak from 26.8.2-2 to 26.8.2-3 (PR [#660](https://github.com/alaorneto/skeleton/pull/660))
+- **deps:** bump astral-sh/setup-uv from 10.3.3 to 10.4.0 (PR [#659](https://github.com/alaorneto/skeleton/pull/659))
+- **deps:** bump actions/create-github-app-token from 3.3.0 to 3.4.0 (PR [#662](https://github.com/alaorneto/skeleton/pull/662))
+
 ## [0.3.1](https://github.com/alaorneto/skeleton/compare/v0.3.0...v0.3.1) — 2026-11-22
 
 ### Correções
