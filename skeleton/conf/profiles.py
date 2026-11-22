@@ -166,6 +166,9 @@ def build_settings(base):
         "skeleton_files": base["STORAGES"]["skeleton_files"],
     }
     SOCIALACCOUNT_PROVIDERS = {}
+    # No database by design (static collection and the agent's static checks of a release, #652):
+    # E025 accepts the missing DATABASE_URL here as it does in the setup.
+    SKELETON_BUILD_PROFILE = True
     result = {key: value for key, value in locals().items() if key.isupper()}
     return result
 

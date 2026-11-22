@@ -14,7 +14,8 @@ def postgresql_only_checks(app_configs=None, **kwargs):
     from django.conf import settings
 
     dummy = "django.db.backends.dummy"  # What Django makes of an empty DATABASES.
-    setup = getattr(settings, "SKELETON_SETUP_MODE", False)
+    # The setup and the build profile run without a database on purpose; every other profile needs one.
+    setup = getattr(settings, "SKELETON_SETUP_MODE", False) or getattr(settings, "SKELETON_BUILD_PROFILE", False)
     errors = [
         Error(
             f"DATABASES[{alias!r}] uses {config.get('ENGINE', '')!r}: the data layer is PostgreSQL only.",

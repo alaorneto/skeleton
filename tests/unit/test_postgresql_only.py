@@ -32,6 +32,21 @@ def test_e025_requires_a_database_outside_the_setup(settings):
     assert postgresql_only_checks() == []
 
 
+def test_e025_accepts_the_build_profile_without_a_database(settings):
+    import environ
+
+    from skeleton.conf.profiles import build_settings
+
+    # The build profile marks itself; it is how the agent's static checks of a release pass (#652).
+    base = {"env": environ.Env(), "BASE_DIR": settings.BASE_DIR, "DEBUG": False, "STORAGES": settings.STORAGES}
+    settings.DATABASES = {}
+    settings.SKELETON_SETUP_MODE = False
+    settings.SKELETON_BUILD_PROFILE = build_settings(base)["SKELETON_BUILD_PROFILE"]
+    assert settings.SKELETON_BUILD_PROFILE is True and postgresql_only_checks() == []
+    settings.DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3"}}
+    assert [error.id for error in postgresql_only_checks()] == ["skeleton.E025"]  # Never another engine.
+
+
 def test_record_infrastructure_fails_explicitly_outside_postgresql():
     sqlite = SimpleNamespace(vendor="sqlite", alias="default")
     with pytest.raises(ImproperlyConfigured, match="requires PostgreSQL"):
