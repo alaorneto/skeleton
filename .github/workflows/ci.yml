@@ -361,7 +361,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
-      COMPOSE_FILE: compose.yaml:${{ runner.temp }}/compose.ci.yaml
       POSTGRES_PASSWORD: cipostgres
       SKELETON_OWNER_DB_PASSWORD: ciowner
       SKELETON_RUNTIME_DB_PASSWORD: ciruntime
@@ -393,6 +392,8 @@ jobs:
           chmod -R a+rX "$RUNNER_TEMP/stack"
           # Só o agente vê o pacote e a chave pública do ensaio.
           printf 'services:\n  agent:\n    volumes:\n      - %s:/rehearsal:ro\n' "$RUNNER_TEMP/stack" > "$RUNNER_TEMP/compose.ci.yaml"
+          # O contexto runner não existe no env do job: os passos seguintes leem COMPOSE_FILE daqui.
+          echo "COMPOSE_FILE=compose.yaml:$RUNNER_TEMP/compose.ci.yaml" >> "$GITHUB_ENV"
       - name: Primeira partida pelo agente
         run: |
           docker compose up -d --build
