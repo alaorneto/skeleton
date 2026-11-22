@@ -47,7 +47,8 @@ def test_python_base_image_is_pinned_by_digest_and_consistent():
                 image = IMAGE.search(line)
                 assert image, (path.name, line)
                 references.append(image.group(0))
-    assert len(references) == 3 and len(set(references)) == 1, references
+    # core-builder, agent (#652) and runtime in the Dockerfile; the release base of the agent image.
+    assert len(references) == 4 and len(set(references)) == 1, references
 
 
 def text(*parts):
