@@ -35,6 +35,7 @@ from .storage import (
     atomic_bytes,
     atomic_json,
     canonical,
+    digest,
     file_hash,
     identifier,
     load_json,
@@ -57,6 +58,7 @@ class DeploymentService:
         # Cluster of agents (#678): None on a single node, which works exactly as before.
         self.coordinator = coordination.coordinator_for(config, agent_version=selfupdate.agent_version() or "")
         self.channel: Any = None  # The channel between agents, started by serve (#680).
+        self.rollout: Any = None  # The operation in flight across the cluster (#681).
 
     def assert_primary(self) -> None:
         """In a cluster, only the primary migrates and changes the shared state (#678)."""
@@ -69,6 +71,17 @@ class DeploymentService:
         if coordinator is None:
             return {"mode": "single"}
         return coordinator.status()
+
+    def publish_cluster_release(self) -> None:
+        """The primary records the release the cluster runs, for the nodes that join (#681)."""
+        coordinator = getattr(self, "coordinator", None)
+        if coordinator is None or not coordinator.is_primary:
+            return
+        try:
+            state = self.state()
+        except AgentError:
+            return
+        coordinator.publish_release(state["release"], state["inventory"]["generation"], digest(state["owned_files"]))
 
     def describe_node(self) -> JSON:
         """The active release of this node, for the heartbeat."""

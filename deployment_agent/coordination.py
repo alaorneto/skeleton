@@ -43,7 +43,7 @@ from .types import JSON
 SCHEMA = "skeleton_deploy"
 # A fixed 64-bit key of the cluster's advisory lock: hashtext-independent, the same in every release.
 LOCK_KEY = 0x736B5F6465706C79  # "sk_deply"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 NODE_ID = re.compile(r"[a-z0-9-]{1,40}")
 ROLES = ("candidate", "follower")
 RENEW_S = 10.0
@@ -72,8 +72,19 @@ DDL = (
     " cluster_url text NOT NULL DEFAULT '', release text NOT NULL DEFAULT '', generation integer,"
     " phase text NOT NULL DEFAULT '', phase_epoch bigint, agent_version text NOT NULL DEFAULT '',"
     " registered_at timestamptz NOT NULL DEFAULT now(), heartbeat_at timestamptz NOT NULL DEFAULT now())",
+    # Version 2 (#681): the release the cluster runs, the operation a node answers, the rollout phases.
+    "ALTER TABLE skeleton_deploy.\"primary\" ADD COLUMN IF NOT EXISTS release text NOT NULL DEFAULT ''",
+    'ALTER TABLE skeleton_deploy."primary" ADD COLUMN IF NOT EXISTS generation integer',
+    "ALTER TABLE skeleton_deploy.\"primary\" ADD COLUMN IF NOT EXISTS release_digest text NOT NULL DEFAULT ''",
+    "ALTER TABLE skeleton_deploy.node ADD COLUMN IF NOT EXISTS operation_id text NOT NULL DEFAULT ''",
+    "CREATE TABLE IF NOT EXISTS skeleton_deploy.rollout ("
+    " operation_id text PRIMARY KEY, epoch bigint NOT NULL, mode text NOT NULL CHECK (mode IN ('window', 'rolling')),"
+    " phase text NOT NULL, release text NOT NULL, release_digest text NOT NULL, base_generation integer NOT NULL,"
+    " target_generation integer NOT NULL, nodes jsonb NOT NULL, current_node text NOT NULL DEFAULT '',"
+    " started_at timestamptz NOT NULL DEFAULT now(), phase_started_at timestamptz NOT NULL DEFAULT now())",
     "REVOKE ALL ON ALL TABLES IN SCHEMA skeleton_deploy FROM PUBLIC",
-    'GRANT SELECT ON skeleton_deploy."primary", skeleton_deploy.schema_version TO skeleton_agent',
+    'GRANT SELECT ON skeleton_deploy."primary", skeleton_deploy.schema_version, skeleton_deploy.rollout'
+    " TO skeleton_agent",
     "GRANT SELECT, INSERT, UPDATE ON skeleton_deploy.node TO skeleton_agent",
 )
 
@@ -207,15 +218,27 @@ class Coordinator:
                 connection.execute(
                     "INSERT INTO skeleton_deploy.schema_version (version) VALUES (%s)", (SCHEMA_VERSION,)
                 )
+            elif row[0] < SCHEMA_VERSION:
+                connection.execute("UPDATE skeleton_deploy.schema_version SET version = %s", (SCHEMA_VERSION,))
 
-    def heartbeat(self, *, release: str = "", generation: int | None = None, phase: str | None = None) -> None:
-        """Register this node or refresh its row; ``phase`` only when given."""
+    def heartbeat(
+        self,
+        *,
+        release: str = "",
+        generation: int | None = None,
+        phase: str | None = None,
+        operation_id: str | None = None,
+    ) -> None:
+        """Register this node or refresh its row; ``phase`` (with its operation and epoch) only when given."""
         self._execute(
-            "INSERT INTO skeleton_deploy.node (node_id, role, cluster_url, release, generation, phase, agent_version)"
-            " VALUES (%s, %s, %s, %s, %s, COALESCE(%s, ''), %s)"
+            "INSERT INTO skeleton_deploy.node (node_id, role, cluster_url, release, generation, phase, operation_id,"
+            " phase_epoch, agent_version) VALUES (%s, %s, %s, %s, %s, COALESCE(%s, ''), COALESCE(%s, ''), %s, %s)"
             " ON CONFLICT (node_id) DO UPDATE SET role = excluded.role, cluster_url = excluded.cluster_url,"
             " release = excluded.release, generation = excluded.generation,"
-            " phase = COALESCE(%s, skeleton_deploy.node.phase), agent_version = excluded.agent_version, heartbeat_at = now()",
+            " phase = COALESCE(%s, skeleton_deploy.node.phase),"
+            " operation_id = COALESCE(%s, skeleton_deploy.node.operation_id),"
+            " phase_epoch = COALESCE(%s, skeleton_deploy.node.phase_epoch),"
+            " agent_version = excluded.agent_version, heartbeat_at = now()",
             (
                 self.settings.node_id,
                 self.settings.role,
@@ -223,10 +246,39 @@ class Coordinator:
                 release,
                 generation,
                 phase,
+                operation_id,
+                self._phase_epoch if phase is not None else None,
                 self.agent_version,
                 phase,
+                operation_id,
+                self._phase_epoch if phase is not None else None,
             ),
         )
+
+    _phase_epoch: int | None = None
+
+    def acknowledge(self, operation_id: str, phase: str, epoch: int, **state: Any) -> None:
+        """A follower's answer to the primary's phase (#681): ``prepared``, ``drained``, ``healthy``..."""
+        self._phase_epoch = epoch
+        self.heartbeat(phase=phase, operation_id=operation_id, **state)
+
+    def publish_release(self, release: str, generation: int, release_digest: str) -> None:
+        """The release the cluster runs now (#681), fenced by the epoch: what a joining node installs."""
+        if not self.is_primary:
+            raise AgentError("not_primary", 409)
+        self._lock_conn.execute(
+            'UPDATE skeleton_deploy."primary" SET release = %s, generation = %s, release_digest = %s'
+            " WHERE id = 1 AND epoch = %s AND node_id = %s",
+            (Path(release).name, generation, release_digest, self.epoch, self.settings.node_id),
+        )
+
+    def cluster_release(self) -> JSON | None:
+        row = self._execute(
+            'SELECT release, generation, release_digest, epoch FROM skeleton_deploy."primary" WHERE id = 1'
+        ).fetchone()
+        if row is None or not row[0]:
+            return None
+        return {"release": row[0], "generation": row[1], "release_digest": row[2], "epoch": int(row[3])}
 
     def forget(self, node_id: str) -> None:
         primary = self.primary()

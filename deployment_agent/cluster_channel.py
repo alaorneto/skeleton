@@ -29,6 +29,7 @@ import http.client
 import json
 import os
 import re
+import shutil
 import ssl
 import threading
 import time
@@ -250,6 +251,21 @@ class ChannelHandler(BaseHTTPRequestHandler):
                     raise AgentError("not_found", 404)
                 self._send(200, path.read_bytes(), "application/octet-stream")
                 return
+            if self.command == "GET" and self.path.startswith("/v1/releases/"):
+                from .rollout import release_archive
+
+                archive = release_archive(service, self.path.removeprefix("/v1/releases/"))
+                try:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/x-tar")
+                    self.send_header("Content-Length", str(archive.stat().st_size))
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    with archive.open("rb") as stream:
+                        shutil.copyfileobj(stream, self.wfile, 1024 * 1024)
+                finally:
+                    archive.unlink(missing_ok=True)
+                return
             if self.command == "POST" and self.path == "/v1/uploads":
                 self._json(service.upload(body))
                 return
@@ -400,6 +416,36 @@ class ClusterChannel:
             raise AgentError("package_verification_failed", 409)
         atomic_bytes(destination, data, 0o400)
         return destination
+
+    def fetch_release(self, name: str) -> Path:
+        """Stream the tar of a frozen release of the primary to a private temporary file (#681)."""
+        if "/" in name or name.startswith(".") or not name:
+            raise AgentError("invalid_release_name")
+        target = urlsplit(self._primary_url())
+        path = f"/v1/releases/{name}"
+        coordinator = self.service.coordinator
+        epoch = coordinator.epoch if coordinator and coordinator.epoch is not None else 0
+        headers = {HEADER: sign(self.secret, method="GET", path=path, node_id=self.node_id, epoch=epoch, body=b"")}
+        probe = self.service.store.root / "probe"
+        probe.mkdir(exist_ok=True, mode=0o700)
+        destination = probe / f"incoming-{os.urandom(8).hex()}.tar"
+        connection = http.client.HTTPSConnection(
+            target.hostname or "", target.port or 443, context=client_context(self.cluster), timeout=UPLOAD_TIMEOUT_S
+        )
+        try:
+            connection.request("GET", path, headers=headers)
+            response = connection.getresponse()
+            if response.status != 200:
+                self._json_result(response.status, response.read(1024 * 1024))
+                raise AgentError("release_unavailable", 409)
+            with destination.open("wb") as stream:
+                shutil.copyfileobj(response, stream, 1024 * 1024)
+            return destination
+        except (OSError, http.client.HTTPException):
+            destination.unlink(missing_ok=True)
+            raise AgentError("primary_unreachable", 503) from None
+        finally:
+            connection.close()
 
     def should_forward(self, method: str, path: str) -> bool:
         coordinator = self.service.coordinator

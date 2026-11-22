@@ -77,11 +77,13 @@ def atomic_bytes(path: StrPath, data: bytes, mode: int = 0o600) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
-        directory = os.open(path.parent, os.O_DIRECTORY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        flag = getattr(os, "O_DIRECTORY", None)  # POSIX: make the rename durable; elsewhere nothing to sync.
+        if flag is not None:
+            directory = os.open(path.parent, flag)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
     finally:
         temporary.unlink(missing_ok=True)
 

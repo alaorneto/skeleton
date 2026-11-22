@@ -377,6 +377,7 @@ def container_main(environ: Mapping[str, Any] | None = None) -> int:
             version=environ.get("SKELETON_CORE_VERSION") or None,
             source_id=None,
         )
+        service.publish_cluster_release()  # In a cluster, what the other nodes join (#681).
         print(json.dumps({"event": "agent.bootstrap", **result}, sort_keys=True), file=sys.stderr, flush=True)
     except AgentError as error:
         print(json.dumps({"event": "agent.bootstrap_failed", "error": error.code}), file=sys.stderr, flush=True)

@@ -357,9 +357,21 @@ def run_coordination(service: "DeploymentService", stop: threading.Event, *, int
         coordinator.ensure_schema()
     except Exception as error:  # noqa: BLE001 - the loop below retries; never stop serving
         log_internal_error(error)
+    from .rollout import Follower
+
+    follower = Follower(service)
+
+    def acquired() -> None:
+        service.reconcile_interrupted()
+        service.publish_cluster_release()
+
     while not stop.is_set():
         try:
-            coordinator.tick(describe=service.describe_node, on_acquired=service.reconcile_interrupted)
+            coordinator.tick(describe=service.describe_node, on_acquired=acquired)
+            if coordinator.is_primary:
+                follower.ensure_started()
+            else:
+                follower.tick()  # Answer the primary's phases, or join the cluster's release (#681).
         except Exception as error:  # noqa: BLE001 - one failed tick never stops the agent
             log_internal_error(error)
         stop.wait(interval)

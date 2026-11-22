@@ -10,6 +10,7 @@ from urllib.request import Request, build_opener
 
 from packaging.version import Version
 
+from . import rollout
 from .catalogue import NoRedirect
 from .releases import (
     check_drift,
@@ -92,9 +93,20 @@ def execute(service: "DeploymentService", operation_id: str) -> None:
                     raise AgentError("migration_plan_changed", 409)
                 # Configuration checked before any effect: no marker, no drain on a typo (#246).
                 service.backend.preflight(state["release"])
+                cluster = rollout.begin(service, operation, record)
+                if cluster is not None:
+                    # Every node installs the release before any maintenance (#681).
+                    service.stage(operation, "cluster_preparing", state="running")
+                    cluster.wait("prepare", timeout=rollout.PREPARE_TIMEOUT_S, code="follower_prepare_failed")
                 service.stage(operation, "maintenance_entering", state="running")
                 service.maintain(operation)
                 service.backend.drain(state["release"], operation_id)
+                if cluster is not None:
+                    try:
+                        cluster.wait("drain", timeout=rollout.DRAIN_TIMEOUT_S, code="follower_drain_failed")
+                    except AgentError:
+                        cluster.phase("abort")  # No migration ran: every follower goes back to its release.
+                        raise
                 service.stage(operation, "drained")
                 backup = service.backend.backup(state["release"], operation_id)
                 service.stage(operation, "backup_ready", backup=backup)
@@ -140,6 +152,11 @@ def finish(service: "DeploymentService", operation: JSON, record: JSON) -> None:
     service.backend.start(release, operation["id"])
     service.stage(operation, "workers_started")
     service.health(record["inventory"])
+    cluster = rollout.current(service, operation)
+    if cluster is not None:
+        # The followers switch after the primary's own health check (#681); a silent one leaves the
+        # operation failed under maintenance on every node, for the operator's recover.
+        cluster.wait("cutover", timeout=rollout.CUTOVER_TIMEOUT_S, code="follower_cutover_failed")
     service.stage(operation, "health_verified", generation=record["inventory"]["generation"])
     service.assert_primary()
     sync_state(service, release, operation)
@@ -148,7 +165,15 @@ def finish(service: "DeploymentService", operation: JSON, record: JSON) -> None:
     sync_state(service, release, operation)
     # Journal write intent precedes traffic release; an interrupted release is conservatively post-writes.
     service.stage(operation, "traffic_release_started", traffic_released=True)
+    if cluster is not None:
+        service.publish_cluster_release()  # What a node that joins later installs.
+        try:
+            cluster.wait("resume", timeout=rollout.RESUME_TIMEOUT_S, code="follower_resume_failed")
+        except AgentError as error:
+            log_internal_error(error)  # Committed already: a node still closed is the balancer's to skip.
     Path(service.config["maintenance_marker"]).unlink(missing_ok=True)
+    if cluster is not None:
+        cluster.phase("done")
     service.stage(operation, "ready", state="succeeded")
 
 

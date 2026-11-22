@@ -107,6 +107,10 @@ sudo systemctl restart skeleton-agent
 
 Migração de uma instalação antiga (`/opt/skeleton-agent/venv`) e o leiaute de `agent_root`: [atualizar o agente](deployment.md#atualizar-o-agente).
 
+## Atualizar um cluster de vários nós
+
+Num cluster (#678–#681), a tela de qualquer nó encaminha a atualização ao agente primário. O primário prepara o release e cada seguidor o recebe e confere antes de qualquer manutenção; depois todos os nós entram juntos na manutenção e param, o primário faz o backup e as migrations, e cada nó troca o release e confere a própria saúde antes de o tráfego reabrir. O passo a passo, o que cada falha deixa e a recuperação estão em [agente em vários nós](deployment.md#agente-em-vários-nós-678).
+
 ## Apps
 
 Apps continuam em pacotes de componente. Uma app publica o próprio índice no próprio repositório: `package build` gera o `.skapp`, e `package index --previous` acumula o índice anterior; anexe ao release do GitHub o pacote e o asset `skeleton-index.json`, com `artifact` no formato `<tag>/<arquivo>` (`--artifact-base <tag>`). Declare `migrations.from_versions` com a mesma política do núcleo: a própria linha e a anterior ([extensão](extending.md#publicar-apps-e-releases-assinados)). Depois de um passo do núcleo, uma app que deixou de ser compatível aparece na checagem de dependências da prévia, com a sugestão de versão quando as fontes têm uma. Uma app que traz temas da instância ([aparência](appearance.md#temas-trazidos-por-apps)) os leva junto: a prévia de desinstalação avisa quais temas saem do catálogo e, se um deles é o ativo, que a instância volta ao tema do núcleo (o aviso não muda o plano aprovado). Reinstalar a app devolve os temas; se ninguém ativou outro, o tema dela volta a valer.
