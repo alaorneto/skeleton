@@ -130,6 +130,7 @@ def plan_record(release, release_digest):
 
 def follow_until(service, stop):
     follower = rollout.Follower(service)
+    follower.started_services = True  # Already running: only the phases of the operation act here.
     while not stop.is_set():
         follower.tick()
         stop.wait(0.05)

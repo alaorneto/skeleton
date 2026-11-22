@@ -1,5 +1,9 @@
 """Durable filesystem journal; deliberately independent of the application DB."""
 
+try:
+    import fcntl
+except ImportError:  # Not POSIX: the modules that never lock still load (#678); locking refuses.
+    fcntl = None  # type: ignore[assignment]
 import hashlib
 import json
 import os
@@ -114,8 +118,8 @@ def inventory_files(root: StrPath) -> JSON:
 
 @contextmanager
 def deployment_lock(root: StrPath, *, blocking: bool = False) -> Iterator[None]:
-    import fcntl  # POSIX only; imported here so modules that never lock load anywhere (#678).
-
+    if fcntl is None:
+        raise AgentError("deployment_lock_unavailable", 409)
     path = Path(root) / "deployment.lock"
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     with path.open("a+b") as stream:

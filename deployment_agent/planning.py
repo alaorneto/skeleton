@@ -311,7 +311,11 @@ def rollout_eligibility(plan: Mapping[str, Any], before: JSON, after: JSON) -> t
 
     if plan["migrations"]:
         return "window", "migrations_present"
-    old, new = Version(before["core"]["version"]), Version(after["core"]["version"])
+    old_version = (before.get("core") or {}).get("version")
+    new_version = (after.get("core") or {}).get("version")
+    if not old_version or not new_version:
+        return "window", "minor_change"  # An unidentified core never rolls.
+    old, new = Version(old_version), Version(new_version)
     if (old.major, old.minor) != (new.major, new.minor):
         return "window", "minor_change"
 
