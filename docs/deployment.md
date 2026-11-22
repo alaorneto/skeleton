@@ -455,7 +455,7 @@ skeleton-core manifest --wheel dist/django_skeleton-<versão>-py3-none-any.whl \
   [--release-notes-file notas.md] [--build "<procedência>"]
 ```
 
-**Política de versões de origem.** Um release aceita ser instalado sobre a própria linha e sobre a linha imediatamente anterior: `from_versions` (e `compatibility.skeleton`, que é a mesma faixa) vai do `.0` da linha anterior já publicada até a própria versão. `--known-version` lista as versões já publicadas; `--earliest-source` é o piso usado só quando nenhuma linha anterior é conhecida (o primeiro release automatizado). Quem instala confere de novo: o agente recusa pular uma linha (`version_jump_forbidden`).
+**Política de versões de origem.** Um release aceita ser instalado sobre a própria linha e sobre a linha imediatamente anterior: `from_versions` (e `compatibility.skeleton`, que é a mesma faixa) vai do `.0` da linha anterior já publicada até a própria versão. `--known-version` lista as versões já publicadas; `--earliest-source` é o piso usado só quando nenhuma linha anterior é conhecida (o primeiro release automatizado). Um piso acima da versão construída é recusado ("Earliest source X is above the version Y."), e a validação do manifesto de core recusa `from_versions` ou `compatibility.skeleton` que não contenham a própria versão, antes de assinar (#650): uma faixa vazia seria publicada e não serviria a nenhuma instalação. O piso da receita oficial (`deploy/release/recipe.json`) é a `0.1.0`, a primeira release publicada. Quem instala confere de novo: o agente recusa pular uma linha (`version_jump_forbidden`).
 
 | Versão | Versões conhecidas | `--earliest-source` | `from_versions` |
 |---|---|---|---|

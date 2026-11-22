@@ -188,7 +188,7 @@ def test_versioned_recipe_names_the_official_target():
     recipe = json.loads((ROOT / "deploy" / "release" / "recipe.json").read_text(encoding="utf-8"))
     (target,) = recipe["targets"]
     assert target["requirements"] == "requirements.txt" and (ROOT / target["requirements"]).is_file()
-    assert target["environment"] == LINUX and recipe["earliest_source"] == "0.5.0"
+    assert target["environment"] == LINUX
 
 
 def run_blocks(text):

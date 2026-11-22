@@ -14,6 +14,7 @@ from skeleton.system.presentation import (
     required_presentation_core,
     validate_runtime_presentation,
 )
+from skeleton.versioning import version_satisfies
 
 from . import limits
 from .errors import PackageError, _fail
@@ -321,6 +322,23 @@ def _validate_migrations(m):
             _fail("Application migrations must use its own label.")
 
 
+def _validate_core_sources(m):
+    """A core release is installed over its own line at least: its ranges contain its version (#650).
+
+    Only the syntax of a range is checked elsewhere, so an empty range such as ``>=0.5.0,<=0.3.0``
+    would be signed and published. Applications keep their own policy.
+    """
+    if m["kind"] != "core":
+        return
+    ranges = {
+        "migrations.from_versions": m["migrations"]["from_versions"],
+        "compatibility.skeleton": m["compatibility"]["skeleton"],
+    }
+    for name, spec in ranges.items():
+        if not version_satisfies(m["version"], spec):
+            _fail(f"Core {name} must contain the core version.")
+
+
 def _validate_lifecycle(m):
     lifecycle = _object(
         m["lifecycle"], ("data_retention", "maintenance", "backup"), ("data_retention", "maintenance", "backup")
@@ -421,6 +439,7 @@ def _validate_manifest(value):
         _validate_core_identity(m)
     _validate_relations(m)
     _validate_migrations(m)
+    _validate_core_sources(m)
     _validate_lifecycle(m)
     _validate_files(m)
     _validate_python_dependencies(m)

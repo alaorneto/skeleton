@@ -174,3 +174,31 @@ def test_new_manifest_template_requires_current_presentation_core(app_manifest):
     manifest = app_manifest
     assert version_satisfies("0.4.0", manifest["compatibility"]["skeleton"])
     assert not version_satisfies("0.3.0", manifest["compatibility"]["skeleton"])
+
+
+@pytest.mark.parametrize("field", ["from_versions", "skeleton"])
+@pytest.mark.parametrize("spec", [">=0.5.0,<=0.3.0", ">=0.4.0", "<0.3.0"])
+def test_core_ranges_must_contain_the_core_version(app_manifest, field, spec):
+    """Regression (#650): an empty or excluding source range is refused before signing."""
+    core = core_manifest(app_manifest)
+    core["version"] = "0.3.0"
+    core["migrations"]["from_versions"] = core["compatibility"]["skeleton"] = ">=0.1.0,<=0.3.0"
+    assert validate_manifest(core)["version"] == "0.3.0"
+    if field == "from_versions":
+        core["migrations"]["from_versions"] = spec
+    else:
+        core["compatibility"]["skeleton"] = spec
+    with pytest.raises(PackageError, match="must contain the core version"):
+        validate_manifest(core)
+
+
+def test_core_range_accepts_its_own_prerelease(app_manifest):
+    core = core_manifest(app_manifest)
+    core["version"] = "0.3.0rc1"
+    core["migrations"]["from_versions"] = core["compatibility"]["skeleton"] = ">=0.2.0,<=0.3.0rc1"
+    assert validate_manifest(core)["version"] == "0.3.0rc1"
+
+
+def test_application_ranges_keep_their_own_policy(app_manifest):
+    app_manifest["migrations"]["from_versions"] = "<0.0.1"
+    assert validate_manifest(app_manifest)["migrations"]["from_versions"] == "<0.0.1"
