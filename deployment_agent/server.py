@@ -151,6 +151,13 @@ class ControlHandler(QuietHandler):
         path = urlsplit(self.path)
         if path.query or path.fragment:
             raise AgentError("invalid_control_path")
+        channel = getattr(self.server.service, "channel", None)
+        if channel is not None and channel.should_forward(self.command, path.path):
+            # A follower (#680): the primary runs the request; this node keeps only its own state.
+            forwarded = (
+                self.body(upload=True) if path.path == "/uploads" else self.body() if self.command == "POST" else None
+            )
+            return channel.forward(self.command, path.path, forwarded)
         if self.command == "GET":
             return self._get(path.path)
         if self.command == "POST":
@@ -467,14 +474,22 @@ def serve(service: "DeploymentService") -> int:
             daemon=True,
             name="deployment-update-check",
         ).start()
+    channel: Any = None
     if getattr(service, "coordinator", None) is not None:
+        from .cluster_channel import ClusterChannel
+
         threading.Thread(
             target=run_coordination, args=(service, stop_checks), daemon=True, name="deployment-cluster"
         ).start()
+        channel = ClusterChannel(service, tickets)
+        channel.start()  # The channel between agents (#680), on the private address of cluster.listen.
+        service.channel = channel
     try:
         server.serve_forever()
     finally:
         stop_checks.set()
+        if channel is not None:
+            channel.stop()
         server.server_close()
         if status_server:
             status_server.shutdown()

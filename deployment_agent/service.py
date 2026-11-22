@@ -56,6 +56,7 @@ class DeploymentService:
         self._drift_lock = Lock()
         # Cluster of agents (#678): None on a single node, which works exactly as before.
         self.coordinator = coordination.coordinator_for(config, agent_version=selfupdate.agent_version() or "")
+        self.channel: Any = None  # The channel between agents, started by serve (#680).
 
     def assert_primary(self) -> None:
         """In a cluster, only the primary migrates and changes the shared state (#678)."""

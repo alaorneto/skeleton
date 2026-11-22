@@ -85,6 +85,8 @@ def build_parser() -> argparse.ArgumentParser:
     handover.add_argument("--to", required=True, dest="target")
     forget = cluster_actions.add_parser("forget", help="Remove a node that left the cluster (never the primary)")
     forget.add_argument("node_id")
+    keygen = cluster_actions.add_parser("keygen", help="Write a new secret of the channel between agents (0600)")
+    keygen.add_argument("--output", required=True)
     prune = commands.add_parser(
         "prune", help="Offline: list, and with --apply remove, releases, plans, images and backups no operation needs"
     )
@@ -171,9 +173,12 @@ def control_services(config: Config, options: argparse.Namespace) -> JSON:
 
 def cluster_command(config: Config, options: argparse.Namespace) -> JSON:
     """``cluster status|handover|forget``: straight to the coordination state, without the daemon."""
+    from .cluster_channel import write_secret
     from .coordination import coordinator_for
     from .storage import AgentError, Store
 
+    if options.cluster_action == "keygen":
+        return write_secret(options.output)
     coordinator = coordinator_for(config)
     if coordinator is None:
         raise AgentError("cluster_not_configured")

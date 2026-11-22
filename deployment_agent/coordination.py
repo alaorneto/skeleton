@@ -107,6 +107,9 @@ def validate_cluster(values: JSON) -> None:
         raise AgentError("invalid_cluster_url")
     if not isinstance(cluster.get("preferred", False), bool):
         raise AgentError("invalid_cluster_config")
+    from .cluster_channel import validate_channel
+
+    validate_channel(cluster)
     if cluster["role"] == "follower":
         path = cluster.get("coordination_env_file")
         if not isinstance(path, str) or not Path(path).is_absolute():

@@ -1092,6 +1092,16 @@ Com vários nós de app, cada nó roda o próprio agente, e um deles é o **prim
 
 **`storage_root` compartilhado entre candidatos.** O journal, os planos, os uploads e os backups ficam em `storage_root`. Com dois ou mais candidatos, ele precisa ser um diretório compartilhado só entre eles (NFS, EFS, CephFS), escrito só por quem segura a trava: é o que deixa o novo primário retomar o journal do antigo. Cada candidato deixa uma marca em `storage_root/.cluster/<node_id>`; um candidato que não vê a marca de outro candidato vivo não tenta a trava (`cluster_storage_not_shared`, em `cluster status`). `releases_root` continua local em cada nó. Com um só candidato, `storage_root` pode ser local, mas perder esse nó exige restaurar o `storage_root` de backup antes de outro nó virar candidato.
 
+**Canal entre agentes (#680).** Cada nó escuta em `cluster.listen` (um endereço privado da rede entre nós, nunca o proxy público) um HTTPS com TLS mútuo: o certificado do nó (`tls_cert`, `tls_key`) é emitido por uma CA privada do cluster (`tls_ca`), e o cliente confere o certificado do outro lado contra ela e contra o nome do `cluster_url`. Além do TLS, cada pedido leva no cabeçalho `X-Skeleton-Cluster` um HMAC-SHA256, com o segredo do cluster (`secret_file`, 0600, o mesmo em todos os nós, gerado uma vez com `cluster keygen --output <arquivo>`), sobre o método, o caminho, a hora, o nó, a época e o SHA-256 do corpo; assinatura errada, relógio a mais de 60 s ou nó que a coordenação não conhece recebem o mesmo 401 (os nós precisam de NTP). O canal só tem estas rotas: `GET /v1/health`; `GET /v1/artifacts/<sha256>` (no primário, só de um pacote referenciado por um plano ou pelo estado ativo; o seguidor confere o SHA-256 e depois a assinatura do publicador antes de usar, então o canal nunca decide que código roda); `POST /v1/uploads` e `POST /v1/forward` (no primário). O web de cada nó continua falando só com o socket Unix do próprio agente: no seguidor, o socket responde sozinho `GET /inventory` e `GET /cluster` e encaminha ao primário todo o resto (prévia, execução, envio de pacote, fontes, operações), com no máximo 4 pedidos encaminhados ao mesmo tempo; sem primário, `no_primary` (503); primário inalcançável, `primary_unreachable` (503). O journal do primário registra a origem do pedido encaminhado. Para a CA e os certificados:
+
+```sh
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 3650 -subj "/CN=skeleton-cluster-ca" -keyout ca.key -out ca.crt
+openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj "/CN=node-a" -addext "subjectAltName=DNS:node-a.internal" -keyout node-a.key -out node-a.csr
+openssl x509 -req -in node-a.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 825 -copy_extensions copy -out node-a.crt
+```
+
+Guarde `ca.key` fora dos nós; cada nó recebe `ca.crt`, o próprio par e o segredo, todos 0600 para a conta do agente.
+
 **Comandos.** `cluster status` mostra o primário, a época, a idade da última renovação e cada nó (papel, release ativo, fase, último sinal), sem segredos; `cluster forget <node_id>` remove um nó desativado (nunca o primário: `cannot_forget_primary`). A API de controle responde `GET /cluster` com o mesmo conteúdo (`{"mode": "single"}` num nó só).
 
 ### Backend Compose

@@ -14,7 +14,17 @@ AGENT_DSN = "postgres://skeleton_agent:z@127.0.0.1:5432/app"
 
 
 def candidate(**extra):
-    return {"node_id": "node-a", "role": "candidate", "cluster_url": "https://node-a.internal:9443", **extra}
+    return {
+        "node_id": "node-a",
+        "role": "candidate",
+        "cluster_url": "https://node-a.internal:9443",
+        "listen": "10.0.1.5:9443",
+        "tls_cert": "/agent/cluster/node.crt",
+        "tls_key": "/agent/cluster/node.key",
+        "tls_ca": "/agent/cluster/ca.crt",
+        "secret_file": "/agent/cluster/secret",
+        **extra,
+    }
 
 
 def refused(code, values):
@@ -32,6 +42,9 @@ def test_cluster_shapes_are_validated():
     refused("invalid_cluster_url", {"cluster": candidate(cluster_url="http://node-a:9443")})
     refused("invalid_cluster_config", {"cluster": candidate(preferred="yes")})
     refused("missing_coordination_credentials", {"cluster": candidate(role="follower")})
+    refused("invalid_cluster_channel", {"cluster": candidate(listen="0.0.0.0")})
+    refused("invalid_cluster_channel", {"cluster": candidate(tls_ca="ca.crt")})
+    refused("invalid_cluster_channel", {"cluster": candidate(cluster_url="")})
 
 
 def test_a_candidate_coordinates_with_the_owner(tmp_path):
