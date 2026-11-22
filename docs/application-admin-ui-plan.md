@@ -1,6 +1,6 @@
 # Administração de apps e interfaces padronizadas
 
-**Estado: contrato de administração implementado no core e agente 0.2.0, com renderer e dimensões evoluídos no 0.3.0.** Este documento registra o contrato que resultou do planejamento, incluindo a instrução posterior de que o admin serve somente para configurações e parametrizações. As evidências de execução ficam em [testing](testing.md); a existência do contrato não substitui prova de um backend de deployment.
+**Estado: contrato de administração, renderer e dimensões implementados em todo núcleo publicado (0.1.0 em diante).** Este documento registra o contrato que resultou do planejamento, incluindo a instrução posterior de que o admin serve somente para configurações e parametrizações. As evidências de execução ficam em [testing](testing.md); a existência do contrato não substitui prova de um backend de deployment.
 
 ## 1. Fronteiras das interfaces
 
@@ -52,7 +52,7 @@ Configuração global não é inferida a partir da configuração tenant. Uma ap
 
 ## 3. Manifesto canônico v2
 
-`manifest_version=2` conserva o piso histórico core >=0.2.0. Novos manifestos gerados por `init` começam com `>=0.3.0,<1.0.0`. A presença de `col_span` ou `rows` em um objeto de campo de `runtime.model_ui`, inclusive com valor `null`, exige piso >=0.3.0. O manifesto fonte deve declarar esse piso antes de `build`; publicação por `build_artifact` valida a apresentação e acrescenta o piso necessário antes de assinar. Leitura/verificação/reassinatura de artefatos v1 e v2 históricos conserva os bytes do JSON assinado, digest e inventário, sem normalizar nem inserir defaults; somente as representações em memória recebem defaults de apresentação.
+Todo núcleo publicado entende `manifest_version=2` e as dimensões `col_span` e `rows` de `runtime.model_ui`: os pisos `MANIFEST_V2_CORE_MINIMUM` e `FIELD_DIMENSIONS_CORE_MINIMUM` são 0.0.0. Novos manifestos gerados por `init` começam com `>=0.0.0,<1.0.0`. Publicação por `build_artifact` valida a apresentação antes de assinar. Leitura/verificação/reassinatura de artefatos v1 e v2 históricos conserva os bytes do JSON assinado, digest e inventário, sem normalizar nem inserir defaults; somente as representações em memória recebem defaults de apresentação.
 
 `runtime.administration` contém `configuration_sections`, `sections` e `screens`. A tela administrativa admite somente `configuration` ou `custom`; **`model_list`, `table_key` e `action` são recusados nessa seção**. Metadados de tabelas pertencem exclusivamente a `runtime.model_ui` e navegação de negócio.
 
@@ -91,7 +91,7 @@ Exemplo do contrato atual:
 }
 ```
 
-Esse fragmento pertence ao `runtime` do `applications/<package>/manifest.json` canônico de um manifesto completo; não é um pacote ou spec de segurança independente. Registre-o com `AppManifest.from_json(..., app_config=self)` em `ready()`, junto ao modelo elegível e seu `TableSpec`, e use as URLs genéricas do viewer. Não há `ui.json` paralelo, editor de layout no admin, Form Python ou template próprios obrigatórios. Notes 0.2.0 oferece o exemplo completo em `examples/notes/manifest.json`, com compatibilidade `>=0.3.0,<1.0.0`.
+Esse fragmento pertence ao `runtime` do `applications/<package>/manifest.json` canônico de um manifesto completo; não é um pacote ou spec de segurança independente. Registre-o com `AppManifest.from_json(..., app_config=self)` em `ready()`, junto ao modelo elegível e seu `TableSpec`, e use as URLs genéricas do viewer. Não há `ui.json` paralelo, editor de layout no admin, Form Python ou template próprios obrigatórios. O exemplo Notes traz o contrato completo em `examples/notes/manifest.json`.
 
 ### Validação
 
@@ -119,7 +119,7 @@ Tenant, ativação, permissão de tabela e visibilidade precedem filtro/count/pa
 
 ## 5. Formulário e detalhe padronizados
 
-Criação, edição e leitura usam Django Forms renderizados no servidor por **django-crispy-forms==2.7** e pelo pack próprio `skeleton_crud`, distribuído no wheel do core 0.3.0. Crispy é somente o motor de apresentação: o core compila o envelope seguro em layout, sem substituir autorização, validação, CAS, serviços ou persistência. Não há pack crispy externo, CDN ou framework JavaScript; o visual vem do CSS compilado e versionado do núcleo (Tailwind/Flowbite, ver [interface e design](ui-design.md)). Sem JavaScript, as seções ficam sequenciais. Erros selecionam a aba correta, conservam valores enviados e oferecem resumo focável e links para campos.
+Criação, edição e leitura usam Django Forms renderizados no servidor por **django-crispy-forms==2.7** e pelo pack próprio `skeleton_crud`, distribuído no wheel do núcleo. Crispy é somente o motor de apresentação: o core compila o envelope seguro em layout, sem substituir autorização, validação, CAS, serviços ou persistência. Não há pack crispy externo, CDN ou framework JavaScript; o visual vem do CSS compilado e versionado do núcleo (Tailwind/Flowbite, ver [interface e design](ui-design.md)). Sem JavaScript, as seções ficam sequenciais. Erros selecionam a aba correta, conservam valores enviados e oferecem resumo focável e links para campos.
 
 | Dimensão | Contrato |
 |---|---|
@@ -153,9 +153,9 @@ HTML e API usam o mesmo dispatcher. Se há adaptador e uma operação não foi d
 
 O preview aprovado mostra alterações de grupos, seções, telas, layouts e configuração além de arquivos/migrations. Redução de limite, troca de tipo ou remoção de campo de configuração recebe indicação de incompatibilidade. Reordenar apresentação não apaga valores.
 
-O bloqueio antigo que recusava toda mudança de `configuration_fields` foi substituído por validação do contrato e check real após migrations. `check_application_configuration` usa transações independentes por organização e credencial runtime para validar configurações persistidas dos apps carregados. Campo removido/renomeado exige migration explícita com modelos históricos; não existe transformação escolhida por HTTP. Falha impede cutover e conserva manutenção. `default_enabled` é obsoleto desde o core 0.5.0 (#22): a ativação nasce desligada e só muda por escolha explícita do administrador da organização, ou pelo upgrade único que preserva o que já estava ativo.
+O bloqueio antigo que recusava toda mudança de `configuration_fields` foi substituído por validação do contrato e check real após migrations. `check_application_configuration` usa transações independentes por organização e credencial runtime para validar configurações persistidas dos apps carregados. Campo removido/renomeado exige migration explícita com modelos históricos; não existe transformação escolhida por HTTP. Falha impede cutover e conserva manutenção. `default_enabled` é ignorado em todo núcleo publicado (#22): a ativação nasce desligada e só muda por escolha explícita do administrador da organização, ou pelo upgrade único que preserva o que já estava ativo.
 
-Atualize o agente independente para 0.3.0 e o core do release para >=0.3.0 antes de publicar/consumir dimensões. O piso histórico do formato 2 sem dimensões continua 0.2.0. O web continua sem pip, DDL ou credencial owner. Este escopo não acrescenta entidades do núcleo nem expõe `SystemRecord`/`OrganizationRecord` por um gateway genérico: seus serviços e superfícies dedicados permanecem.
+O web continua sem pip, DDL ou credencial owner. Este escopo não acrescenta entidades do núcleo nem expõe `SystemRecord`/`OrganizationRecord` por um gateway genérico: seus serviços e superfícies dedicados permanecem.
 
 ## 7. Mapa da implementação
 

@@ -2,6 +2,8 @@
 
 Registro do que rodou em cada rodada, com os comandos da época. As rodadas anteriores a [#144](https://github.com/alaorneto/skeleton/issues/144) citam a suíte SQLite que existia então (`tests/integration_sqlite`, hoje `tests/integration`). Nada aqui é procedimento: para verificar hoje, use [testes](testing.md).
 
+As rodadas anteriores à primeira release publicada (`v0.1.0`, #569) citam números de versão do desenvolvimento ("core/agente 0.3.0", "0.4.0", "0.5.0"), que nunca foram publicados e não correspondem às releases de mesmo número: são marcos internos daquela época, conservados como foram registrados. As versões publicadas e o que cada uma trouxe estão no [CHANGELOG](../CHANGELOG.md).
+
 ## Busca global nas tabelas pesquisáveis (epic #585: #581, #582, #583, #584)
 
 Rodada de 2026-11-20/21 na branch `feat/585-global-search`, a partir da `main` com #580. Windows 11, Python 3.13 do `.venv` com `requirements-dev.txt`, PostgreSQL 16 de `tools/dev_postgres.py`, assertions como `skeleton_runtime`. Somente o que rodou.

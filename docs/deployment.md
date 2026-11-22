@@ -22,19 +22,19 @@ Antes de operar, leia [apps, pacotes e deployment](concepts.md#apps-pacotes-e-de
 
 A migration `sk_audit.0005_audit_indexes` (#270) cria `sk_audit_record_created` com `CREATE INDEX CONCURRENTLY` e só depois remove os índices sem leitor; ela não roda em transação (`atomic = False`). Em instalações grandes a criação demora e consome I/O, mas não bloqueia as escritas. Se a execução for interrompida, o índice pode ficar inválido e a migration fica sem registro em `django_migrations`: com o owner, rode `DROP INDEX CONCURRENTLY IF EXISTS skeleton.sk_audit_record_created;` e `migrate` de novo. O reverso (`migrate sk_audit 0004`) recria os índices antigos.
 
-### Core/agente 0.5.0 e apps fechadas por padrão
+### Apps fechadas por padrão
 
-No core 0.5.0, uma app instalada nasce indisponível e desativada: sem linha de disponibilidade nenhuma organização a usa, e sem `AppInstallation` ela está desativada (#22). **Passo obrigatório do upgrade:** rode `manage.py upgrade_app_activation` depois das migrations e de `sync_table_catalog`; sem ele, as apps somem para todas as organizações (falha fechada). O agente 0.5.0 faz isso sozinho no `finish()`, sob a credencial runtime, quando o core alvo é >=0.5.0; num deploy manual, rode o comando antes de liberar tráfego (`--dry-run` mostra o que vai mudar). O comando é idempotente e retomável; repetir em todo deploy é seguro. A recusa `activation_default_upgrade_requires_review` saiu do agente, porque mudar `runtime.default_enabled` não ativa mais nada. **Rollback:** um release anterior volta a usar o `default_enabled`; as linhas criadas pelo upgrade são compatíveis com ele.
+Uma app instalada nasce indisponível e desativada: sem linha de disponibilidade nenhuma organização a usa, e sem `AppInstallation` ela está desativada (#22). Depois das migrations e de `sync_table_catalog`, rode `manage.py upgrade_app_activation` antes de liberar tráfego (`--dry-run` mostra o que vai mudar). O agente faz isso sozinho no `finish()`, sob a credencial runtime, em todo core publicado (`APP_ACTIVATION_UPGRADE_CORE`, 0.1.0); num deploy manual, rode o comando. Ele é idempotente e retomável; repetir em todo deploy é seguro. `runtime.default_enabled` é ignorado: mudá-lo não ativa nada.
 
-### Core/agente 0.4.0 e API de serviços
+### API de serviços
 
-O core 0.4.0 é o primeiro que lê `runtime.service_api` (docs/service-api.md). Atualize o agente independente para 0.4.0 (ele fixa `django-skeleton==0.4.0`) e o core antes de instalar apps que declarem o campo: um core 0.3.0 recusa o manifesto por campo desconhecido, e o piso `>=0.4.0` da compatibilidade impede a instalação. Apps já instaladas sem o campo continuam carregando, com o aviso `skeleton.W018`; um release novo delas precisa declarar a API de serviços, porque `package build` e `package doctor` recusam a ausência. O release não muda schema nem migrations do núcleo.
+Todo core publicado lê `runtime.service_api` ([API de serviços](service-api.md)); o piso `SERVICE_API_CORE_MINIMUM` é 0.0.0. Apps instaladas sem o campo continuam carregando, com o aviso `skeleton.W018`; um release novo delas precisa declarar a API de serviços, porque `package build` e `package doctor` recusam a ausência.
 
-### Core/agente 0.3.0 e contratos de apresentação
+### Contratos de apresentação
 
-Atualize primeiro o agente independente para 0.3.0 e prepare core >=0.3.0 antes de publicar/consumir dimensões de campos. O core distribui `django-crispy-forms==2.7` e o pack SSR próprio `skeleton_crud`; inclua a dependência no lock/wheelhouse aprovado do release, sem download pelo web ou fallback ao renderer antigo. Novas publicações usam `manifest_version=2`, com compatibilidade inicial `>=0.3.0,<1.0.0`. O piso histórico v2 sem dimensões permanece 0.2.0: qualquer presença de `col_span` ou `rows` no campo, inclusive `null`, exige piso 0.3.0 na fonte. Pacotes v1/v2 históricos assinados continuam verificáveis sem normalizar JSON ou alterar bytes/digest/inventário. O [contrato de interfaces](application-admin-ui-plan.md) descreve grade de 12 unidades, dimensões e defaults e separa a administração da plataforma (`/platform/`) do viewer tenant; nenhum layout concede acesso ou modifica autorização/CAS/persistência.
+O core distribui `django-crispy-forms==2.7` e o pack SSR próprio `skeleton_crud`; a dependência vem no lock do release, sem download pelo web nem renderer alternativo. Novas publicações usam `manifest_version=2`. Todo core publicado entende as dimensões `col_span` e `rows` (os pisos `MANIFEST_V2_CORE_MINIMUM` e `FIELD_DIMENSIONS_CORE_MINIMUM` são 0.0.0). Pacotes v1/v2 assinados continuam verificáveis sem normalizar JSON ou alterar bytes/digest/inventário. O [contrato de interfaces](application-admin-ui-plan.md) descreve grade de 12 unidades, dimensões e defaults e separa a administração da plataforma (`/platform/`) do viewer tenant; nenhum layout concede acesso ou modifica autorização/CAS/persistência.
 
-Preview e aprovação incluem `presentation_changes`: grupos/seções/telas, layouts e campos de configuração. Alterar somente span/rows gera `model_layout/change`, sem incompatibilidade de configuração, e integra o digest do plano. Alterações incompatíveis ficam explícitas. Reordenação/rótulos não apagam configuração; remoção/renomeação/tipo/limite precisam de migration histórica que conserve o estado válido. Após migrations e antes de liberar tráfego, o agente executa `check_application_configuration` sob runtime, além dos checks existentes. O comando percorre organizações em transações independentes, não imprime valores/segredos e recusa estado persistido incompatível. Falha conserva manutenção e journal para recuperação; não há coerção ou descarte escolhido por HTTP. `runtime.default_enabled` é obsoleto e ignorado desde o core 0.5.0; mudá-lo não ativa tenants e não é recusado.
+Preview e aprovação incluem `presentation_changes`: grupos/seções/telas, layouts e campos de configuração. Alterar somente span/rows gera `model_layout/change`, sem incompatibilidade de configuração, e integra o digest do plano. Alterações incompatíveis ficam explícitas. Reordenação/rótulos não apagam configuração; remoção/renomeação/tipo/limite precisam de migration histórica que conserve o estado válido. Após migrations e antes de liberar tráfego, o agente executa `check_application_configuration` sob runtime, além dos checks existentes. O comando percorre organizações em transações independentes, não imprime valores/segredos e recusa estado persistido incompatível. Falha conserva manutenção e journal para recuperação; não há coerção ou descarte escolhido por HTTP.
 
 ```sh
 # Depois de migrations owner, no ambiente com somente DATABASE_URL runtime:
@@ -451,7 +451,7 @@ skeleton-core build --wheel dist/django_skeleton-<versão>-py3-none-any.whl \
 ```sh
 skeleton-core manifest --wheel dist/django_skeleton-<versão>-py3-none-any.whl \
   --publisher <publisher> --output /caminho/privado/core-manifest.json \
-  --known-version 0.6.0 --known-version 0.6.3 --earliest-source 0.5.0 \
+  --known-version 0.3.1 --known-version 0.3.2 --earliest-source 0.1.0 \
   [--release-notes-file notas.md] [--build "<procedência>"]
 ```
 
@@ -459,12 +459,12 @@ skeleton-core manifest --wheel dist/django_skeleton-<versão>-py3-none-any.whl \
 
 | Versão | Versões conhecidas | `--earliest-source` | `from_versions` |
 |---|---|---|---|
-| 0.6.0 | — | 0.5.0 | `>=0.5.0,<=0.6.0` |
-| 0.6.3 | 0.6.0, 0.6.1 | 0.5.0 | `>=0.5.0,<=0.6.3` |
-| 0.7.0 | 0.6.0, 0.6.3 | 0.5.0 | `>=0.6.0,<=0.7.0` |
-| 1.0.0 | 0.6.3, 0.7.2 | — | `>=0.7.0,<=1.0.0` |
+| 0.3.1 | — | 0.1.0 | `>=0.1.0,<=0.3.1` (o primeiro release automatizado) |
+| 0.3.2 | 0.3.1 | 0.1.0 | `>=0.1.0,<=0.3.2` |
+| 0.4.0 | 0.3.1, 0.3.2 | 0.1.0 | `>=0.3.0,<=0.4.0` |
+| 1.0.0 | 0.4.0, 0.7.2 | — | `>=0.7.0,<=1.0.0` |
 | 1.0.1 | 0.7.2, 1.0.0 | — | `>=0.7.0,<=1.0.1` |
-| 0.6.0 | — | — | `>=0.6.0,<=0.6.0` (só a própria versão) |
+| 0.4.0 | — | — | `>=0.4.0,<=0.4.0` (só a própria versão) |
 
 Para o passo a passo de quem opera uma instalação (por arquivo, pelo GitHub, forks, agente, avisos e solução de problemas), veja o [guia de atualização](updates.md). A lista abaixo descreve o formato do manifesto core, que `skeleton-core manifest` gera:
 
@@ -758,7 +758,7 @@ As apps first-party (`skeleton/contrib`, como a agenda) vêm no wheel do núcleo
 
 **Apps em desenvolvimento** (#518). `SKELETON_DEV_APPS` carrega apps de um checkout local e só existe nos perfis de desenvolvimento e teste: os perfis de produção, migração, build e setup param o startup quando a variável não está vazia. Em produção uma app só entra por pacote assinado instalado pelo agente, ou em `PROJECT_APPS`; não defina a variável no ambiente de uma instalação.
 
-**Apps gerenciadas que dependem de uma first-party** (#254). A dependência (`"org.skeleton.calendar": ">=0.1.0,<0.2.0"`) só é satisfeita quando a first-party está em `SKELETON_BUNDLED_APPS`, na versão do core. O agente lê `SKELETON_BUNDLED_APPS` do arquivo de ambiente runtime (ou do SQLite da instância) e recusa o plano com `dependency_unsatisfied` quando ela falta; um nome fora do mapa é `unknown_bundled_app`. A ordem segue a dependência:
+**Apps gerenciadas que dependem de uma first-party** (#254). A dependência (`"org.skeleton.calendar": ">=0.3.0,<0.4.0"`) só é satisfeita quando a first-party está em `SKELETON_BUNDLED_APPS`, na versão do core. O agente lê `SKELETON_BUNDLED_APPS` do arquivo de ambiente runtime (ou do SQLite da instância) e recusa o plano com `dependency_unsatisfied` quando ela falta; um nome fora do mapa é `unknown_bundled_app`. A ordem segue a dependência:
 
 - **Instalar:** primeiro a first-party (nome em `SKELETON_BUNDLED_APPS`, reinício, `migrate`), depois o plano com a app que depende dela.
 - **Retirar:** primeiro a app dependente (plano de remoção), depois a first-party. Tirar a first-party com um dependente instalado faz o startup parar com `Invalid private deployment inventory` (falha fechada).
