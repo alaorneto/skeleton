@@ -250,6 +250,7 @@ Uma requisição comum seleciona um tenant só. Para mostrar os itens de uma pes
 - Para cada organização, `fn(organization_id)` roda num `request_context` + `tenant_context` próprios: TablePermission, visibilidade, ativação de apps e RLS valem como numa requisição comum. No PostgreSQL a transação é `READ ONLY`, então uma escrita dentro de `fn` falha.
 - Uma organização é pulada quando o vínculo ficou inativo, quando `app_label` não está ativa nela ou quando `fn` é negado: `PermissionDenied` (por exemplo, sem TablePermission) ou `Forbidden`/`Unavailable` de uma API de serviços.
 - `fn` devolve valores materializados: queryset, iterador ou gerador levantam `LazyAggregateResult`, porque nada pode ler o banco depois da transação da organização.
+- Com `organization_id=...`, só essa organização roda, e só enquanto a pessoa tiver vínculo ativo nela; sem vínculo, o resultado é vazio. O link de assinatura de um calendário usa esse filtro (#669).
 
 Não há escrita entre organizações: uma escrita sempre acontece numa organização escolhida pela pessoa.
 

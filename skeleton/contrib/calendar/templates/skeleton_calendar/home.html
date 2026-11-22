@@ -2,7 +2,7 @@
 {% block content %}
 <div class="page-header">
   <div class="min-w-0"><p class="page-eyebrow">{% translate "Aplicativos" %}</p><h1>{% translate "Agenda" %}</h1><p class="page-description">{% translate "Horários no fuso" %} {{ zone }}. {% translate "Eventos privados de outras pessoas aparecem só como Ocupado." %}</p></div>
-  <nav class="toolbar" aria-label="{% translate "Ações da agenda" %}"><a class="btn btn-primary" href="{% url 'skeleton_calendar:event-new' organization_id %}">{% include "skeleton/web/components/icon.html" with name="plus" %}{% translate "Novo evento" %}</a></nav>
+  <nav class="toolbar" aria-label="{% translate "Ações da agenda" %}"><a class="btn btn-secondary" href="{% url 'skeleton_calendar:calendars' organization_id %}">{% translate "Calendários" %}</a><a class="btn btn-primary" href="{% url 'skeleton_calendar:event-new' organization_id %}">{% include "skeleton/web/components/icon.html" with name="plus" %}{% translate "Novo evento" %}</a></nav>
 </div>
 <nav class="mb-4 flex flex-wrap items-center gap-2" aria-label="{% translate "Navegação da agenda" %}">
   <a class="btn btn-secondary" href="{{ previous_url }}" rel="prev">{% include "skeleton/web/components/icon.html" with name="chevron-left" %}<span class="sr-only">{% translate "Período anterior" %}</span></a>
@@ -20,7 +20,7 @@
 {% endfor %}
 </div>
 <section class="mt-6" aria-labelledby="calendars-heading">
-  <h2 id="calendars-heading">{% translate "Calendários" %}</h2>
-  <ul class="mt-2 flex flex-wrap gap-2">{% for calendar in calendars %}<li class="badge"><span class="inline-block size-2 rounded-full" data-swatch="{{ calendar.color }}" aria-hidden="true"></span>{{ calendar.name }}</li>{% endfor %}</ul>
+  <h2 id="calendars-heading"><a class="underline" href="{% url 'skeleton_calendar:calendars' organization_id %}">{% translate "Calendários" %}</a></h2>
+  <ul class="mt-2 flex flex-wrap gap-2">{% for calendar in calendars %}<li class="badge"><span class="inline-block size-2 rounded-full" data-swatch="{{ calendar.color }}" aria-hidden="true"></span><a href="{% url 'skeleton_calendar:calendar-detail' organization_id calendar.sysid %}">{{ calendar.name }}</a></li>{% endfor %}</ul>
 </section>
 {% endblock %}

@@ -33,6 +33,20 @@ class CalendarInfo:
     owner_id: UUID
     revision: int
     writable: bool = False  # Whether create_event would accept this calendar for the actor (#344).
+    # Managed calendars (#670): the app that owns it and its page there, empty otherwise.
+    source_app: str = ""
+    source_path: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class CalendarLinks:
+    """Paths of the pages of a calendar, relative to the organization (#670).
+
+    Prefix them with the organization address (``/o/<org>/`` or the organization host) to link.
+    """
+
+    calendar_path: str
+    subscription_path: str
 
 
 def calendar_info(calendar: Calendar, *, writable: bool = False) -> CalendarInfo:
@@ -46,6 +60,8 @@ def calendar_info(calendar: Calendar, *, writable: bool = False) -> CalendarInfo
         owner_id=calendar.owner_id,
         revision=calendar.revision,
         writable=writable,
+        source_app=calendar.source_app,
+        source_path=calendar.source_path,
     )
 
 
@@ -100,16 +116,26 @@ class CalendarService(ServiceAPI):
         writer_group_ids: tuple[UUID, ...] = (),
         reader_group_ids: tuple[UUID, ...] = (),
         idempotency_key: str,
+        writer_user_ids: tuple[UUID, ...] = (),
+        reader_user_ids: tuple[UUID, ...] = (),
+        source_app: str = "",
+        source_path: str = "",
     ) -> CalendarInfo:
         """Create a private shared calendar owned by a member, with writing delegated to groups (#539).
 
         For example the calendar of the appointments of one professional, written by the support
         team: the groups in ``writer_group_ids`` get ``read`` and ``update``, those in
-        ``reader_group_ids`` only ``read``, by record grants of the core.
+        ``reader_group_ids`` only ``read``, by record grants of the core; ``writer_user_ids`` and
+        ``reader_user_ids`` (#670) do the same for people. With ``source_app`` (#670) the calendar
+        is **managed** by that app: the calendar pages show it with "abrir na origem"
+        (``source_path``, inside ``apps/<source_app>/``) and never rename it, change its access
+        or delete it.
         Autorização: ``create`` em skeleton_calendar.calendar e a capacidade ``access.manage``
         (a gestão de acesso do núcleo).
         Erros: Forbidden sem uma das duas; InvalidInput para nome, fuso, dono que não é membro ativo,
-        grupo de outra organização, mais de 20 grupos ou chave inválida.
+        grupo de outra organização, pessoa que não é membro ativo, mais de 20 grupos e pessoas,
+        chave inválida, app de origem desconhecida, inativa ou a própria agenda, ou caminho fora
+        de ``apps/<source_app>/``.
         Efeitos: cria o calendário e as concessões na transação do chamador; a mesma
         ``idempotency_key`` do mesmo ator devolve o calendário já criado.
         """
@@ -129,11 +155,14 @@ class CalendarService(ServiceAPI):
         ):
             raise Forbidden()
         groups = {"update": writer_group_ids, "read": reader_group_ids}
-        if (
-            not all(isinstance(value, tuple) for value in groups.values())
-            or len(writer_group_ids) + len(reader_group_ids) > 20
-        ):
-            raise InvalidInput({"writer_group_ids": [gettext("Informe até 20 grupos.")]})
+        people = {"update": writer_user_ids, "read": reader_user_ids}
+        subjects = (*groups.values(), *people.values())
+        if not all(isinstance(value, tuple) for value in subjects) or sum(len(value) for value in subjects) > 20:
+            raise InvalidInput({"writer_group_ids": [gettext("Informe até 20 grupos e pessoas.")]})
+        if source_app:
+            _require_source_app(source_app)
+        if not isinstance(source_path, str):
+            raise InvalidInput({"source_path": [gettext("Use um caminho relativo.")]})
         organization_id = current_context().organization_id
         sysid = uuid.uuid5(
             uuid.NAMESPACE_URL, f"skeleton-calendar:shared:{organization_id}:{actor.pk}:{idempotency_key}"
@@ -153,6 +182,8 @@ class CalendarService(ServiceAPI):
                 kind=Calendar.Kind.SHARED,
                 name=name,
                 timezone=timezone,
+                source_app=source_app,
+                source_path=source_path,
             )
             calendar.save()
             access = AccessService()
@@ -162,7 +193,84 @@ class CalendarService(ServiceAPI):
                         access.grant_record_access(
                             actor=actor, table_key=TABLE_KEY, record_id=calendar.pk, action=granted, group_id=group_id
                         )
+            for action, user_ids in people.items():
+                for user_id in dict.fromkeys(user_ids):
+                    for granted in ("read", "update") if action == "update" else ("read",):
+                        access.grant_record_access(
+                            actor=actor,
+                            table_key=TABLE_KEY,
+                            record_id=calendar.pk,
+                            action=granted,
+                            membership_user_id=user_id,
+                        )
         return calendar_info(calendar, writable=True)
+
+    @service_method(read_only=False, since="0.4.0", allow_system=True)
+    def claim_calendar(
+        self, *, actor: Any, calendar_id: UUID, source_app: str, source_path: str = "", expected_revision: int
+    ) -> CalendarInfo:
+        """Mark a shared calendar the app created before the marker as managed by it (#670).
+
+        For an app that created calendars with ``create_shared_calendar`` before ``source_app``
+        existed: it marks them as its own, without a data migration of its own. Only the app
+        that created the calendar passes its own label (the API is in process: checked by code
+        review). Repeating the call with the same app and path returns the calendar unchanged,
+        whatever ``expected_revision``; the same app with another path updates the path.
+        Autorização: ``update`` no calendário e a capacidade ``access.manage``; em
+        ``system_context`` da organização (``actor=None``), aceito.
+        Erros: NotFound para calendário inexistente, ilegível ou de outra organização; Forbidden
+        sem ``update`` ou sem a capacidade; Conflict("managed_calendar") para calendário de outra
+        app; Conflict("stale_revision") com a revisão desatualizada; InvalidInput para calendário
+        pessoal, app de origem desconhecida, inativa ou a própria agenda, ou caminho fora de
+        ``apps/<source_app>/``.
+        Efeitos: grava a origem (auditada) na transação do chamador.
+        """
+        from skeleton.service_api import Conflict, Forbidden, InvalidInput, NotFound, as_uuid
+        from skeleton.service_api.access import AccessService
+
+        from .policies import can_write
+
+        _require_source_app(source_app)
+        if not isinstance(source_path, str):
+            raise InvalidInput({"source_path": [gettext("Use um caminho relativo.")]})
+        identifier = as_uuid(calendar_id, field="calendar_id")
+        with transaction.atomic(using=current_context().using):
+            if actor is None:
+                calendar = Calendar.objects.select_for_update().filter(pk=identifier).first()
+                if calendar is None:
+                    raise NotFound()
+            else:
+                readable = _readable_calendar(actor, identifier)
+                if not can_write(actor, readable) or "access.manage" not in AccessService().capabilities(actor=actor):
+                    raise Forbidden()
+                calendar = Calendar.objects.select_for_update().get(pk=readable.pk)
+            if calendar.kind != Calendar.Kind.SHARED:
+                raise InvalidInput(
+                    {"calendar_id": [gettext("Só um calendário compartilhado é gerenciado por uma app.")]}
+                )
+            if calendar.source_app and calendar.source_app != source_app:
+                raise Conflict("managed_calendar", gettext("Este calendário é gerenciado por outra app."))
+            if calendar.source_app == source_app and calendar.source_path == source_path:
+                return calendar_info(calendar, writable=actor is None or can_write(actor, calendar))
+            if type(expected_revision) is not int or calendar.revision != expected_revision:
+                raise Conflict("stale_revision", gettext("O calendário mudou."))
+            calendar.source_app, calendar.source_path = source_app, source_path
+            calendar.save(update_fields={"source_app", "source_path"})
+        return calendar_info(calendar, writable=actor is None or can_write(actor, calendar))
+
+    @service_method(read_only=True, since="0.4.0")
+    def calendar_links(self, *, actor: Any, calendar_id: UUID) -> CalendarLinks:
+        """Paths of the page of a calendar and of its subscription page, relative to the organization (#670).
+
+        The subscription page (#669) issues the person's own link to that calendar; the paths
+        stay the same across versions of the calendar.
+        Autorização: leitura do calendário.
+        Erros: NotFound para calendário inexistente, ilegível ou de outra organização.
+        Efeitos: nenhum.
+        """
+        calendar = _readable_calendar(actor, calendar_id)
+        base = f"apps/{APP_LABEL}/calendars/{calendar.pk}/"
+        return CalendarLinks(calendar_path=base, subscription_path=f"{base}link/")
 
     @service_method(read_only=True, since="0.1.0")
     def upcoming(
@@ -949,6 +1057,19 @@ def _require_source(source_app: Any, source_key: Any) -> None:
     import re
 
     from skeleton.service_api import InvalidInput
+
+    _require_source_app(source_app)
+    from .services import MANAGED_KEY
+
+    if not isinstance(source_key, str) or not re.fullmatch(MANAGED_KEY, source_key):
+        raise InvalidInput({"source_key": [gettext("Use de 1 a 200 letras, dígitos e : . _ -.")]})
+
+
+def _require_source_app(source_app: Any) -> None:
+    """A registered app other than the calendar, active in the organization (#537, #670)."""
+    import re
+
+    from skeleton.service_api import InvalidInput
     from skeleton.system.applications import application_state, require_application_enabled
 
     if (
@@ -962,10 +1083,6 @@ def _require_source(source_app: Any, source_key: Any) -> None:
         require_application_enabled(source_app)
     except (KeyError, PermissionDenied):
         raise InvalidInput({"source_app": [gettext("A app de origem não está ativa nesta organização.")]}) from None
-    from .services import MANAGED_KEY
-
-    if not isinstance(source_key, str) or not re.fullmatch(MANAGED_KEY, source_key):
-        raise InvalidInput({"source_key": [gettext("Use de 1 a 200 letras, dígitos e : . _ -.")]})
 
 
 def _managed_calendar(actor: Any, calendar_id: Any) -> Calendar:

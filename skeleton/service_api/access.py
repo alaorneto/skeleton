@@ -253,6 +253,44 @@ class AccessService(ServiceAPI):
         if grant is not None:
             revoke_link(grant, user=_user(actor))
 
+    @service_method(read_only=True, since="0.4.0")
+    def record_grants(self, *, actor: AbstractBaseUser, table_key: str, record_id: UUID) -> tuple[RecordGrantInfo, ...]:
+        """The live record grants of one record (at most 500), oldest first (#670).
+
+        For a sharing page: who reads or writes the record by group, role or person.
+        Autorização: igual a ``grant_record_access``: leitura do registro e a capacidade
+        ``access.manage``.
+        Erros: NotFound para registro inexistente, ilegível ou de outra organização; Forbidden sem
+        a capacidade; InvalidInput para tabela não exposta ou derivada.
+        Efeitos: nenhum.
+        """
+        from skeleton.access.capabilities import ACCESS_MANAGE, require_capability
+        from skeleton.access.models import RecordGrant
+        from skeleton.access.policies import authorized_queryset
+
+        _refuse_derived(table_key)
+        model = _model(table_key)
+        if model is None:
+            raise InvalidInput({"table_key": [gettext("Tabela desconhecida ou não exposta.")]})
+        identifier = as_uuid(record_id, field="record_id")
+        user = _user(actor)
+        try:
+            readable = authorized_queryset(model, user=user, action="read").filter(pk=identifier).exists()
+        except PermissionDenied:
+            readable = False
+        if not readable:
+            raise NotFound()
+        try:
+            require_capability(user, ACCESS_MANAGE)
+        except PermissionDenied:
+            raise Forbidden() from None
+        rows = (
+            RecordGrant.objects.filter(table__model_label=model._meta.label_lower, record_sysid=identifier)
+            .select_related("membership")
+            .order_by("created_at", "sysid")[:MAX_RECORD_IDS]
+        )
+        return tuple(_grant_info(grant, model._meta.label_lower) for grant in rows)
+
     @service_method(read_only=True, since="0.1.0")
     def granted_record_ids(
         self, *, actor: AbstractBaseUser, table_key: str, record_ids: tuple[UUID, ...], action: str = "read"

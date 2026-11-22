@@ -7,4 +7,5 @@ urlpatterns = [
     path("", user_views.my_agenda, name="mine"),
     path("feed-token/", feed.feed_token, name="feed-token"),
     path("feed/<str:token>.ics", feed.feed, name="feed"),
+    path("calendar-feed/<str:token>.ics", feed.calendar_feed, name="calendar-feed"),
 ]

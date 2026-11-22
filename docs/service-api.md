@@ -245,7 +245,7 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | `IdentityService` | `skeleton.service_api.identity` | `me`, `get_person`, `people`, `update_my_preferences`, `update_my_profile` | [#102](https://github.com/alaorneto/skeleton/issues/102), [#475](https://github.com/alaorneto/skeleton/issues/475) |
 | `OrganizationService` | `skeleton.service_api.organizations` | `current`, `my_organizations`, `members`, `groups`, `is_member`, `member_refs`, `settings`, `update_settings` | [#103](https://github.com/alaorneto/skeleton/issues/103), [#167](https://github.com/alaorneto/skeleton/issues/167) |
 | `ExternalAccessService` | `skeleton.service_api.external` | `invite`, `revoke_invitation`, `resend_invitation`, `accesses`, `invitations`, `access_for`, `revoke`, `me` | [#532](https://github.com/alaorneto/skeleton/issues/532) |
-| `AccessService` | `skeleton.service_api.access` | `can`, `require`, `capabilities`, `granted_record_ids`, `my_groups`, `grant_member_table_access`, `grant_record_access`, `revoke_record_access` | [#104](https://github.com/alaorneto/skeleton/issues/104) |
+| `AccessService` | `skeleton.service_api.access` | `can`, `require`, `capabilities`, `granted_record_ids`, `my_groups`, `grant_member_table_access`, `grant_record_access`, `revoke_record_access`, `record_grants` | [#104](https://github.com/alaorneto/skeleton/issues/104) |
 | `ApplicationService`, `ApplicationAdministrationService` | `skeleton.service_api.applications` | `is_enabled`, `require_enabled`, `my_configuration`; administração: `applications`, `application`, `configure` | [#105](https://github.com/alaorneto/skeleton/issues/105) |
 | `AuditService`, `AuditLogService` | `skeleton.service_api.audit` | `history`; log das superfícies do núcleo: `events`, `event`, `related_domain_events` | [#106](https://github.com/alaorneto/skeleton/issues/106), [#110](https://github.com/alaorneto/skeleton/issues/110) |
 | `NotificationService` | `skeleton.service_api.notifications` | `notify`, `unread_count`, `inbox`, `mark_read`, `archive` | [#107](https://github.com/alaorneto/skeleton/issues/107) |
@@ -255,7 +255,7 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | `SearchService` | `skeleton.service_api.search` | `search` | [#583](https://github.com/alaorneto/skeleton/issues/583) |
 | `SequenceService` | `skeleton.service_api.sequences` | `next_number` | [#155](https://github.com/alaorneto/skeleton/issues/155) |
 | `RecordSealService` | `skeleton.service_api.records` | `seal`, `status`, `verify` | [#527](https://github.com/alaorneto/skeleton/issues/527) |
-| `FeedTokenService` | `skeleton.service_api.tokens` | `issue` | [#76](https://github.com/alaorneto/skeleton/issues/76) |
+| `FeedTokenService` | `skeleton.service_api.tokens` | `issue`, `issue_for_record` | [#76](https://github.com/alaorneto/skeleton/issues/76) |
 | `BillingService` | `skeleton.service_api.billing` | `access_state`, `entitlement`, `storage_allowance`, `check_quota`, `record_usage`, `void_usage`, `check_usage`, `usage`, `subscription`, `list_invoices`, `offers`, `contract`, `remove_item`, `cancel`, `resume`, `redeem_voucher`, `update_account`, `checkout` | [#404](https://github.com/alaorneto/skeleton/issues/404) |
 | `FlowService` | `skeleton.service_api.flows` | `start`, `signal`, `instance`, `instances`, `history`, `tasks`, `open_task_count`, `task`, `claim_task`, `release_task`, `reassign_task`, `complete_task`, `decide_task`, `cancel`, `suspend`, `resume`, `retry` | [#205](https://github.com/alaorneto/skeleton/issues/205) |
 
@@ -312,6 +312,7 @@ O diretório traz só vínculos ativos de identidades ativas da organização at
 
 | `grant_record_access(*, actor, table_key, record_id, action, group_id=None, role_id=None, membership_user_id=None) -> RecordGrantInfo` | Concede `read`, `update` ou `delete` num registro a exatamente um grupo, papel ou pessoa (pelo `user_id` do vínculo ativo), pelo mesmo serviço das telas de gestão de acesso (lock, auditoria); uma concessão viva igual é devolvida sem gravar (#539) | `NotFound` (registro inexistente, ilegível ou de outra organização); `Forbidden` sem `access.manage`; `InvalidInput` (tabela não exposta; tabela derivada, cujo acesso é gerido na âncora, #564; ação inválida, nenhum ou mais de um destinatário, destinatário de outra organização ou inativo) |
 | `revoke_record_access(*, actor, table_key, record_id, action, group_id=None, role_id=None, membership_user_id=None) -> None` | Revoga a concessão desse destinatário e dessa ação; sem concessão, nada muda | Os de `grant_record_access` |
+| `record_grants(*, actor, table_key, record_id) -> tuple[RecordGrantInfo, ...]` | As concessões vivas de um registro (até 500, da mais antiga), para uma tela de compartilhamento; a mesma autorização de `grant_record_access`: leitura do registro e `access.manage` (#670) | `NotFound` (registro inexistente, ilegível ou de outra organização); `Forbidden` sem `access.manage`; `InvalidInput` (tabela não exposta ou derivada) |
 
 `RecordGrantInfo` tem `sysid`, `table_key`, `record_id`, `action`, `group_id`, `role_id` e `membership_user_id`. Não há cache entre chamadas: uma revogação vale na chamada seguinte. Alterar ACL continua nos serviços de gestão de acesso.
 
@@ -373,8 +374,11 @@ Tipo registrado sem `owner_app` não pode ser usado pelo serviço: é `Forbidden
 | Método | Autorização | Erros |
 |---|---|---|
 | `FeedTokenService.issue(*, actor, name, scope, expires_at) -> IssuedFeedToken` | a própria pessoa (sem contas de serviço), política de MFA; `scope` é um escopo de feed registrado (`register_token_scope(..., feed=True)`) | `InvalidInput` (escopo que não é de feed, nome ou validade), `Forbidden` |
+| `FeedTokenService.issue_for_record(*, actor, name, scope, expires_at, table_key, record_id) -> IssuedFeedToken` | o mesmo de `issue`, numa organização, para um registro que a pessoa lê (`AccessService.can`); o token fica vinculado ao registro e à organização dele (#669) | `NotFound` (registro inexistente, ilegível ou de outra organização), `InvalidInput`, `Forbidden` |
 
 `IssuedFeedToken` traz `sysid`, `prefix`, `scope`, `expires_at` e o `text`, só nesta resposta. Para a view do feed, `skeleton.service_api.tokens.authenticate_feed(request, text, scope=...)` devolve o usuário de um token de feed vivo com o escopo, ou `None` (inclusive acima dos limites de taxa), e a view responde 404. Um token de feed nunca autentica `/api/v1/` ([#76](https://github.com/alaorneto/skeleton/issues/76)). `authenticate_feed(request, text, *, scope)` é função de apoio para a view de feed da própria app; não é método de serviço e não segue as regras de `@service_method`.
+
+Um token de `issue_for_record` abre só o feed daquele registro ([#669](https://github.com/alaorneto/skeleton/issues/669)): `authenticate_feed` o recusa, e `authenticate_record_feed(request, text, *, scope, table_key)` devolve um `RecordFeed` (`user`, `organization_id`, `table_key`, `record_id`) ou `None`, com as mesmas recusas e limites. O token não carrega permissão: a view abre só a organização do registro (`for_each_organization(..., organization_id=...)`), relê a autorização a cada pedido e responde 404 quando a pessoa deixou de ler o registro, sem revogar o token.
 
 ### FileService
 

@@ -14,6 +14,10 @@ class ApiToken(SystemRecord):
     shown once, at issue. A token is valid while not expired, not revoked, its user active
     and the user's ``auth_version`` unchanged since issue. ``scopes`` only narrow the user's
     role, never widen it.
+
+    A feed token may be bound to one record (#669): ``target_table`` and ``target_id`` name it
+    and ``bound_organization`` is its organization. Such a token opens only the feed of that
+    record, never the person's feed nor another record's.
     """
 
     class Kind(models.TextChoices):
@@ -34,6 +38,8 @@ class ApiToken(SystemRecord):
     expires_at = models.DateTimeField()
     revoked_at = models.DateTimeField(null=True, blank=True)
     auth_version_at_issue = models.PositiveIntegerField()
+    target_table = models.CharField(max_length=100, blank=True, default="")
+    target_id = models.UUIDField(null=True, blank=True)
     immutable_fields = (
         "user_id",
         "kind",
@@ -43,6 +49,8 @@ class ApiToken(SystemRecord):
         "scopes",
         "expires_at",
         "auth_version_at_issue",
+        "target_table",
+        "target_id",
     )
 
     class Meta(SystemRecord.Meta):
@@ -56,6 +64,12 @@ class ApiToken(SystemRecord):
             models.CheckConstraint(
                 condition=~Q(kind="service") | Q(bound_organization__isnull=False),
                 name="sk_integrations_apitoken_service_bound",
+            ),
+            # A record feed (#669): table, record and organization together, on feed tokens only.
+            models.CheckConstraint(
+                condition=Q(target_table="", target_id__isnull=True)
+                | (Q(kind="feed", target_id__isnull=False, bound_organization__isnull=False) & ~Q(target_table="")),
+                name="sk_integrations_apitoken_target",
             ),
         ]
 
