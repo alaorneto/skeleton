@@ -158,12 +158,22 @@ def _login(user):
     return support.login(user, password=FIXTURE_PASSWORD)
 
 
+def _settings_form(page: str) -> tuple[str, str]:
+    """``(inside, after)``: the settings form up to its buttons, and what follows its ``</form>``."""
+    start = page.index("data-record-form action=")
+    end = page.index("</form>", start)
+    return page[start:end], page[end:]
+
+
 def test_settings_page_section_and_post(scenario, settings):
     url = reverse("web:organization-settings", kwargs={"organization_id": scenario.a.pk})
     admin = _login(scenario.admin_a)
     page = admin.get(url).content.decode()
     assert "https://site-a.example.test" in page and 'name="site_enabled"' in page
     assert "ficam visíveis para qualquer pessoa" in page
+    inside, _after = _settings_form(page)
+    # The checkbox is saved with the form, above its buttons.
+    assert inside.index('name="site_enabled"') < inside.index('class="form-actions"')
     token = admin.cookies["csrftoken"].value
     data = {**VALUES, "business_hours": "", "holidays": "", "revision": "0", "csrfmiddlewaretoken": token}
     assert admin.post(url, {**data, "site_enabled": "on"}).status_code == 302
@@ -172,8 +182,11 @@ def test_settings_page_section_and_post(scenario, settings):
     assert find_site("site-a") is None
     settings.SKELETON_ORGANIZATION_BASE_DOMAIN = ""
     page = admin.get(url).content.decode()
-    assert "Esta instalação não oferece endereço próprio para organizações." in page
     assert 'name="site_enabled"' not in page
+    inside, after = _settings_form(page)
+    # Nothing to save: the notice stays out of the form, not next to its buttons (#749).
+    assert "endereço próprio" not in inside.lower()
+    assert "Esta instalação não oferece endereço próprio para organizações." in after
     response = admin.post(url, {**data, "revision": "2", "site_enabled": "on"})
     assert response.status_code == 400 and find_site("site-a") is None
 
@@ -183,8 +196,10 @@ def test_unusable_slug_text_on_the_page(scenario, monkeypatch):
 
     monkeypatch.setattr(module, "site_refusal", lambda organization: "x")
     page = _login(scenario.admin_a).get(reverse("web:organization-settings", args=[scenario.a.pk])).content.decode()
-    assert "O identificador desta organização não pode ser usado como endereço." in page
     assert 'name="site_enabled"' not in page
+    inside, after = _settings_form(page)
+    assert "O identificador desta organização não pode ser usado como endereço." in after
+    assert "endereço próprio" not in inside.lower()
 
 
 def test_members_and_other_organizations_cannot_turn_it_on(scenario):

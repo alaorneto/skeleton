@@ -62,3 +62,16 @@ def test_known_utilities_are_compiled() -> None:
     # Classes usadas só em templates fora de skeleton/web (comentários e fluxos).
     assert ".whitespace-pre-line" in compiled
     assert r".lg\:grid-cols-2" in compiled
+
+
+def test_page_header_title_block_fills_the_available_width() -> None:
+    """O bloco do título ocupa a largura que a barra de ações deixa (#745)."""
+    compiled = COMPILED_CSS.read_text(encoding="utf-8")
+    grow = re.search(r"@media \(min-width:48rem\)\{\.page-header>:not\(\.toolbar\)\{flex:1\}", compiled)
+    assert grow, "o bloco do título não cresce a partir de md"
+    # Abaixo de md o cabeçalho é uma coluna: a regra de crescimento fica só na media query.
+    assert ".page-header>:not(.toolbar){min-width:0}" in compiled
+    assert ".page-header>:not(.toolbar){flex:1}" not in compiled[: grow.start()]
+    descriptions = re.findall(r"\.page-description\{([^}]*)\}", compiled)
+    assert descriptions, "regra .page-description ausente"
+    assert not any("max-width" in rule for rule in descriptions), descriptions
