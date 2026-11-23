@@ -174,3 +174,24 @@ def test_sbr09_proxy_configuration_keeps_client_ip_buckets_distinct_and_default_
 
     with pytest.raises(ImproperlyConfigured):
         proxy_settings(env, values={"DJANGO_TRUSTED_PROXY_COUNT": "1"})
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "SKELETON_INSTANCE_ENV_FILE",
+        "SKELETON_RUNTIME_DATABASE_URL",
+        "SKELETON_NODE_ID",
+        "SKELETON_CLUSTER_URL",
+        "SKELETON_CLUSTER_DIR",
+    ],
+)
+def test_the_production_file_refuses_to_render_without_a_variable_of_the_node(composition, name):
+    """#685: an application node never starts half configured; no PostgreSQL nor Redis in the file."""
+    config, env = composition
+    assert not {"postgres", "redis"} & set(config["services"])
+    missing = {key: value for key, value in env.items() if key != name}
+    result = subprocess.run(
+        ["docker", "compose", "config", "--format", "json"], cwd=ROOT, env=missing, capture_output=True, text=True
+    )
+    assert result.returncode != 0 and name in result.stderr

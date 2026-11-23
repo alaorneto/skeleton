@@ -451,6 +451,7 @@ jobs:
           DATA_TLS_DIR=$tls/data
           POSTGRES_PORT=55432
           REDIS_PORT=56379
+          PGBOUNCER_PORT=56432
           POSTGRES_PASSWORD=$POSTGRES_PASSWORD
           SKELETON_OWNER_DB_PASSWORD=$SKELETON_OWNER_DB_PASSWORD
           SKELETON_RUNTIME_DB_PASSWORD=$SKELETON_RUNTIME_DB_PASSWORD
@@ -507,7 +508,7 @@ jobs:
           EOF
           sed -i 's/^ *//' "$RUNNER_TEMP"/*.env
       - name: Servidor de dados
-        run: docker compose -p ci-data --env-file "$RUNNER_TEMP/data.env" -f deploy/data-server/compose.yaml up -d --build --wait
+        run: docker compose -p ci-data --env-file "$RUNNER_TEMP/data.env" -f deploy/data-server/compose.yaml --profile pooler up -d --build --wait
       - name: Primeiro nó (candidato), primeira partida pelo agente
         run: |
           node() { docker compose -p "$1" --env-file "$RUNNER_TEMP/$1.env" -f compose.yaml -f "$RUNNER_TEMP/compose.ci.yaml" "${@:2}"; }
@@ -572,11 +573,76 @@ jobs:
             echo "socket Docker montado" >&2
             exit 1
           fi
+      - name: Uma instância por cluster, TLS obrigatório, rede dos nós e o PgBouncer (#679)
+        run: |
+          set -eu
+          node() { docker compose -p "$1" --env-file "$RUNNER_TEMP/$1.env" -f compose.yaml -f "$RUNNER_TEMP/compose.ci.yaml" "${@:2}"; }
+          # Uma segunda instância no mesmo servidor de dados: as próprias senhas e uma rede de nós
+          # (192.0.2.0/24) que não é a deste runner.
+          cat > "$RUNNER_TEMP/data-b.env" <<EOF
+          DATA_BIND_ADDRESS=$GATEWAY
+          DATA_CLIENT_CIDR=192.0.2.0/24
+          DATA_TLS_DIR=$RUNNER_TEMP/tls/data
+          POSTGRES_PORT=55433
+          REDIS_PORT=56380
+          POSTGRES_PASSWORD=cipostgresb
+          SKELETON_OWNER_DB_PASSWORD=ciownerb
+          SKELETON_RUNTIME_DB_PASSWORD=ciruntimeb
+          REDIS_PASSWORD=ciredisb
+          EOF
+          sed -i 's/^ *//' "$RUNNER_TEMP/data-b.env"
+          docker compose -p ci-data-b --env-file "$RUNNER_TEMP/data-b.env" -f deploy/data-server/compose.yaml up -d --build --wait
+          python - <<'EOF'
+          import os
+
+          import psycopg
+
+          host = os.environ["GATEWAY"]
+
+
+          def connect(port, password, sslmode="require"):
+              return psycopg.connect(
+                  host=host, port=port, dbname="skeleton", user="skeleton_runtime",
+                  password=password, sslmode=sslmode, connect_timeout=10,
+              )
+
+
+          def refused(port, password, fragment, sslmode="require"):
+              try:
+                  connect(port, password, sslmode).close()
+              except psycopg.OperationalError as error:
+                  assert fragment in str(error), str(error)
+                  print(f"recusado como esperado ({port}, sslmode={sslmode}): {fragment or 'sem TLS'}")
+                  return
+              raise SystemExit(f"a conexão devia ser recusada: porta {port}, sslmode={sslmode}")
+
+
+          connect(55432, "ciruntime").close()
+          # A senha da runtime da outra instância não abre esta: um cluster e uma senha por instância.
+          refused(55432, "ciruntimeb", "password authentication failed")
+          # Sem TLS, o pg_hba não tem entrada.
+          refused(55432, "ciruntime", "no pg_hba.conf entry", sslmode="disable")
+          # Fora de DATA_CLIENT_CIDR, nem a senha certa entra.
+          refused(55433, "ciruntimeb", "no pg_hba.conf entry")
+          # O PgBouncer aplica a mesma regra: TLS, SCRAM e a rede dos nós; o search_path vem da role.
+          with connect(56432, "ciruntime") as connection:
+              assert connection.execute("SHOW search_path").fetchone()[0].startswith("skeleton")
+          refused(56432, "ciruntime", "", sslmode="disable")
+          refused(56432, "ciruntimeb", "")
+          EOF
+          # Um nó de app pelo PgBouncer em modo transação (#676): checks de deploy (E050, search_path
+          # da role) e a conferência do schema com a role runtime.
+          pooled="postgres://skeleton_runtime:$SKELETON_RUNTIME_DB_PASSWORD@host.docker.internal:56432/skeleton?sslmode=require"
+          for command in "check --deploy --fail-level ERROR" "check_skeleton_schema"; do
+            node node-a exec -T -e DATABASE_URL="$pooled" -e DATABASE_TRANSACTION_POOLER=true -e DATABASE_CONN_MAX_AGE=0 web \
+              sh -c 'cd /releases/current && SKELETON_PROJECT_ROOT=$PWD SKELETON_DEPLOYMENT_INVENTORY=$PWD/inventory.json PYTHONPATH=$PWD exec .venv/bin/python manage.py "$@"' sh $command
+          done
       - name: Logs da stack
         if: failure()
         run: |
           node() { docker compose -p "$1" --env-file "$RUNNER_TEMP/$1.env" -f compose.yaml -f "$RUNNER_TEMP/compose.ci.yaml" "${@:2}"; }
-          docker compose -p ci-data --env-file "$RUNNER_TEMP/data.env" -f deploy/data-server/compose.yaml logs --no-color | tail -100
+          docker compose -p ci-data --env-file "$RUNNER_TEMP/data.env" -f deploy/data-server/compose.yaml --profile pooler logs --no-color | tail -100
+          docker compose -p ci-data-b --env-file "$RUNNER_TEMP/data-b.env" -f deploy/data-server/compose.yaml logs --no-color | tail -40 || true
           for project in node-a node-b; do
             node "$project" logs --no-color | tail -300
             # A saída de cada comando do agente fica no armazenamento privado dele (senhas só de ensaio).

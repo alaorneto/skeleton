@@ -56,6 +56,9 @@ services:
       - "${DATA_BIND_ADDRESS:?Define the private address of the data server}:${POSTGRES_PORT:?Define the PostgreSQL port of this instance}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # The socket and the generated access rules, shared only with the pooler of this instance.
+      - postgres_socket:/var/run/postgresql
+      - postgres_access:/var/lib/postgresql/skeleton
       - ./postgres-entrypoint.sh:/opt/data-server/entrypoint.sh:ro
       - ${DATA_TLS_DIR:?Define the directory with server.crt and server.key}:/opt/data-server/tls:ro
     healthcheck:
@@ -84,26 +87,42 @@ services:
 
   # Optional transaction pooler for the runtime role only (#676): the nodes set
   # DATABASE_TRANSACTION_POOLER=true and point DATABASE_URL here. The owner and the agents always
-  # connect to PostgreSQL directly. Pin the image to the version you validated.
+  # connect to PostgreSQL directly. It reaches PostgreSQL by the local socket of the shared volume
+  # (the only "local" entry of the runtime role in pg_hba) and applies to its own clients the same
+  # rule as PostgreSQL: TLS, SCRAM and only DATA_CLIENT_CIDR (pgbouncer_hba.conf, written by the
+  # entrypoint). It reads server.crt and server.key of DATA_TLS_DIR as its own user (uid 70): make
+  # the key readable to it. Pin the image to the version you validated.
   pgbouncer:
-    image: edoburu/pgbouncer:v1.24.1-p1
+    image: edoburu/pgbouncer:v1.26.1-p0
     profiles: ["pooler"]
     restart: unless-stopped
     environment:
-      DB_HOST: postgres
+      DB_HOST: /var/run/postgresql
       DB_PORT: "5432"
       DB_NAME: ${POSTGRES_DB:-skeleton}
       DB_USER: skeleton_runtime
-      DB_PASSWORD: ${SKELETON_RUNTIME_DB_PASSWORD:?Define the skeleton_runtime password}
       POOL_MODE: transaction
-      AUTH_TYPE: scram-sha-256
+      # The user list and the access rules come from the PostgreSQL entrypoint (the password never
+      # sits in this container's environment).
+      AUTH_TYPE: hba
+      AUTH_FILE: /var/lib/postgresql/skeleton/pgbouncer_userlist.txt
+      AUTH_HBA_FILE: /var/lib/postgresql/skeleton/pgbouncer_hba.conf
+      CLIENT_TLS_SSLMODE: require
+      CLIENT_TLS_CERT_FILE: /opt/data-server/tls/server.crt
+      CLIENT_TLS_KEY_FILE: /opt/data-server/tls/server.key
       IGNORE_STARTUP_PARAMETERS: extra_float_digits,options
       MAX_CLIENT_CONN: ${PGBOUNCER_MAX_CLIENT_CONN:-1000}
       DEFAULT_POOL_SIZE: ${PGBOUNCER_POOL_SIZE:-40}
     ports:
       - "${DATA_BIND_ADDRESS:?Define the private address of the data server}:${PGBOUNCER_PORT:-6432}:5432"
+    volumes:
+      - postgres_socket:/var/run/postgresql
+      - postgres_access:/var/lib/postgresql/skeleton:ro
+      - ${DATA_TLS_DIR:?Define the directory with server.crt and server.key}:/opt/data-server/tls:ro
     depends_on:
       postgres: {condition: service_healthy}
 
 volumes:
   postgres_data:
+  postgres_socket:
+  postgres_access:
