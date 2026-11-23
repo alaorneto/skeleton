@@ -256,7 +256,7 @@ def _migrate_postgres(pair, stats):
 @pytest.fixture(scope="session")
 def postgres_schema_stats():
     """How the PostgreSQL schemas of this session were built (asserted by the template tests)."""
-    return {"migrate": 0, "cached": 0, "restore": 0}
+    return {"migrate": 0, "cached": 0, "restore": 0, "reuse": 0}
 
 
 def _template_cache_key(pair):
@@ -316,10 +316,16 @@ def postgres_template(django_db_blocker, postgres_schema_stats):
 
 @pytest.fixture
 def skeleton_db(request, tmp_path, django_db_blocker):
-    """Real committed per-test DB; protected rows are never flushed/deleted."""
+    """Real committed per-test DB that starts at the migrated schema.
+
+    The schema is recreated from the template when the previous test changed its structure, a
+    row the migrations seeded, or left a doubt; otherwise only the rows written since the
+    template are deleted, by the owner, and the result is checked (#760). No test deletes or
+    flushes protected rows itself.
+    """
     from django.contrib.contenttypes.models import ContentType
 
-    from tools.integration_database import restore_schema
+    from tools.integration_database import template_schema
 
     original = connections["default"].settings_dict.copy()
     with django_db_blocker.unblock():
@@ -329,9 +335,8 @@ def skeleton_db(request, tmp_path, django_db_blocker):
         if template is None:
             _migrate_postgres(pair, stats)
         else:
-            # Same starting point as migrate: a recreated schema, never a flushed one.
-            restore_schema(pair, template)
-            stats["restore"] += 1
+            # Same starting point as migrate: the template, recreated or checked against it.
+            stats[template_schema(pair, template)] += 1
         # migrate's post_migrate handlers clear this cache; the restore does not run them.
         ContentType.objects.clear_cache()
         _configure_postgres(pair.runtime)
@@ -363,8 +368,8 @@ def skeleton_db(request, tmp_path, django_db_blocker):
 def owner_schema_editor(skeleton_db):
     """DDL of a throwaway test table as ``skeleton_owner``, the role that migrates.
 
-    Only setup DDL runs as the owner; every assertion keeps the runtime connection. The next
-    test restores the schema from the template, so the table never outlives its test.
+    Only setup DDL runs as the owner; every assertion keeps the runtime connection. The DDL is a
+    change of structure, so the next test recreates the schema and the table never outlives its test.
     """
     pair = _disposable_pair()
 

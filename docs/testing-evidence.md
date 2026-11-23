@@ -4,7 +4,7 @@ Registro do que rodou em cada rodada, com os comandos da época. As rodadas ante
 
 As rodadas anteriores à primeira release publicada (`v0.1.0`, #569) citam números de versão do desenvolvimento ("core/agente 0.3.0", "0.4.0", "0.5.0"), que nunca foram publicados e não correspondem às releases de mesmo número: são marcos internos daquela época, conservados como foram registrados. As versões publicadas e o que cada uma trouxe estão no [CHANGELOG](../CHANGELOG.md).
 
-## Suíte de testes abaixo de 10 minutos de novo (epic #758: #756, #757)
+## Suíte de testes abaixo de 10 minutos de novo (epic #758: #756, #757, #760)
 
 Rodada de 2026-11-23 na branch `test/758-suite-abaixo-de-10-minutos`, a partir da `main`. Windows 11, 8 núcleos e 16 threads, NTFS com antivírus em tempo real, Python do `.venv`, PostgreSQL 16.2 de `tools/dev_postgres.py` num servidor só desta rodada, role runtime, `SKELETON_ENABLE_EXAMPLE_APP=true`. Outras execuções da suíte rodavam na mesma máquina durante a rodada: os tempos abaixo são de fatias e de bancadas de restauração, não de uma execução inteira e isolada.
 
@@ -30,11 +30,14 @@ Rodada de 2026-11-23 na branch `test/758-suite-abaixo-de-10-minutos`, a partir d
 
 - **#756:** `template_build_lock` (trava de arquivo por chave no diretório do cache): com `-n 8` e cache frio, um worker migrou (11,2 s) e os outros sete leram o template; com `SKELETON_TEST_TEMPLATE_CACHE=0` e `-n 4`, os quatro migraram, como antes. A trava é exclusiva entre processos, é solta quando o dono termina ou é morto, não é tomada sem cache nem sem chave e não bloqueia quando o diretório não pode ser usado; o cache remove os arquivos de trava das entradas que não guarda mais. `tools/dev_postgres.py start` aplicou `shared_buffers=512MB` num servidor que estava em 128MB, com um reinício e a mesma porta; com `SKELETON_TEST_POSTGRES_DATA`, dois checkouts de mesmo nome ficam em subpastas diferentes da mesma pasta.
 - **#757:** `--shard I/N` equilibrado pelo custo. Na coleta real do núcleo (4.209 testes, 418 arquivos, maior arquivo com peso 1.075), a carga das seis fatias ficou em 8.626, 8.626, 8.626, 8.625, 8.625 e 8.625, com 327 a 333 testes com banco em cada uma; com duas fatias, 25.877 e 25.876. O workflow passou a seis fatias do núcleo e duas das apps por Python, as duas suítes das apps numa só invocação, e o template uma vez por job.
+- **#760:** a fixture `skeleton_db` do núcleo reaproveita o schema entre dois testes quando o primeiro só gravou linhas: confere um marcador do catálogo, apaga as linhas como owner numa transação, devolve as sequências, confere as linhas semeadas, as flags de RLS e os triggers, e recria o schema em qualquer diferença, erro ou dúvida ([como funciona](testing.md#isolamento-da-suíte)). Na suíte inteira do núcleo (`-n 8`), 2.060 testes pediram o banco: 1.872 reaproveitaram o schema (91%; mediana de 0,28 s, e 1,7 s nos 63 que fizeram a comparação inteira) e 188 o recriaram (mediana de 7,9 s): 173 porque o teste anterior mudou a estrutura, 6 porque alterou uma linha semeada e os demais por serem o primeiro teste do worker ou testes do próprio mecanismo. O preparo do schema somou 41 min de worker; a 7,9 s por teste teriam sido 270 min. Os arquivos que mais recriam são os que instalam DDL de prova: `test_schema_assurance.py` (41), `test_admission_schema.py` (17), `test_record_seal_service.py` (12), `test_organization_site_schema.py` (12) e `test_sealed_records.py` (10). A mesma fatia (`--shard 3/6`, `-n 8`), uma execução logo depois da outra: 410 s com `SKELETON_TEST_SCHEMA_REUSE=0` e 169 s com o reaproveitamento. Antes da implementação, um protótipo que conferia cada reaproveitamento linha a linha, lendo todas as tabelas como superusuário, não achou nenhuma linha restante em 280 reaproveitamentos.
+- **CI do PR (run 45262543991, só #756 e #757):** 28 checks aprovados em 9 min 10 s; os 16 jobs de teste levaram de 4 min 34 s a 7 min 45 s (antes, de 9 min 34 s a 18 min 45 s).
+
 
 **Não executado nem medido**
 
-- A suíte inteira, isolada, depois da mudança: a máquina estava em uso por outras execuções. Os 17 minutos de `docs/testing.md` para o núcleo são uma estimativa (1.981 testes com banco, 4,1 s de worker cada, 8 workers).
-- O workflow novo no GitHub: nada foi enviado nesta rodada. Os tempos por job precisam ser lidos no primeiro run do PR.
+- A suíte inteira com a máquina livre: durante toda a rodada havia de duas a três outras suítes inteiras rodando na mesma máquina (uma delas havia 56 minutos sem terminar), com a CPU em 100%. Os 15 min 28 s da suíte do núcleo com o reaproveitamento foram medidos nessas condições; o tempo com a máquina livre não foi medido.
+- O workflow do GitHub com #760: o run citado acima é anterior a ele.
 - `tests/contrib` localmente: o ambiente desta máquina recusa as apps first-party por divergência entre a versão instalada e a do checkout; o CI roda as duas suítes.
 - O ganho de tirar o diretório de dados da verificação em tempo real do antivírus (exclusão, volume de desenvolvimento ou sistema de arquivos Linux): depende de configuração da máquina, que esta rodada não alterou.
 
@@ -45,6 +48,11 @@ Rodada de 2026-11-23 na branch `test/758-suite-abaixo-de-10-minutos`, a partir d
 | `python -m pytest tests/unit -q -n 8` | 1922 passed, 187 skipped (POSIX), 578 subtests passed em 21 s |
 | `python -m pytest tests --collect-only -q` com a carga de cada fatia para N = 2, 4, 5 e 6 | diferença máxima de 1 entre as fatias |
 | `ruff check` e `ruff format --check` (0.17.4) nos arquivos alterados; `mypy tools/dev_postgres.py` | sem problemas |
+| `python -m pytest tests -q -n 8` com o reaproveitamento (#760), com outras suítes na máquina | 4152 passed, 193 skipped, 1131 subtests passed em 15 min 28 s |
+| `python -m pytest tests -q -n 8 --shard 3/6` com `SKELETON_TEST_SCHEMA_REUSE=0` | 598 passed, 48 skipped, 112 subtests passed em 410 s; 348 recriações (mediana de 6,0 s) |
+| o mesmo, com o reaproveitamento | 598 passed, 48 skipped, 112 subtests passed em 169 s; 303 reaproveitamentos (mediana de 0,24 s) e 45 recriações (5,5 s) |
+| `python -m pytest tests/integration_postgres/test_schema_reuse.py tests/integration_postgres/test_schema_template.py -q` | 26 passed, 26 subtests passed; com `SKELETON_TEST_SCHEMA_REUSE=0`, 12 passed e 14 skipped |
+| `python -m pytest tests/unit/test_integration_database.py -q` | 117 passed |
 
 ## Setup: cada etapa confere valores e conexões antes de gravar (#732, #731)
 

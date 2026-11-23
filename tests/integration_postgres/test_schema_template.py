@@ -140,7 +140,8 @@ def test_isolation_probe_writes_committed_row(template):
 
 
 def test_isolation_probe_row_is_gone_in_next_test(template):
-    # Runs after the writer above (pytest keeps definition order): each test gets a recreated schema.
+    # Runs after the writer above (pytest keeps definition order): each test starts from the template,
+    # recreated or, when only rows were written, reused after they are deleted (test_schema_reuse.py).
     pair = disposable_database_pair()
     with psycopg.connect(pair.owner, autocommit=True) as owner:
         assert _probe_rows(owner) == 0
@@ -149,4 +150,9 @@ def test_isolation_probe_row_is_gone_in_next_test(template):
 def test_session_migrates_once_and_restores_per_test(template, postgres_schema_stats):
     # Migrated in this session, or reused from a run with the same cache key (#350): never both.
     assert postgres_schema_stats["migrate"] + postgres_schema_stats["cached"] == 1
+    # The first test of a process always recreates the schema; the others may reuse it (#760).
     assert postgres_schema_stats["restore"] >= 1
+    from tools.integration_database import schema_reuse_enabled
+
+    if not schema_reuse_enabled():
+        assert postgres_schema_stats["reuse"] == 0

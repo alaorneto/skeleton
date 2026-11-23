@@ -801,6 +801,148 @@ def test_worker_databases_problem_reports_missing_databases_before_the_lock_tabl
     assert kit.worker_databases_problem(2) is None
 
 
+# Reuse of the schema between tests (#760): the decisions, without a database.
+
+
+@pytest.mark.parametrize(("value", "enabled"), [(None, True), ("1", True), ("", True), ("0", False)])
+def test_schema_reuse_is_on_unless_switched_off(value, enabled):
+    environment = {} if value is None else {idb.REUSE_ENV: value}
+    assert idb.schema_reuse_enabled(environment) is enabled
+
+
+def test_schema_reuse_verification_interval_comes_from_the_environment():
+    assert idb.schema_reuse_verify_every({}) == idb.REUSE_VERIFY_DEFAULT > 0
+    assert idb.schema_reuse_verify_every({idb.REUSE_VERIFY_ENV: "1"}) == 1
+    assert idb.schema_reuse_verify_every({idb.REUSE_VERIFY_ENV: "0"}) == 0
+    for value in ("-1", "often", "1.5", "1234567"):
+        with pytest.raises(RuntimeError, match=idb.REUSE_VERIFY_ENV):
+            idb.schema_reuse_verify_every({idb.REUSE_VERIFY_ENV: value})
+
+
+def test_catalog_markers_cover_every_catalog_once_and_never_take_input():
+    labels = [label for label, _ in idb._STABLE_CATALOGS + idb._VOLATILE_CATALOGS]
+    assert len(labels) == len(set(labels))
+    # The reuse rewrites only pg_class and pg_trigger rows (FORCE ROW LEVEL SECURITY, triggers).
+    assert [label for label, _ in idb._VOLATILE_CATALOGS] == ["class", "trigger"]
+    for query in (idb._REUSE_STABLE, idb._REUSE_VOLATILE, idb._REUSE_FLAGS, idb._REUSE_TABLES, idb._REUSE_SIZES):
+        assert "%s" not in query and "{" not in query
+        assert "'skeleton'" in query
+
+
+class FakeReuse:
+    def __init__(self):
+        self.connection = FakeConnection()
+        self.reused = 0
+        self.reason = ""
+
+
+@pytest.fixture
+def fake_reuse(monkeypatch):
+    """template_schema() with the database steps replaced by a log of what was asked."""
+    log = []
+    answers = {"reuse": True, "begin": True}
+    monkeypatch.delenv(idb.REUSE_ENV, raising=False)
+    monkeypatch.delenv(idb.REUSE_VERIFY_ENV, raising=False)
+    monkeypatch.setattr(idb, "_REUSE", {})
+    monkeypatch.setattr(idb, "restore_schema", lambda pair, template: log.append("restore"))
+
+    def begin(pair):
+        log.append("begin")
+        return FakeReuse() if answers["begin"] else None
+
+    def reuse(state, template, *, verify=False):
+        log.append("reuse+verify" if verify else "reuse")
+        state.reused += bool(answers["reuse"])
+        return answers["reuse"]
+
+    monkeypatch.setattr(idb, "begin_schema_reuse", begin)
+    monkeypatch.setattr(idb, "reuse_schema", reuse)
+    return log, answers
+
+
+def test_first_test_recreates_the_schema_and_the_next_ones_reuse_it(fake_reuse):
+    log, _ = fake_reuse
+    assert [idb.template_schema(PAIR, "template") for _ in range(3)] == ["restore", "reuse", "reuse"]
+    assert log == ["restore", "begin", "reuse", "reuse"]
+
+
+def test_a_refused_reuse_recreates_the_schema_and_starts_over(fake_reuse):
+    log, answers = fake_reuse
+    idb.template_schema(PAIR, "template")
+    refused = idb.current_schema_reuse(PAIR)
+    answers["reuse"] = False
+
+    assert idb.template_schema(PAIR, "template") == "restore"
+    assert log == ["restore", "begin", "reuse", "restore", "begin"]
+    assert refused.connection.closed, "The owner connection of a discarded state must not stay open."
+    assert idb.current_schema_reuse(PAIR) is not refused
+
+    answers["reuse"] = True
+    assert idb.template_schema(PAIR, "template") == "reuse"
+
+
+def test_every_nth_reuse_asks_for_the_whole_comparison(fake_reuse, monkeypatch):
+    log, _ = fake_reuse
+    monkeypatch.setenv(idb.REUSE_VERIFY_ENV, "3")
+    for _ in range(7):
+        idb.template_schema(PAIR, "template")
+    assert log[2:] == ["reuse", "reuse", "reuse+verify", "reuse", "reuse", "reuse+verify"]
+    del log[:]
+    monkeypatch.setenv(idb.REUSE_VERIFY_ENV, "0")
+    for _ in range(4):
+        idb.template_schema(PAIR, "template")
+    assert log == ["reuse"] * 4
+
+
+def test_reuse_switched_off_never_keeps_a_state(fake_reuse, monkeypatch):
+    log, _ = fake_reuse
+    idb.template_schema(PAIR, "template")
+    kept = idb.current_schema_reuse(PAIR)
+    monkeypatch.setenv(idb.REUSE_ENV, "0")
+
+    assert [idb.template_schema(PAIR, "template") for _ in range(2)] == ["restore", "restore"]
+    assert log == ["restore", "begin", "restore", "restore"]
+    assert kept.connection.closed and idb.current_schema_reuse(PAIR) is None
+
+
+def test_a_schema_that_cannot_be_reused_is_recreated_for_every_test(fake_reuse):
+    log, answers = fake_reuse
+    answers["begin"] = False
+    assert [idb.template_schema(PAIR, "template") for _ in range(2)] == ["restore", "restore"]
+    assert log == ["restore", "begin", "restore", "begin"]
+
+
+def test_each_worker_database_keeps_its_own_state(fake_reuse):
+    log, _ = fake_reuse
+    other = kit.DatabasePair(RUNTIME, OWNER, "ci_gw1_skeleton_test")
+    assert idb.template_schema(PAIR, "template") == "restore"
+    assert idb.template_schema(other, "template") == "restore"
+    assert idb.template_schema(PAIR, "template") == "reuse"
+    assert idb.current_schema_reuse(PAIR) is not idb.current_schema_reuse(other)
+
+
+def test_reuse_reports_a_database_error_as_a_refusal_not_as_a_failure():
+    import psycopg
+
+    class Broken:
+        def execute(self, *args, **kwargs):
+            raise psycopg.OperationalError("the connection is closed")
+
+    state = idb.SchemaReuse(
+        pair=PAIR,
+        connection=Broken(),
+        tables=(),
+        forced=frozenset(),
+        seeded={},
+        setvals="",
+        flags=[],
+        stable=[],
+        volatile=[],
+    )
+    assert idb.reuse_schema(state, "template") is False
+    assert state.reason == "OperationalError: the connection is closed" and state.reused == 0
+
+
 def os_environ(name):
     import os
 
