@@ -2,6 +2,37 @@
 
 As versões a partir da primeira, `v0.1.0`, são escritas pelo workflow de release (`release.py run`, skill dev-workflow): não edite este arquivo à mão. O nível de cada versão e os PRs e issues incluídos seguem [docs/workflow.md](docs/workflow.md#versão).
 
+## [0.5.0](https://github.com/alaorneto/skeleton/compare/v0.4.0...v0.5.0) — 2026-11-23
+
+### ⚠ Mudanças incompatíveis
+
+- alta disponibilidade do núcleo (epic #687) (PR [#688](https://github.com/alaorneto/skeleton/pull/688)) — `!` em f2bb304: remover a manutenção administrativa da aplicação; BREAKING CHANGE em f2bb304: /platform/maintenance/ e manage.py maintenance não; `!` em 86acf42: compose.yaml de produção como nó de app de uma instância em HA; BREAKING CHANGE em 86acf42: o compose.yaml não sobe mais PostgreSQL nem Redis.; `!` em título do PR: alta disponibilidade do núcleo (epic #687); label `breaking-change`; Alta disponibilidade: a manutenção administrativa sai da aplicação (tela /platform/maintenance/ e manage.py maintenance removidos) e o compose.yaml de produção vira um nó de app de cluster, sem PostgreSQL nem Redis; o resto (modo cluster, prefixo do cache, failover e pooler, agentes primário e seguidores, servidor de dados, backup externo) é opt-in.
+
+### Funcionalidades
+
+- Modo cluster da instância: configuração imutável vinda do ambiente ([#673](https://github.com/alaorneto/skeleton/issues/673)) — PR [#688](https://github.com/alaorneto/skeleton/pull/688)
+- Coordenação do agente no PostgreSQL: nós, primário por trava e época ([#678](https://github.com/alaorneto/skeleton/issues/678)) — PR [#688](https://github.com/alaorneto/skeleton/pull/688)
+- Servidor de dados por instância fora do nó de app e check de isolamento do cluster ([#679](https://github.com/alaorneto/skeleton/issues/679)) — PR [#688](https://github.com/alaorneto/skeleton/pull/688)
+- Canal entre agentes: artefatos por digest e pedidos encaminhados ao primário ([#680](https://github.com/alaorneto/skeleton/issues/680)) — PR [#688](https://github.com/alaorneto/skeleton/pull/688)
+- Seguidores trocam o release local nas fases do primário ([#681](https://github.com/alaorneto/skeleton/issues/681)) — PR [#688](https://github.com/alaorneto/skeleton/pull/688)
+- Atualização nó a nó sem migration e reinício em rolagem ([#682](https://github.com/alaorneto/skeleton/issues/682)) — PR [#688](https://github.com/alaorneto/skeleton/pull/688)
+- Backup externo (PITR) nas atualizações ([#683](https://github.com/alaorneto/skeleton/issues/683)) — PR [#688](https://github.com/alaorneto/skeleton/pull/688)
+- compose.yaml de produção para HA e job de CI da stack com servidor de dados ([#685](https://github.com/alaorneto/skeleton/issues/685)) — PR [#688](https://github.com/alaorneto/skeleton/pull/688)
+- O primário coordena a versão dos agentes do cluster ([#689](https://github.com/alaorneto/skeleton/issues/689)) — PR [#688](https://github.com/alaorneto/skeleton/pull/688)
+
+### Melhorias
+
+- Remover a manutenção administrativa da aplicação ([#674](https://github.com/alaorneto/skeleton/issues/674)) — PR [#688](https://github.com/alaorneto/skeleton/pull/688)
+- Cache Redis isolado por instância e prontidão que não tira o site do ar sem cache ([#675](https://github.com/alaorneto/skeleton/issues/675)) — PR [#688](https://github.com/alaorneto/skeleton/pull/688)
+- PostgreSQL com failover e pooler: DSN com vários hosts e modo PgBouncer ([#676](https://github.com/alaorneto/skeleton/issues/676)) — PR [#688](https://github.com/alaorneto/skeleton/pull/688)
+- Apagar as sessões expiradas num job periódico ([#677](https://github.com/alaorneto/skeleton/issues/677)) — PR [#688](https://github.com/alaorneto/skeleton/pull/688)
+- /platform/updates/ em qualquer réplica, com o primário e o estado dos nós ([#684](https://github.com/alaorneto/skeleton/issues/684)) — PR [#688](https://github.com/alaorneto/skeleton/pull/688)
+- Fonte padrão do sistema: IBM Plex Sans ([#690](https://github.com/alaorneto/skeleton/issues/690)) — PR [#691](https://github.com/alaorneto/skeleton/pull/691)
+
+### Documentação
+
+- Guia de alta disponibilidade ([#686](https://github.com/alaorneto/skeleton/issues/686)) — PR [#688](https://github.com/alaorneto/skeleton/pull/688)
+
 ## [0.4.0](https://github.com/alaorneto/skeleton/compare/v0.3.1...v0.4.0) — 2026-11-22
 
 ### Funcionalidades

@@ -4,7 +4,7 @@
 `LedgerService` é o contrato em processo do livro contábil. Outras apps o usam para lançar pelos registros delas, criar e baixar títulos e consultar saldos, sempre com a autorização do ator que está no contexto. As páginas do próprio livro usam o mesmo serviço.
 
 ## Dependência
-`app_id`: `org.skeleton.ledger`. Faixa recomendada: `{"org.skeleton.ledger": ">=0.4.0,<0.5.0"}` (a versão é a do núcleo e a faixa é atualizada pela release; a primeira versão publicada com o livro é a 0.1.0, a primeira do núcleo, ver [histórico](#histórico-de-versões)). Instale com `SKELETON_BUNDLED_APPS=ledger` e veja o guia de consumo em `docs/extending.md` ("Depender do livro contábil"). Importe só `skeleton.contrib.ledger.service_api`.
+`app_id`: `org.skeleton.ledger`. Faixa recomendada: `{"org.skeleton.ledger": ">=0.5.0,<0.6.0"}` (a versão é a do núcleo e a faixa é atualizada pela release; a primeira versão publicada com o livro é a 0.1.0, a primeira do núcleo, ver [histórico](#histórico-de-versões)). Instale com `SKELETON_BUNDLED_APPS=ledger` e veja o guia de consumo em `docs/extending.md` ("Depender do livro contábil"). Importe só `skeleton.contrib.ledger.service_api`.
 
 ## Serviços
 
