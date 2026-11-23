@@ -452,16 +452,15 @@ class StorageForm(forms.Form):
         max_length=500,
         required=False,
         help_text=gettext_lazy(
-            "Obrigatório se escolheu “Pasta neste servidor”. Caminho completo de uma pasta que o sistema pode"
-            " gravar e que não é servida ao público. Em Docker, precisa ser um volume. O setup cria a pasta e testa"
-            " a gravação."
+            "Caminho completo de uma pasta que o sistema pode gravar e que não é servida ao público. Em Docker,"
+            " precisa ser um volume. O setup cria a pasta e testa a gravação."
         ),
     )
     files_s3_bucket = forms.CharField(
         label=gettext_lazy("Bucket S3"),
         max_length=200,
         required=False,
-        help_text=gettext_lazy("Obrigatório se escolheu S3. Só o nome do bucket."),
+        help_text=gettext_lazy("Só o nome do bucket."),
     )
     files_s3_region = forms.CharField(
         label=gettext_lazy("Região S3"),
@@ -484,6 +483,9 @@ class StorageForm(forms.Form):
         super().__init__(*args, **kwargs)
         self.strict = production_target() if strict is None else strict
         keep_secret(self, "cache_password", kept_password)
+        # Each is required by clean() for its own option; the page shows only that option's section (#729).
+        for name in ("files_root", "files_s3_bucket"):
+            self.fields[name].marked_required = True
         location = self.fields["cache_location"]
         location.required = self.strict
         location.help_text = (

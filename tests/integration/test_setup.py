@@ -366,7 +366,7 @@ def test_optional_and_required_fields_are_marked(setup_mode, subtests):
     client = enter(setup_mode)
     for url, required, optional in (
         ("/setup/instance/", ("allowed_hosts",), ("public_url", "csrf_trusted_origins")),
-        ("/setup/storage/", (), ("cache_location", "cache_password", "files_root", "files_s3_region")),
+        ("/setup/storage/", ("files_root", "files_s3_bucket"), ("cache_location", "cache_password", "files_s3_region")),
         ("/setup/admin/", ("email", "password1", "organization_slug"), ()),
     ):
         html = client.get(url).content.decode()

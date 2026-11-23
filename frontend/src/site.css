@@ -534,6 +534,12 @@
   .setup-step-later .setup-step-number {
     @apply border-warning-subtle bg-warning-soft text-fg-warning;
   }
+  /* Anexos no setup (#729): só a seção da opção marcada aparece. Sem :has, a regra cai inteira e as duas
+     aparecem; os campos escondidos continuam no formulário e quem valida é o servidor. */
+  .setup-files:has(input[type="radio"][value="s3"]:checked) [data-files-section="local"],
+  .setup-files:has(input[type="radio"][value="local"]:checked) [data-files-section="s3"] {
+    @apply hidden;
+  }
   .form-actions {
     @apply mt-6 flex flex-wrap items-center gap-3 border-t border-default pt-5;
   }
