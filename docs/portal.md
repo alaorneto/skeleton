@@ -86,6 +86,24 @@ def my_documents(self, *, actor) -> tuple[DocumentSummary, ...]:
 
 O método só devolve registros alcançados pela ligação; inexistente e não ligado respondem igual; nunca recebe identificador de cliente do cliente sem conferir a ligação; efeitos externos vão por job. Teste cada método com `skeleton.testing.external.assert_external_contract` ([testes](testing.md#kit-do-portal)).
 
+### Superfícies do núcleo para os recursos da própria app (#741)
+
+Dentro de um método `allow_external=True`, depois de autorizar pela ligação, a app usa três superfícies do núcleo com a pessoa externa como `actor`, na mesma transação da requisição: numera, publica e projeta no calendário. Um rollback desfaz as três e devolve o número.
+
+| Superfície | O que o portal pode | Regra |
+|---|---|---|
+| `SequenceService().next_number` | numerar com uma sequência da app | a sequência tem `owner_app` igual à app que chama ([sequências](sequences.md)) |
+| `EventService().publish` | publicar um tipo de evento da app | o tipo tem `owner_app` igual à app que chama; basta o registro existir na organização (a ligação já o autorizou; `authorized_queryset` continua negando); o evento leva a pessoa como ator e `source="http:portal"` ([eventos](events.md)) |
+| `CalendarService().put_managed_event`, `remove_managed_event`, `managed_event` | criar, mover, remover e ler o evento gerenciado da app | `source_app` é a app que chama e o calendário é compartilhado e gerenciado por ela (`source_app` do calendário, #670); o organizador é o dono do calendário; os participantes ficam como estão (`attendee_user_ids` vazio); um evento da chave que esteja num calendário que a app não gerencia não muda pelo portal ([referência da agenda](../skeleton/contrib/calendar/docs/service-api.md)) |
+
+A app que chama é decidida pela cadeia de chamadas da API de serviços: o método de serviço que chamou a superfície precisa ser `allow_external=True` e da app dona, e o módulo de quem chama continua conferido como no `system_context` (#577). Nunca vem de argumento. Fora disso o portal continua fechado:
+
+- uma view de portal, um teste ou um método do núcleo que chame a superfície diretamente recebem `Forbidden("external_not_allowed")`, como antes;
+- a sequência, o tipo de evento ou o calendário de outra app respondem `Forbidden` (o calendário não gerenciado pela app, `NotFound`);
+- o contexto externo não vira `system_context`, não ganha leitura genérica de registros e não enfileira jobs `run_as="actor"`; para o membro, nada muda.
+
+A auditoria do contador da sequência e do evento do calendário, e o próprio `DomainEvent`, registram a pessoa externa como ator e `source="http:portal"`.
+
 ## Privacidade e ciclo de vida (#536)
 
 A exportação de dados da pessoa lista os acessos externos (organização, app, situação e datas); a eliminação os desativa e os mantém como histórico, e um convite posterior exige novo aceite. Desativar a pessoa, o acesso ou a organização, ou desligar o portal, fecha o portal na requisição seguinte ([privacidade](privacy.md)).

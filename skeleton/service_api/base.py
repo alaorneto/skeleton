@@ -12,6 +12,7 @@ import inspect
 import logging
 import warnings
 from collections.abc import Callable
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, ClassVar, ParamSpec, TypeVar
 
@@ -48,6 +49,37 @@ class ServiceMethodSpec:
 class Deprecation:
     since: str
     removal: str
+
+
+@dataclass(frozen=True, slots=True)
+class _Call:
+    """One service method running now, and the service method that called it (#741)."""
+
+    app_label: str | None
+    allow_external: bool
+    caller: "_Call | None"
+
+
+# The chain of service methods of this execution context; set only by ``service_method``.
+_running: ContextVar[_Call | None] = ContextVar("skeleton_service_call", default=None)
+
+
+def portal_caller_app() -> str | None:
+    """In the portal, the app whose ``allow_external`` method called the running service method (#741).
+
+    ``None`` outside an external context, for a call that did not come from a service method (a
+    view, a test, a script) and for a calling method that is not ``allow_external`` or belongs to
+    no app. A core surface opened to the portal for the calling app's own resources (a sequence,
+    an event type, a managed calendar) accepts the external context only when this names the
+    owner. The value comes from the call chain kept by ``service_method``, never from an argument.
+    """
+    if not current_context().external:
+        return None
+    running = _running.get()
+    caller = running.caller if running is not None else None
+    if caller is None or not caller.allow_external or caller.app_label is None:
+        return None
+    return caller.app_label
 
 
 class ServiceAPI:
@@ -250,6 +282,7 @@ def service_method(
             _check_caller(spec, kwargs["actor"])
             _require_organization_access(spec, type(args[0]))
             provider = type(args[0]).app_label
+            call = _running.set(_Call(provider, spec.allow_external, _running.get()))
             try:
                 if provider is not None:
                     _require_provider(provider)
@@ -261,6 +294,8 @@ def service_method(
                 if translated is None:
                     raise
                 raise translated from exc
+            finally:
+                _running.reset(call)
             require_boundary_value(result, where=function.__qualname__)
             return result
 

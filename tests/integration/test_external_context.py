@@ -176,7 +176,13 @@ def test_only_the_expected_core_service_methods_are_open_to_external_people():
                 marked += [
                     f"{name}.{method}" for method, spec in value.service_methods().items() if spec.allow_external
                 ]
-    assert sorted(marked) == ["ExternalAccessService.me", "FileService.external_download_url"]  # #532, #534.
+    # #532, #534; #741: the calling app's own sequence and event type, only from its allow_external method.
+    assert sorted(marked) == [
+        "EventService.publish",
+        "ExternalAccessService.me",
+        "FileService.external_download_url",
+        "SequenceService.next_number",
+    ]
 
 
 def test_self_discovery_lists_only_the_persons_own_accesses(scenario):

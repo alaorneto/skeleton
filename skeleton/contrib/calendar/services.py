@@ -585,11 +585,13 @@ def put_managed_event(
     source_path: str,
     data: dict[str, Any],
     attendee_user_ids: tuple[Any, ...],
+    sync_attendees: bool = True,
 ) -> Any:
     """Create or update the one live event of ``(source_app, source_key)``; idempotent, never notifies.
 
     The caller has authorized the calendar. Moving to another calendar deletes the old event and
     creates a new one (the calendar is immutable). A repeat with the same data changes nothing.
+    ``sync_attendees=False`` (the portal, #741) leaves the attendees as they are.
     """
     from .attendees import sync_managed_attendees
 
@@ -612,5 +614,6 @@ def put_managed_event(
                     setattr(event, name, value)
                 event.sequence += 1
                 event.save(update_fields={*changed, "sequence", "recurrence_end"})
-        sync_managed_attendees(event, attendee_user_ids, actor=actor)
+        if sync_attendees:
+            sync_managed_attendees(event, attendee_user_ids, actor=actor)
     return event
