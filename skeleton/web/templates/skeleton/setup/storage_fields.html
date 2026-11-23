@@ -3,20 +3,23 @@
 {% with field=form.cache_location %}{% include "skeleton/web/components/form-field.html" %}{% endwith %}
 {% with field=form.cache_password %}{% include "skeleton/web/components/form-field.html" %}{% endwith %}
 {% with field=form.cache_key_prefix %}{% include "skeleton/web/components/form-field.html" %}{% endwith %}
+{# Só a seção da opção marcada aparece (.setup-files em site.css, #729); sem CSS ou sem :has, as duas. #}
+<div class="form-stack setup-files">
 <fieldset class="form-field">
 <legend class="mb-1.5 block font-medium text-heading">{{ form.files_backend.label }}{% if show_required %}<span class="required" aria-hidden="true"> *</span>{% endif %}</legend>
 {{ form.files_backend }}
 {{ form.files_backend.errors }}
 </fieldset>
-<fieldset class="form-stack rounded-base border border-default p-4">
+<fieldset class="form-stack rounded-base border border-default p-4" data-files-section="local">
 <legend class="px-1 text-sm font-semibold text-heading">{% translate "Se escolheu “Pasta neste servidor”" %}</legend>
 {% with field=form.files_root %}{% include "skeleton/web/components/form-field.html" %}{% endwith %}
 </fieldset>
-<fieldset class="form-stack rounded-base border border-default p-4">
+<fieldset class="form-stack rounded-base border border-default p-4" data-files-section="s3">
 <legend class="px-1 text-sm font-semibold text-heading">{% translate "Se escolheu S3" %}</legend>
 {% with field=form.files_s3_bucket %}{% include "skeleton/web/components/form-field.html" %}{% endwith %}
 {% with field=form.files_s3_region %}{% include "skeleton/web/components/form-field.html" %}{% endwith %}
 {% with field=form.files_s3_endpoint %}{% include "skeleton/web/components/form-field.html" %}{% endwith %}
 <p class="helptext">{% translate "As credenciais do S3 não são pedidas aqui: o sistema usa as do ambiente do processo (variáveis AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY, ou o papel da máquina). O S3 também exige o extra opcional [s3] instalado." %}</p>
 </fieldset>
+</div>
 </div>

@@ -162,3 +162,30 @@ def test_email_failures_are_classified(subtests):
         with subtests.test(error=type(error).__name__):
             got_field, message = _email_failure(error)
             assert got_field == field and text in message and "secret-user" not in message
+
+
+def test_storage_step_renders_both_file_sections_with_the_css_hooks(subtests):
+    """Both sections stay in the HTML; site.css hides the one not chosen (#729)."""
+    import re
+    from pathlib import Path
+
+    from django.template.loader import render_to_string
+
+    import skeleton.web
+
+    html = render_to_string("skeleton/setup/storage_fields.html", {"form": forms.StorageForm(initial=STORAGE)})
+    group = html.split('<div class="form-stack setup-files">', 1)[1]
+    for value in ("local", "s3"):
+        with subtests.test(section=value):
+            assert re.search(rf'<input type="radio" name="files_backend" value="{value}"', group)
+            assert f'data-files-section="{value}"' in group
+    assert group.index("data-files-section") > group.index('name="files_backend"')
+    for name in ("files_root", "files_s3_bucket"):
+        with subtests.test(required=name):
+            label = html.split(f'<label for="id_{name}">', 1)[1].split("</label>", 1)[0]
+            assert '<span class="required" aria-hidden="true"> *</span>' in label and "(opcional)" not in label
+    assert "Obrigatório se escolheu" not in html
+    css = (Path(skeleton.web.__file__).parent / "static/skeleton/web/site.css").read_text(encoding="utf-8")
+    for chosen, hidden in (("s3", "local"), ("local", "s3")):
+        with subtests.test(css=chosen):
+            assert f".setup-files:has(input[type=radio][value={chosen}]:checked) [data-files-section={hidden}]" in css
