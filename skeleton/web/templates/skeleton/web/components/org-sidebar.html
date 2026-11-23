@@ -17,7 +17,7 @@ Links não concedem acesso: cada tela revalida a autorização no servidor.
         <p class="page-eyebrow">{% if settings_area %}{% translate "Configuração" %}{% else %}{% translate "Organização" %}{% endif %}</p>
         <p class="truncate text-sm font-semibold text-heading">{{ current_organization.organization_name|default:"—" }}</p>
       </div>
-      {% if can_open_settings and not settings_area %}<a class="btn btn-ghost btn-sm shrink-0 px-2" href="{{ settings_hub_url }}" aria-label="{% translate "Configuração da organização" %}" title="{% translate "Configuração da organização" %}">{% include "skeleton/web/components/icon.html" with name="settings" %}</a>{% endif %}
+      {% if can_open_settings and not settings_area %}<a class="btn btn-ghost btn-sm shrink-0 px-2" href="{{ settings_hub_url }}" aria-label="{% translate "Configuração da organização" %}" title="{% translate "Configuração da organização" %}">{% include "skeleton/web/components/icon.html" with name="cog" %}</a>{% endif %}
     </div>
     {% if settings_area %}
     <ul class="sidebar-list">
