@@ -2,6 +2,20 @@
 
 As versões a partir da primeira, `v0.1.0`, são escritas pelo workflow de release (`release.py run`, skill dev-workflow): não edite este arquivo à mão. O nível de cada versão e os PRs e issues incluídos seguem [docs/workflow.md](docs/workflow.md#versão).
 
+## [0.5.1](https://github.com/alaorneto/skeleton/compare/v0.5.0...v0.5.1) — 2026-11-23
+
+### Correções
+
+- A imagem do agente não traz a chave pública do publicador oficial ([#720](https://github.com/alaorneto/skeleton/issues/720)) — PR [#723](https://github.com/alaorneto/skeleton/pull/723)
+
+### Documentação
+
+- Plano de backup e recuperação de desastre do sandbox e da produção ([#717](https://github.com/alaorneto/skeleton/issues/717)) — PR [#718](https://github.com/alaorneto/skeleton/pull/718)
+
+### Manutenção
+
+- Falhar rápido quando o apt-get trava no runner do CI ([#721](https://github.com/alaorneto/skeleton/issues/721)) — PR [#722](https://github.com/alaorneto/skeleton/pull/722)
+
 ## [0.5.0](https://github.com/alaorneto/skeleton/compare/v0.4.0...v0.5.0) — 2026-11-23
 
 ### ⚠ Mudanças incompatíveis

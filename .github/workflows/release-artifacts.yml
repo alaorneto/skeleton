@@ -26,12 +26,18 @@ concurrency:
 
 env:
   SYSTEM_PACKAGES: libxml2 libxmlsec1 libxmlsec1-openssl xmlsec1
+  # #721: the same apt options as ci.yml. Kept here rather than in a local action: publish
+  # checks out the release tag, and an older tag would not have the action.
+  APT_OPTIONS: >-
+    -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30
+    -o DPkg::Lock::Timeout=120
 
 jobs:
   publish:
     name: Publicar os artefatos assinados
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     environment: release
     permissions:
       contents: write # anexar os assets à release
@@ -56,7 +62,11 @@ jobs:
             echo "::error::Configure no ambiente 'release' o segredo RELEASE_SIGNING_KEY (chave Ed25519 de 'package keygen') e a variável RELEASE_PUBLISHER (docs/deployment.md, Publicação automática)."
             exit 1
           fi
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES
+      - name: Instalar dependências do sistema
+        timeout-minutes: 10
+        run: |
+          apt_install() { sudo apt-get $APT_OPTIONS update && sudo apt-get $APT_OPTIONS install -y --no-install-recommends $SYSTEM_PACKAGES; }
+          apt_install || { echo "::warning::apt-get falhou; nova tentativa em 15 s"; sleep 15; apt_install; }
       - name: Instalar as ferramentas de build
         run: python -m pip install --require-hashes -r requirements-dev.txt
       - name: Gravar a chave de assinatura
@@ -149,6 +159,7 @@ jobs:
     name: Renovar a validade do índice
     if: github.event_name == 'schedule'
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     environment: release
     permissions:
       contents: write # substituir o índice da release mais recente
@@ -186,11 +197,15 @@ jobs:
           else
             echo "A release mais recente não tem skeleton-index.json; nada a renovar." >> "$GITHUB_STEP_SUMMARY"
           fi
+      - name: Instalar dependências do sistema
+        if: steps.latest.outputs.tag != ''
+        timeout-minutes: 10
+        run: |
+          apt_install() { sudo apt-get $APT_OPTIONS update && sudo apt-get $APT_OPTIONS install -y --no-install-recommends $SYSTEM_PACKAGES; }
+          apt_install || { echo "::warning::apt-get falhou; nova tentativa em 15 s"; sleep 15; apt_install; }
       - name: Instalar as dependências
         if: steps.latest.outputs.tag != ''
-        run: |
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES
-          python -m pip install --require-hashes -r requirements-dev.txt
+        run: python -m pip install --require-hashes -r requirements-dev.txt
       - name: Gravar a chave de assinatura
         if: steps.latest.outputs.tag != ''
         env:
