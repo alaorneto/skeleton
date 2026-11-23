@@ -10,7 +10,9 @@ from django.contrib.auth.base_user import AbstractBaseUser
 from django.core.exceptions import PermissionDenied
 from django.utils.translation import gettext
 
-from .applications import require_owning_app
+from skeleton.tenancy.context import current_context
+
+from .applications import require_owning_app, require_portal_owner
 from .base import ServiceAPI, service_method
 from .dto import as_utc, as_uuid
 from .errors import InvalidInput, NotFound
@@ -30,7 +32,7 @@ class EventReceipt:
 class EventService(ServiceAPI):
     """Event types are registered in ``ready()``; only the owning app publishes them."""
 
-    @service_method(read_only=False, since="0.1.0", allow_system=True)
+    @service_method(read_only=False, since="0.1.0", allow_system=True, allow_external=True)
     def publish(
         self,
         *,
@@ -42,8 +44,12 @@ class EventService(ServiceAPI):
         """Publish an event about a record of the current organization.
 
         Autorização: o tipo pertence à app chamadora; o ator lê o registro (em ``system_context``
-        basta o registro existir na organização).
-        Erros: Forbidden para tipo de outra app; NotFound para registro inexistente, de outra
+        basta o registro existir na organização). No portal (desde 0.6.0, #741), só de dentro de
+        um método ``allow_external`` da app dona, que já autorizou pela ligação dela: basta o
+        registro existir na organização, e o evento leva a pessoa externa como ator e a origem do
+        portal.
+        Erros: Forbidden para tipo de outra app; Forbidden("external_not_allowed") no portal fora
+        de um método ``allow_external`` de app; NotFound para registro inexistente, de outra
         organização ou não legível; InvalidInput para tipo desconhecido ou campo não declarado.
         Efeitos: grava o evento e um job por consumidor; o rollback do chamador desfaz tudo.
         """
@@ -56,11 +62,15 @@ class EventService(ServiceAPI):
             kind = get_event_type(event_type)
         except KeyError:
             raise InvalidInput({"event_type": [gettext("Tipo de evento desconhecido.")]}) from None
-        require_owning_app(kind.owner_app, gettext("A app só publica os próprios tipos de evento."))
+        message = gettext("A app só publica os próprios tipos de evento.")
+        require_portal_owner(kind.owner_app, message)
+        require_owning_app(kind.owner_app, message)
         identifier = as_uuid(record_id, field="record_id")
         model = get_spec(kind.table_key).model
         try:
-            if actor is None:
+            # In the portal the owning app's method authorized the record by its own link (#741):
+            # ``authorized_queryset`` denies an external context, and tenant RLS still applies.
+            if actor is None or current_context().external:
                 record = model.objects.filter(pk=identifier).first()
             else:
                 record = authorized_queryset(model, user=_user(actor), action="read").filter(pk=identifier).first()

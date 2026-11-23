@@ -80,6 +80,28 @@ def require_owning_app(owner_app: str, message: str) -> None:
         raise Forbidden(message)
 
 
+def require_portal_owner(owner_app: str, message: str) -> None:
+    """In the portal, only an ``allow_external`` method of the owning app reaches the surface (#741).
+
+    Outside an external context nothing changes. Inside one, a call that did not come from an
+    ``allow_external`` service method of an app is ``external_not_allowed`` (as before), and one
+    from another app's method is refused like any other app (``Forbidden``). The owner comes from
+    the call chain (``portal_caller_app``), never from an argument; the caller's module is still
+    checked by ``require_owning_app``.
+    """
+    from skeleton.tenancy.context import current_context
+
+    from .base import portal_caller_app
+
+    if not current_context().external:
+        return
+    app = portal_caller_app()
+    if app is None:
+        raise Forbidden(gettext("Operação indisponível no portal."), code="external_not_allowed")
+    if not owner_app or app != owner_app:
+        raise Forbidden(message)
+
+
 def _enabled(app_label: str) -> bool:
     from skeleton.system.applications import require_application_enabled
 

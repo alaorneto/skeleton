@@ -33,7 +33,7 @@ A tabela do evento pode ser uma [tabela derivada](access-control.md#tabelas-deri
 
 ## Publicar
 
-Apps publicam pelo `EventService` ([API de serviços](service-api.md#jobservice-e-eventservice)), que exige que a app chamadora seja a dona do tipo e que o ator leia o registro. Um tipo registrado sem `owner_app` não pertence a ninguém: o serviço o recusa (`Forbidden`) para qualquer chamador (#272).
+Apps publicam pelo `EventService` ([API de serviços](service-api.md#jobservice-e-eventservice)), que exige que a app chamadora seja a dona do tipo e que o ator leia o registro. Um tipo registrado sem `owner_app` não pertence a ninguém: o serviço o recusa (`Forbidden`) para qualquer chamador (#272). No [portal](portal.md#superfícies-do-núcleo-para-os-recursos-da-própria-app-741) (#741), a app publica o próprio tipo de dentro de um método `allow_external`, depois de autorizar pela ligação dela: basta o registro existir na organização, e o evento leva a pessoa externa em `actor_id` e `source="http:portal"`. Fora de um método assim, `Forbidden("external_not_allowed")`.
 
 ```python
 from skeleton.service_api.events import EventService

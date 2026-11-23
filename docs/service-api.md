@@ -104,7 +104,7 @@ O serviço **não abre** contexto. Ele roda dentro do contexto do chamador:
 | Job `run_as="system"` | `system_context(reason=...)` da organização | `None`, só em métodos `@service_method(allow_system=True)` |
 | View do portal (#515) | `external_context` da pessoa externa | `request.user`, só em métodos `@service_method(allow_external=True)` |
 
-Em contexto externo, um método sem `allow_external=True` responde `Forbidden(code="external_not_allowed")`; a marca aparece em `ServiceMethodSpec.allow_external` e o método marcado autoriza pela ligação da app à pessoa, nunca por `authorized_queryset` ([acesso externo](access-control.md#acesso-externo-portal)). O decorador confere que `actor` é o mesmo de `current_context().actor` (`skeleton/tenancy/context.py`) e que existe organização quando o método exige tenant. Uma app não consegue agir em nome de outra pessoa passando outro `actor`. Um serviço nunca chama `system_context` para ampliar o que o ator pode fazer, e nunca troca de organização no meio da chamada.
+Em contexto externo, um método sem `allow_external=True` responde `Forbidden(code="external_not_allowed")`; a marca aparece em `ServiceMethodSpec.allow_external` e o método marcado autoriza pela ligação da app à pessoa, nunca por `authorized_queryset` ([acesso externo](access-control.md#acesso-externo-portal)). Dentro de um método assim, a app numera com a própria sequência, publica o próprio tipo de evento e escreve o próprio evento gerenciado da agenda (#741): essas superfícies conhecem a app dona pela cadeia de chamadas de `service_method` (`skeleton.service_api.base.portal_caller_app`), nunca por argumento, e recusam a chamada direta de uma view com `external_not_allowed` ([portal](portal.md#superfícies-do-núcleo-para-os-recursos-da-própria-app-741)). O decorador confere que `actor` é o mesmo de `current_context().actor` (`skeleton/tenancy/context.py`) e que existe organização quando o método exige tenant. Uma app não consegue agir em nome de outra pessoa passando outro `actor`. Um serviço nunca chama `system_context` para ampliar o que o ator pode fazer, e nunca troca de organização no meio da chamada.
 
 ## Autorização
 
@@ -371,7 +371,7 @@ NotificationService().notify(
 | Método | Autorização | Erros |
 |---|---|---|
 | `JobService.enqueue(*, actor, job_type, payload=(), idempotency_key=None, run_after=None) -> JobReceipt` | o tipo pertence à app chamadora (`JobType.owner_app`); a organização é a do contexto; `actor=None` em `system_context` | `Forbidden` (tipo alheio), `InvalidInput` (tipo desconhecido, payload inválido, `run_after` sem fuso) |
-| `EventService.publish(*, actor, event_type, record_id, data=()) -> EventReceipt` | o tipo pertence à app chamadora (`EventType.owner_app`); o ator lê o registro (de tabela derivada: pela âncora, #562) | `Forbidden`, `NotFound` (registro ilegível ou de outra organização), `InvalidInput` |
+| `EventService.publish(*, actor, event_type, record_id, data=()) -> EventReceipt` | o tipo pertence à app chamadora (`EventType.owner_app`); o ator lê o registro (de tabela derivada: pela âncora, #562); no portal (desde 0.6.0, #741), só de um método `allow_external` da app dona, e basta o registro existir na organização | `Forbidden` (tipo alheio; no portal fora de um método `allow_external` de app, `external_not_allowed`), `NotFound` (registro ilegível ou de outra organização), `InvalidInput` |
 
 Tipo registrado sem `owner_app` não pode ser usado pelo serviço: é `Forbidden` para qualquer chamador, app ou não (#272). Isso vale também para `NotificationService.notify` e `SequenceService.next_number`.
 
@@ -426,7 +426,7 @@ for group in results.groups:  # Um SearchGroup por tabela com resultado.
 
 | Método | Autorização | Erros |
 |---|---|---|
-| `next_number(*, actor, key, at=None) -> SequenceNumber` | a app chamadora é a dona da sequência (`owner_app`); numera na organização do contexto; `actor=None` só em `system_context` com organização (consumidor de evento, job por organização; desde 0.2.0, #577) | `Forbidden` (sequência de outra app, ou `actor=None` fora de `system_context`); `ContextRequired` (sem organização); `InvalidInput` (sequência não declarada, data sem fuso) |
+| `next_number(*, actor, key, at=None) -> SequenceNumber` | a app chamadora é a dona da sequência (`owner_app`); numera na organização do contexto; `actor=None` só em `system_context` com organização (consumidor de evento, job por organização; desde 0.2.0, #577); no portal (desde 0.6.0, #741), só de um método `allow_external` da app dona, com a pessoa externa como ator | `Forbidden` (sequência de outra app, `actor=None` fora de `system_context`, ou, no portal fora de um método `allow_external` de app, `external_not_allowed`); `ContextRequired` (sem organização); `InvalidInput` (sequência não declarada, data sem fuso) |
 
 `SequenceNumber` tem `key`, `period`, `number` e `formatted`. O incremento acontece na transação do chamador: um rollback devolve o número e a numeração não tem lacunas. Veja [sequências](sequences.md).
 

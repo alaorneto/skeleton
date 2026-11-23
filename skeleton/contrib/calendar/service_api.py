@@ -581,7 +581,7 @@ class CalendarService(ServiceAPI):
 
     # ----------------------------------------------------------- managed events (#537)
 
-    @service_method(read_only=False, since="0.1.0", allow_system=True)
+    @service_method(read_only=False, since="0.1.0", allow_system=True, allow_external=True)
     def put_managed_event(
         self,
         *,
@@ -599,11 +599,18 @@ class CalendarService(ServiceAPI):
         code review). The title names the kind of appointment, never a third party; the details
         stay in the source app, reached by ``source_path``.
         Autorização: update no calendário (``can_write``); em ``system_context`` da organização
-        (``actor=None``), aceito, e o organizador é o dono do calendário.
-        Erros: NotFound para calendário inexistente, ilegível ou de outra organização; Forbidden se
-        for só legível; InvalidInput para ``description``, campo desconhecido, app de origem
-        desconhecida, inativa ou a própria agenda, chave inválida, caminho fora de
-        ``apps/<source_app>/``, horários inválidos ou participante que não é membro ativo.
+        (``actor=None``), aceito, e o organizador é o dono do calendário. No portal (desde 0.6.0,
+        #741), só de dentro de um método ``allow_external`` de ``source_app`` e só num calendário
+        gerenciado por ela (``source_app`` do calendário); o organizador é o dono do calendário, a
+        pessoa externa é o ator da auditoria e os participantes ficam como estão
+        (``attendee_user_ids`` vazio).
+        Erros: NotFound para calendário inexistente, ilegível, de outra organização ou, no portal,
+        não gerenciado pela app; Forbidden se for só legível ou, no portal, para app de origem que
+        não é a que chama ou evento da chave fora de um calendário dela;
+        Forbidden("external_not_allowed") no portal fora de um método ``allow_external`` de app;
+        InvalidInput para ``description``, campo desconhecido, app de origem desconhecida, inativa
+        ou a própria agenda, chave inválida, caminho fora de ``apps/<source_app>/``, horários
+        inválidos, participante que não é membro ativo ou participantes no portal.
         Efeitos: cria ou atualiza o único evento vivo da chave (privado por padrão, sem
         recorrência) e deixa os participantes exatamente em ``attendee_user_ids``, todos
         ``accepted``, sem notificar ninguém; repetir com os mesmos dados não muda revisão nem
@@ -613,9 +620,12 @@ class CalendarService(ServiceAPI):
 
         from . import services
 
+        portal = _portal_app(source_app)
         _require_source(source_app, source_key)
         if not isinstance(source_path, str):
             raise InvalidInput({"source_path": [gettext("Use um caminho relativo.")]})
+        if portal is not None:
+            return _put_from_portal(portal, source_key, calendar_id, data, attendee_user_ids, source_path)
         calendar = _managed_calendar(actor, calendar_id)
         if not isinstance(attendee_user_ids, tuple) or len(attendee_user_ids) > MAX_INVITES:
             raise InvalidInput(
@@ -633,13 +643,18 @@ class CalendarService(ServiceAPI):
         )
         return event_info(actor, event)
 
-    @service_method(read_only=False, since="0.1.0", allow_system=True)
+    @service_method(read_only=False, since="0.1.0", allow_system=True, allow_external=True)
     def remove_managed_event(self, *, actor: Any, source_app: str, source_key: str) -> None:
         """Delete the event of ``(source_app, source_key)`` with its attendees; idempotent and silent.
 
         Autorização: update no calendário do evento; em ``system_context`` da organização, aceito.
-        Erros: Forbidden se o evento for só legível; InvalidInput para app de origem desconhecida,
-        inativa ou a própria agenda, ou chave inválida. Sem evento (ou ilegível): nada muda.
+        No portal (desde 0.6.0, #741), só de dentro de um método ``allow_external`` de
+        ``source_app`` e só num calendário gerenciado por ela.
+        Erros: Forbidden se o evento for só legível ou, no portal, para app de origem que não é a
+        que chama; Forbidden("external_not_allowed") no portal fora de um método
+        ``allow_external`` de app; InvalidInput para app de origem desconhecida, inativa ou a
+        própria agenda, ou chave inválida. Sem evento (ou ilegível, ou no portal fora de um
+        calendário da app): nada muda.
         Efeitos: exclusão lógica do evento e dos participantes, sem notificação.
         """
         from skeleton.service_api import Forbidden
@@ -647,32 +662,45 @@ class CalendarService(ServiceAPI):
         from . import services
         from .policies import can_write
 
+        portal = _portal_app(source_app)
         _require_source(source_app, source_key)
         with transaction.atomic(using=current_context().using):
             event = services.managed_event_row(source_app, source_key, lock=True)
             if event is None:
                 return
-            if actor is not None:
+            if portal is not None:
+                if not _managed_by(event.calendar, portal):
+                    return
+            elif actor is not None:
                 if not _readable_ids(actor, event):
                     return
                 if not can_write(actor, event.calendar):
                     raise Forbidden()
             services.remove_event_rows(event)
 
-    @service_method(read_only=True, since="0.1.0", allow_system=True)
+    @service_method(read_only=True, since="0.1.0", allow_system=True, allow_external=True)
     def managed_event(self, *, actor: Any, source_app: str, source_key: str) -> EventInfo | None:
         """The live event of ``(source_app, source_key)`` as the actor may see it, or ``None``.
 
         Autorização: leitura do calendário ou convite; em ``system_context`` da organização, aceito.
-        Erros: InvalidInput para app de origem desconhecida, inativa ou a própria agenda, ou chave
+        No portal (desde 0.6.0, #741), só de dentro de um método ``allow_external`` de
+        ``source_app``, e só o evento num calendário gerenciado por ela.
+        Erros: Forbidden no portal para app de origem que não é a que chama;
+        Forbidden("external_not_allowed") no portal fora de um método ``allow_external`` de app;
+        InvalidInput para app de origem desconhecida, inativa ou a própria agenda, ou chave
         inválida.
         Efeitos: nenhum.
         """
         from . import services
 
+        portal = _portal_app(source_app)
         _require_source(source_app, source_key)
         event = services.managed_event_row(source_app, source_key)
-        if event is None or (actor is not None and not _readable_ids(actor, event)):
+        if event is None:
+            return None
+        if portal is not None:
+            return event_info(None, event) if _managed_by(event.calendar, portal) else None
+        if actor is not None and not _readable_ids(actor, event):
             return None
         return event_info(actor, event)
 
@@ -1083,6 +1111,64 @@ def _require_source_app(source_app: Any) -> None:
         require_application_enabled(source_app)
     except (KeyError, PermissionDenied):
         raise InvalidInput({"source_app": [gettext("A app de origem não está ativa nesta organização.")]}) from None
+
+
+def _portal_app(source_app: str) -> str | None:
+    """In the portal, the app whose ``allow_external`` method called (#741); ``None`` outside the portal.
+
+    The app comes from the call chain of the service API, never from an argument, and must be the
+    ``source_app`` it passes: an app writes only its own managed events.
+    """
+    from skeleton.service_api import Forbidden
+    from skeleton.service_api.base import portal_caller_app
+
+    if not current_context().external:
+        return None
+    app = portal_caller_app()
+    if app is None:
+        raise Forbidden(gettext("Operação indisponível no portal."), code="external_not_allowed")
+    if app != source_app:
+        raise Forbidden(gettext("A app só escreve os próprios eventos gerenciados."))
+    return app
+
+
+def _managed_by(calendar: Calendar, app: str) -> bool:
+    """A live shared calendar the app manages (#670): the only one the portal writes in (#741)."""
+    return calendar.kind == Calendar.Kind.SHARED and calendar.source_app == app and calendar.deleted_at is None
+
+
+def _put_from_portal(
+    app: str, source_key: str, calendar_id: Any, data: Any, attendee_user_ids: Any, source_path: str
+) -> EventInfo:
+    """``put_managed_event`` for the app's ``allow_external`` method in the portal (#741).
+
+    The app authorized the person by its own link; the calendar is reached only because the app
+    manages it, never by the person's access (an external context has none). The attendees are
+    member data the portal does not resolve: they stay as they are.
+    """
+    from skeleton.service_api import Forbidden, InvalidInput, NotFound, as_uuid
+
+    from . import services
+
+    if attendee_user_ids != ():
+        raise InvalidInput({"attendee_user_ids": [gettext("No portal, os participantes não mudam.")]})
+    calendar = Calendar.objects.filter(pk=as_uuid(calendar_id, field="calendar_id")).first()
+    if calendar is None or not _managed_by(calendar, app):
+        raise NotFound()
+    current = services.managed_event_row(app, source_key)
+    if current is not None and not _managed_by(current.calendar, app):
+        raise Forbidden()
+    event = services.put_managed_event(
+        actor=None,  # The organizer is the calendar's owner; the audit names the person of the context.
+        calendar=calendar,
+        source_app=app,
+        source_key=source_key,
+        source_path=source_path,
+        data=dict(data) if isinstance(data, dict) else data,
+        attendee_user_ids=(),
+        sync_attendees=False,
+    )
+    return event_info(None, event)
 
 
 def _managed_calendar(actor: Any, calendar_id: Any) -> Calendar:
