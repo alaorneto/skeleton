@@ -238,6 +238,48 @@ def test_real_mfa_login_after_rotation_and_recovery_single_use(local_user):
         assert client.get("/api/v1/me/").status_code == 403
 
 
+def test_recovery_codes_page_finishes_only_after_the_saved_confirmation(local_user):
+    import time
+
+    from allauth.mfa import app_settings
+    from allauth.mfa.recovery_codes.internal.auth import RecoveryCodes
+    from allauth.mfa.totp.internal.auth import TOTP, format_hotp_value, hotp_value
+    from cryptography.fernet import Fernet
+    from django.urls import reverse
+
+    secret = "JBSWY3DPEHPK3PXP"
+    with override_settings(MFA_ENCRYPTION_KEYS=[Fernet.generate_key()]):
+        with system_context(reason="test:mfa-enrollment"):
+            TOTP.activate(local_user, secret)
+            codes = RecoveryCodes.activate(local_user).generate_codes()
+        client = Client()
+        challenge = client.post("/accounts/login/", {"login": local_user.email, "password": PASSWORD})["Location"]
+        code = format_hotp_value(hotp_value(secret, int(time.time()) // app_settings.TOTP_PERIOD))
+        assert client.post(challenge, {"code": code}).status_code == 302
+        url = reverse("mfa_view_recovery_codes")
+        assert client.post(reverse("account_reauthenticate"), {"password": PASSWORD}).status_code == 302
+
+        # First view (#734): the codes, and a GET form back to mfa_index that the browser only
+        # submits with the required, unnamed confirmation checked.
+        first = client.get(url)
+        assert first.status_code == 200
+        html = first.content.decode()
+        assert all(code in html for code in codes)
+        form = re.search(r'<form method="get" action="([^"]+)"[^>]*>(.*?)</form>', html, re.S)
+        assert form and form[1] == reverse("mfa_index")
+        checkbox = re.search(r'<input [^>]*id="codes_saved"[^>]*>', form[2])
+        assert checkbox and "required" in checkbox[0] and 'type="checkbox"' in checkbox[0]
+        assert "name=" not in checkbox[0]
+        assert re.search(r'<button [^>]*type="submit"[^>]*>\s*Concluir\s*</button>', form[2])
+        assert client.get(form[1]).status_code == 200
+
+        # Shown once: the second view masks the codes, has no confirmation and offers new codes.
+        second = client.get(url).content.decode()
+        assert not any(code in second for code in codes)
+        assert 'id="codes_saved"' not in second and "Concluir" not in second
+        assert reverse("mfa_generate_recovery_codes") in second
+
+
 def test_platform_admin_lifecycle_conflicts_and_logical_delete(local_user):
     from django.urls import reverse
 

@@ -341,6 +341,10 @@
   .page-header {
     @apply mb-6 flex flex-col gap-4 sm:mb-8 md:flex-row md:items-end md:justify-between;
   }
+  /* O bloco de título ocupa toda a largura que a barra de ações deixa livre. */
+  .page-header > :not(.toolbar) {
+    @apply min-w-0 md:flex-1;
+  }
   .page-header > .toolbar {
     @apply shrink-0;
   }
@@ -351,7 +355,7 @@
     @apply mb-1 text-xs/5 font-semibold tracking-wide text-fg-brand uppercase;
   }
   .page-description {
-    @apply mt-1.5 max-w-3xl text-sm/6 text-body sm:text-base/7;
+    @apply mt-1.5 text-sm/6 text-body sm:text-base/7;
   }
   /* Telas de apps derivadas que ainda usam h1/p soltos recebem o mesmo ritmo. */
   .app-main > :where(h1) {
