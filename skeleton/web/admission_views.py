@@ -21,13 +21,13 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods, require_POST, require_safe
 
 from skeleton.access.capabilities import ADMISSION_CONFIGURE, ADMISSION_DECIDE, INVITATIONS_MANAGE
-from skeleton.common.exceptions import ConcurrentUpdate
+from skeleton.common.exceptions import ConcurrentUpdate, QuotaLimitExceeded
 from skeleton.tenancy import admission
 from skeleton.tenancy.context import current_context
 from skeleton.tenancy.site import shareable_url
 from skeleton.web.errors import error_response
 
-from .views import tenant_page
+from .views import member_limit_meter, tenant_page
 
 STATUS_LABELS = {
     "awaiting_verification": "Aguardando confirmação do email",
@@ -273,6 +273,7 @@ def _queue_page(request, organization_id, *, status=200, error=None):
             "organization_id": organization_id,
             "rows": [{"record": row, "returning": row.user_id in returning} for row in rows],
             "error": error,
+            "meter": member_limit_meter(organization_id),
             "breadcrumbs": [{"label": "Início", "url": dashboard}, {"label": "Solicitações de ingresso"}],
         },
         status=status,
@@ -307,6 +308,9 @@ def join_request_decide(request, organization_id, sysid):
             status=403,
             error="Só o administrador aprova um pedido com papel que tem capacidades administrativas.",
         )
+    except QuotaLimitExceeded as full:
+        # The request stays pending (the transaction rolled back): it can be approved once a seat frees.
+        return _queue_page(request, organization_id, status=409, error=" ".join(full.messages))
     except (ConcurrentUpdate, ValidationError):
         return _queue_page(
             request,
@@ -353,6 +357,10 @@ def join_link(request, organization_id, token):
             return _invalid_link(request)
         except PermissionDenied:
             return render(request, "skeleton/web/join/unverified.html", status=403)
+        except QuotaLimitExceeded as full:
+            return render(
+                request, "skeleton/web/join/link.html", {"proof": proof, "error": " ".join(full.messages)}, status=409
+            )
         links.forget(request)
         if result.outcome in ("member", "admitted"):
             if result.outcome == "admitted":
@@ -596,5 +604,8 @@ def join_by_domain(request, organization_id):
         return redirect("web:dashboard", organization_id=organization_id)
     if outcome == "requested":
         messages.success(request, "Pedido enviado. Você recebe um email quando ele for decidido.")
+        return redirect("web:join")
+    if outcome == "full":
+        messages.error(request, gettext("Esta organização não tem vagas no momento. Fale com o administrador."))
         return redirect("web:join")
     raise Http404

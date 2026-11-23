@@ -5,6 +5,7 @@
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">Link de ingresso</p><h1>Entrar em {{ proof.organization_name }}</h1>
 <p class="page-description">{% if proof.mode == "direct" %}Ao confirmar, você entra na organização. Se você já foi membro dela, o link cria um pedido para quem a administra decidir.{% else %}Ao confirmar, você envia um pedido; quem administra a organização decide e você recebe um email com a resposta.{% endif %}</p></div></div>
 <div class="card">
+{% if error %}<p class="errorlist nonfield mb-4" role="alert">{{ error }}</p>{% endif %}
 {% if user.is_authenticated %}
 <form method="post">{% csrf_token %}
 <p>Você está conectado como <strong>{{ user.email }}</strong>.</p>

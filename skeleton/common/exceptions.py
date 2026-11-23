@@ -46,14 +46,25 @@ class OrganizationAccessLimited(PermissionDenied):
 
 
 class QuotaLimitExceeded(ValidationError):
-    """The plan limit of a metric would be passed (#398); surfaces answer 409 ``quota_exceeded``."""
+    """The limit of a metric would be passed (#398, #695); surfaces answer 409 ``quota_exceeded``.
+
+    The message is the one a person sees (#698): for ``members``, that the organization has no
+    seats; for another metric, which limit was reached.
+    """
 
     def __init__(self, metric, limit):
+        from django.utils.translation import gettext
+
         self.metric = metric
         self.limit = limit
-        super().__init__(
-            {"__all__": ValidationError(f"Plan limit of {metric} reached ({limit}).", code="quota_exceeded")}
-        )
+        if metric == "members":
+            message = gettext("Esta organização não tem vagas no momento. Fale com o administrador.")
+        else:
+            message = gettext("A organização atingiu o limite de %(metric)s (%(limit)s).") % {
+                "metric": metric,
+                "limit": limit,
+            }
+        super().__init__({"__all__": ValidationError(message, code="quota_exceeded")})
 
 
 class ApplicationUnavailable(PermissionDenied):

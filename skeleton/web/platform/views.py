@@ -40,6 +40,7 @@ from skeleton.web.views import form_error, pagination, service_pagination
 from .forms import (
     AppAvailabilityForm,
     AppGrantForm,
+    AppLimitsForm,
     AppRevokeForm,
     CatalogLabelForm,
     OrganizationAdministratorForm,
@@ -397,7 +398,36 @@ def _organization_form(organization, data=None):
     )
 
 
-def _organization_page(request, organization, *, form=None, admin_form=None, quota_form=None, status=200):
+def _member_limit(request, organization):
+    """The member limit of the organization now (``None``: unlimited), for the platform pages."""
+    from skeleton.system.limits import MEMBERS, limit_breakdown
+
+    return next(
+        row.status.limit
+        for row in limit_breakdown(actor=request.user, organization=organization)
+        if row.status.metric == MEMBERS
+    )
+
+
+def _organization_apps(overview):
+    """The apps card (#699): each installed app with what it adds to the member limit."""
+    from skeleton.system.models import AppAvailability
+
+    labels = [app.app_label for app in overview.applications]
+    rows = dict(AppAvailability.objects.filter(app_label__in=labels).values_list("app_label", "limits"))
+    return [
+        {
+            "app": app,
+            "offered": app.app_label in rows,
+            "members": (rows.get(app.app_label) or {}).get("members", 0),
+        }
+        for app in overview.applications
+    ]
+
+
+def _organization_page(
+    request, organization, *, form=None, admin_form=None, quota_form=None, apps_error=None, status=200
+):
     from skeleton.accounts.identity_providers import organization_providers
     from skeleton.files.quota import platform_usage
 
@@ -422,6 +452,9 @@ def _organization_page(request, organization, *, form=None, admin_form=None, quo
             "quota_form": quota_form or _quota_form(organization),
             "identity_providers": organization_providers(organization),
             "site_address": _site_address(organization),
+            "apps": _organization_apps(overview),
+            "apps_error": apps_error,
+            "member_limit": _member_limit(request, organization),
         },
         status=status,
     )
@@ -699,10 +732,13 @@ def _app_labels(labels):
     return [{"app_label": label, "label": names.get(label, label)} for label in labels]
 
 
-def _availability_page(request, manifest, *, mode_form=None, grant_form=None, revoke_error=None, status=200):
+def _availability_page(
+    request, manifest, *, mode_form=None, grant_form=None, revoke_error=None, limits_form=None, status=200
+):
     """Availability of one app (#23): global rows only; no organization's activation is read here."""
     from skeleton.system.administration import application_identity
     from skeleton.system.availability import availability_summary
+    from skeleton.system.limits import MEMBERS, base_for
 
     summary = availability_summary(manifest.app_label, user=request.user)
     return render(
@@ -718,6 +754,9 @@ def _availability_page(request, manifest, *, mode_form=None, grant_form=None, re
             or AppAvailabilityForm(initial={"mode": summary.mode or "selected", "expected_revision": summary.revision}),
             "grant_form": grant_form or AppGrantForm(granted_ids=summary.granted_ids),
             "revoke_error": revoke_error,
+            "limits_form": limits_form or AppLimitsForm.for_limits(summary.limits, revision=summary.revision),
+            # Without an instance default, what the app adds becomes the whole member limit (#696).
+            "limits_without_base": bool(summary.limits.get(MEMBERS)) and base_for(MEMBERS) is None,
         },
         status=status,
     )
@@ -806,6 +845,33 @@ def app_revoke(request, app_label):
 
 
 @platform_page
+@require_http_methods(["POST"])
+@recent_authentication_required
+@transaction.atomic
+def app_limits(request, app_label):
+    """What the app adds to each organization limit where it is effective (#696), with CAS."""
+    from skeleton.system.availability import set_app_limits
+
+    manifest = _manifest(app_label)
+    form = AppLimitsForm(request.POST)
+    if not form.is_valid():
+        return _availability_page(request, manifest, limits_form=form, status=400)
+    try:
+        with transaction.atomic():
+            set_app_limits(
+                manifest.app_label,
+                user=request.user,
+                limits=form.limits(),
+                revision=form.cleaned_data["expected_revision"],
+            )
+    except (ValidationError, ConcurrentUpdate) as exc:
+        status = form_error(form, exc)
+        return _availability_page(request, manifest, limits_form=form, status=status)
+    messages.success(request, gettext("Acréscimos de limite atualizados."))
+    return redirect("platform:app-availability", app_label=manifest.app_label)
+
+
+@platform_page
 @require_safe
 def app_documentation(request, app_label):
     from skeleton.system.administration import application_identity
@@ -845,6 +911,173 @@ def app_screen(request, app_label, screen_id):
         # A sensitive screen needs a recent authentication on every method, GET included (#311).
         return recent_authentication_required(handler)(request)
     return handler(request)
+
+
+# --------------------------------------------------------------------------- apps of one organization (#699)
+
+
+def _limit_text(value):
+    return gettext("ilimitado") if value is None else str(value)
+
+
+def _app_assignment(request, sysid, app_label, *, assign):
+    from skeleton.system.applications import assign_app, unassign_app
+
+    organization = get_object_or_404(_model("sk_tenancy.Organization").objects, pk=sysid, is_active=True)
+    manifest = _manifest(app_label)
+    before = _member_limit(request, organization)
+    try:
+        with transaction.atomic():
+            if assign:
+                assign_app(manifest.app_label, user=request.user, organization_id=organization.pk)
+            else:
+                unassign_app(manifest.app_label, user=request.user, organization_id=organization.pk)
+    except (ValidationError, ConcurrentUpdate) as exc:
+        detail = " ".join(exc.messages) if isinstance(exc, ValidationError) else gettext("A app mudou. Tente de novo.")
+        return _organization_page(request, organization, apps_error=detail, status=409)
+    after = _member_limit(request, organization)
+    done = gettext("%(app)s atribuída.") if assign else gettext("%(app)s retirada.")
+    messages.success(
+        request,
+        f"{done % {'app': manifest.label}} "
+        + gettext("Limite de membros: %(before)s → %(after)s")
+        % {"before": _limit_text(before), "after": _limit_text(after)},
+    )
+    return redirect("platform:organization", sysid=organization.pk)
+
+
+@platform_page
+@require_http_methods(["POST"])
+@recent_authentication_required
+@transaction.atomic
+def organization_app_assign(request, sysid, app_label):
+    """Offer (when selected) and activate the app with its dependencies in one organization."""
+    return _app_assignment(request, sysid, app_label, assign=True)
+
+
+@platform_page
+@require_http_methods(["POST"])
+@recent_authentication_required
+@transaction.atomic
+def organization_app_unassign(request, sysid, app_label):
+    """Deactivate the app in one organization (and revoke its grant); its data is kept."""
+    return _app_assignment(request, sysid, app_label, assign=False)
+
+
+# --------------------------------------------------------------------------- organization limits (#697)
+
+
+def _limit_source_label(source):
+    """``billing``, ``platform`` or ``app:<label>`` as the page names it."""
+    from skeleton.system.app_registry import get_app
+
+    if source.startswith("app:"):
+        label = source.removeprefix("app:")
+        try:
+            return gettext("App %(name)s") % {"name": get_app(label).label}
+        except KeyError:
+            return gettext("App %(name)s") % {"name": label}
+    return {"billing": gettext("Cobrança"), "platform": gettext("Bônus da plataforma")}.get(source, source)
+
+
+def _limit_override_form(rows, metric):
+    """The adjustment form, filled with the adjustment of ``metric`` when the row has one."""
+    from django.utils import timezone
+
+    from .forms import LimitOverrideForm
+
+    override = next((item["row"].override for item in rows if item["row"].status.metric == metric), None)
+    if override is None:
+        initial = {"expected_revision": 0, "mode": "bonus", "metric": metric}
+    else:
+        expires_at = timezone.localtime(override.expires_at) if override.expires_at else None
+        initial = {
+            "metric": metric,
+            "mode": override.mode,
+            "value": override.value,
+            "reason": override.reason,
+            "expires_at": expires_at,
+            "expected_revision": override.revision,
+        }
+    return LimitOverrideForm(initial=initial)
+
+
+def _limits_page(request, organization, *, form=None, error=None, status=200):
+    from skeleton.system.limits import limit_breakdown
+
+    rows = [
+        {"row": row, "sources": [(_limit_source_label(item.source), item.amount) for item in row.status.contributions]}
+        for row in limit_breakdown(actor=request.user, organization=organization)
+    ]
+    return render(
+        request,
+        "skeleton/web/platform/organization_limits.html",
+        {
+            "platform_section": "organizations",
+            "subject": organization,
+            "rows": rows,
+            "form": form or _limit_override_form(rows, request.GET.get("metric")),
+            "error": error,
+        },
+        status=status,
+    )
+
+
+@platform_page
+@require_http_methods(["GET", "POST"])
+@recent_authentication_required(allow_get=True)
+@transaction.atomic
+def organization_limits(request, sysid):
+    """Where each limit of the organization comes from, and the platform's adjustment of it.
+
+    POST with ``action=remove`` removes one adjustment; any other POST sets one. Both with CAS
+    on the adjustment's revision (0 creates or restores a removed one).
+    """
+    from skeleton.system.limits import remove_limit_override, set_limit_override
+
+    from .forms import LimitOverrideForm, LimitOverrideRemoveForm
+
+    organization = get_object_or_404(_model("sk_tenancy.Organization").objects, pk=sysid)
+    if request.method != "POST":
+        return _limits_page(request, organization)
+    if request.POST.get("action") == "remove":
+        remove = LimitOverrideRemoveForm(request.POST)
+        if not remove.is_valid():
+            return _limits_page(request, organization, error=gettext("Pedido de remoção inválido."), status=400)
+        try:
+            with transaction.atomic():
+                remove_limit_override(
+                    actor=request.user,
+                    organization=organization,
+                    metric=remove.cleaned_data["metric"],
+                    expected_revision=remove.cleaned_data["expected_revision"],
+                )
+        except ConcurrentUpdate:
+            detail = gettext("O ajuste mudou desde que a página foi aberta. Revise antes de remover.")
+            return _limits_page(request, organization, error=detail, status=409)
+        messages.success(request, gettext("Ajuste removido: o limite volta ao cálculo."))
+        return redirect("platform:organization-limits", sysid=organization.pk)
+    form = LimitOverrideForm(request.POST)
+    if not form.is_valid():
+        return _limits_page(request, organization, form=form, status=400)
+    data = form.cleaned_data
+    try:
+        with transaction.atomic():
+            set_limit_override(
+                actor=request.user,
+                organization=organization,
+                metric=data["metric"],
+                mode=data["mode"],
+                value=data["value"],
+                reason=data["reason"],
+                expires_at=data["expires_at"],
+                expected_revision=data["expected_revision"],
+            )
+    except (ValidationError, ConcurrentUpdate) as exc:
+        status = form_error(form, exc)
+        return _limits_page(request, organization, form=form, status=status)
+    messages.success(request, gettext("Ajuste de limite salvo."))
+    return redirect("platform:organization-limits", sysid=organization.pk)
 
 
 # --------------------------------------------------------------------------- storage quota

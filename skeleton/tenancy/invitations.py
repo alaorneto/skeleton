@@ -100,24 +100,57 @@ def _invitation_message(organization, email, url):
     return message
 
 
+def pending_invitations(*, exclude_email=None):
+    """Distinct invited emails of the current organization still waiting (#698): seats reserved.
+
+    Pending is not accepted, not revoked (soft-deleted) and not expired. One email counts once,
+    however many invitations it has, and an email of someone already active here counts none.
+    """
+    from skeleton.tenancy.models import Invitation, Membership
+
+    members = Membership.objects.filter(is_active=True).values("user__email")
+    rows = Invitation.objects.filter(accepted_at__isnull=True, expires_at__gt=timezone.now()).exclude(email__in=members)
+    if exclude_email:
+        rows = rows.exclude(email=exclude_email)
+    return rows.values("email").distinct().count()
+
+
+def _require_seat(email):
+    """Refuse an invitation that would promise a seat the organization does not have (#698).
+
+    Active people + pending invitations of other emails + this one must fit in the limit. Runs
+    under the organization lock, like every admission, so two invitations for the last seat
+    have one winner. Inviting an email already pending reserves nothing more.
+    """
+    from skeleton.system.limits import MEMBERS, limit_status
+
+    status = limit_status(MEMBERS)
+    if status.limit is None:
+        return
+    if status.used + pending_invitations(exclude_email=email) + 1 > status.limit:
+        message = gettext("A organização atingiu o limite de %(limit)s membros.") % {"limit": status.limit}
+        raise ValidationError({"email": ValidationError(message, code="quota_exceeded")})
+
+
 def issue_invitation(*, user, email, role, request=None):
     from skeleton.access.capabilities import INVITATIONS_MANAGE, require_capability
-    from skeleton.access.services import require_unprivileged_target
+    from skeleton.access.services import organization_lock, require_unprivileged_target
     from skeleton.accounts.services import normalized_email
     from skeleton.tenancy.context import current_context
-    from skeleton.tenancy.models import Invitation, Organization
+    from skeleton.tenancy.models import Invitation
 
     require_capability(user, INVITATIONS_MANAGE)
     organization_id = current_context().organization_id
     if role.organization_id != organization_id or role.deleted_at:
         raise ValidationError({"role": gettext("O papel precisa estar ativo nesta organização.")})
     require_unprivileged_target(user, role=role)
-    organization = Organization.objects.get(pk=organization_id, is_active=True)
     token = secrets.token_urlsafe(32)
-    with transaction.atomic():
+    email = normalized_email(email)
+    with transaction.atomic(), organization_lock() as organization:
+        _require_seat(email)
         invitation = Invitation(
             organization=organization,
-            email=normalized_email(email),
+            email=email,
             role=role,
             token_digest=_digest(token),
             expires_at=timezone.now() + timedelta(days=7),

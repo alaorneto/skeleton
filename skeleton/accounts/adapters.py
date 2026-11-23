@@ -50,7 +50,17 @@ def _accept_pending(request: Any, user: User) -> bool:
     proof = pending_invitation(request)
     if proof is None:
         return False
-    accept_invitation(user=user, organization_id=proof.organization_id, proof=proof, verified_signup=True)
+    from skeleton.common.exceptions import QuotaLimitExceeded
+
+    try:
+        with transaction.atomic():
+            accept_invitation(user=user, organization_id=proof.organization_id, proof=proof, verified_signup=True)
+    except QuotaLimitExceeded:
+        # The account exists; the invitation stays pending until a seat frees (#698).
+        security_event(
+            "membership.limit_reached", reason_code="invitation", record_sysid=str(proof.organization_id), status=409
+        )
+        return False
     # setup_user_email runs after save_user; preserve only this request's proof.
     request._skeleton_verified_invitation_email = proof.email
     request.session.pop("skeleton_invitation", None)
@@ -443,13 +453,20 @@ def request_social_admission(user: User, binding: ProviderBinding) -> JoinReques
         return record
 
 
-def provision_social_membership(user: User, binding: ProviderBinding) -> Membership:
+def provision_social_membership(user: User, binding: ProviderBinding) -> Membership | None:
+    """The JIT membership; ``None`` when the organization has no seat (#698): the person stays out."""
     from skeleton.access.services import provision_membership
+    from skeleton.common.exceptions import QuotaLimitExceeded
     from skeleton.tenancy.context import system_context
 
     organization, role = SocialAccountAdapter()._resolve_binding(binding)
     with system_context(reason="sso:validated", organization_id=organization.pk):
-        return provision_membership(organization=organization, user=user, role=role)
+        try:
+            with transaction.atomic():
+                return provision_membership(organization=organization, user=user, role=role)
+        except QuotaLimitExceeded:
+            security_event("membership.limit_reached", reason_code="sso", record_sysid=str(organization.pk), status=409)
+            return None
 
 
 class EncryptedMFAAdapter(DefaultMFAAdapter):

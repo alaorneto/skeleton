@@ -12,7 +12,7 @@ global rows: RLS and one tenant per request forbid rewriting N organizations.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
@@ -209,6 +209,32 @@ def revoke_app(app_label: str, *, user, organization_id: UUID, expected_revision
     return grant
 
 
+@transaction.atomic
+def set_app_limits(app_label: str, *, user, limits: dict, revision: int):
+    """What the app adds to each organization limit where it is effective (#696), with CAS.
+
+    Only the platform administrator decides it, on the availability row that already exists:
+    the offer comes first. An unchanged value writes nothing; a change is valid in the next
+    request of every organization (states forgotten everywhere).
+    """
+    from .limits import validate_app_limits
+
+    _require_platform(user)
+    values = validate_app_limits(limits)
+    if type(revision) is not int:
+        raise ConcurrentUpdate("Application availability changed.")
+    row = _locked_availability(app_label, create=False)
+    if row is None:
+        raise ValidationError({"limits": gettext("Defina a disponibilidade da app antes.")})
+    if row.revision != revision:
+        raise ConcurrentUpdate("Application availability changed.")
+    if row.limits != values:
+        _changed()
+        row.limits = values
+        row.save(update_fields={"limits"})
+    return row
+
+
 # --------------------------------------------------------------------------- platform read models (#23)
 
 
@@ -233,6 +259,7 @@ class AvailabilitySummary:
     grants: tuple[GrantSummary, ...]
     requires: tuple[str, ...]  # Must be available to an organization before it is granted this app.
     required_by: tuple[str, ...]  # Granted dependents block revoking this app.
+    limits: dict[str, int] = field(default_factory=dict)  # What it adds to organization limits (#696).
 
     @property
     def granted_ids(self) -> frozenset[UUID]:
@@ -275,6 +302,7 @@ def availability_summary(app_label: str, *, user) -> AvailabilitySummary:
         grants=grants,
         requires=tuple(required_labels(app_label)),
         required_by=tuple(dependents),
+        limits=dict(row.limits) if row is not None and isinstance(row.limits, dict) else {},
     )
 
 

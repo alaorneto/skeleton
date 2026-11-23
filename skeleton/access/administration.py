@@ -42,7 +42,7 @@ class OrganizationOverview:
 
 
 @contextmanager
-def _read_only(using):
+def read_only_inspection(using):
     """Refuse any statement but plain reads while the platform inspects a tenant."""
     from django.db import connections
 
@@ -86,7 +86,7 @@ def organization_overview(*, actor, organization, using="default"):
     require_context_actor(actor)
     with (
         system_context(reason="platform:organization-inspect", organization_id=organization.pk, using=using),
-        _read_only(using),
+        read_only_inspection(using),
     ):
         administrators, version = _administrators(using)
         return OrganizationOverview(
