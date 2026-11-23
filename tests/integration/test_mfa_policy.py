@@ -162,6 +162,11 @@ def test_only_the_administrator_reaches_the_security_page(scenario):
     assert member.post(page, {"mfa_policy": "all", "revision": 0}).status_code in (403, 404)
     other = support.login(scenario.admin_b, password=FIXTURE_PASSWORD)
     assert other.get(page).status_code == 404
+    from skeleton.testing.people import add_member
+
+    add_member(organization=scenario.a, user=scenario.denied, role_code="people_manager")
+    delegated = support.login(scenario.denied, password=FIXTURE_PASSWORD)
+    assert delegated.get(page).status_code in (403, 404)  # A delegated capability is not the administrator.
     enrol(scenario.admin_a)
     strict = Client(enforce_csrf_checks=True)
     strict.force_login(scenario.admin_a)
