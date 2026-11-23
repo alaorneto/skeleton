@@ -844,6 +844,7 @@ def fake_reuse(monkeypatch):
     monkeypatch.delenv(idb.REUSE_ENV, raising=False)
     monkeypatch.delenv(idb.REUSE_VERIFY_ENV, raising=False)
     monkeypatch.setattr(idb, "_REUSE", {})
+    monkeypatch.setattr(idb, "_REUSE_REFUSALS", {})
     monkeypatch.setattr(idb, "restore_schema", lambda pair, template: log.append("restore"))
 
     def begin(pair):
@@ -853,6 +854,7 @@ def fake_reuse(monkeypatch):
     def reuse(state, template, *, verify=False):
         log.append("reuse+verify" if verify else "reuse")
         state.reused += bool(answers["reuse"])
+        state.reason = "" if answers["reuse"] else "the structure of the schema changed"
         return answers["reuse"]
 
     monkeypatch.setattr(idb, "begin_schema_reuse", begin)
@@ -875,6 +877,7 @@ def test_a_refused_reuse_recreates_the_schema_and_starts_over(fake_reuse):
     assert idb.template_schema(PAIR, "template") == "restore"
     assert log == ["restore", "begin", "reuse", "restore", "begin"]
     assert refused.connection.closed, "The owner connection of a discarded state must not stay open."
+    assert idb.schema_reuse_refusals() == {"the structure of the schema changed": 1}
     assert idb.current_schema_reuse(PAIR) is not refused
 
     answers["reuse"] = True
@@ -941,6 +944,48 @@ def test_reuse_reports_a_database_error_as_a_refusal_not_as_a_failure():
     )
     assert idb.reuse_schema(state, "template") is False
     assert state.reason == "OperationalError: the connection is closed" and state.reused == 0
+
+
+def test_summary_says_how_the_schemas_of_a_run_were_built():
+    assert idb.schema_summary({"migrate": 0, "cached": 0, "restore": 0, "reuse": 0}) is None
+    assert idb.schema_summary({}) is None
+    assert (
+        idb.schema_summary({"migrate": 1, "cached": 7, "restore": 188, "reuse": 1872})
+        == "skeleton_db schemas: 1 migrated, 7 from the template cache, 188 recreated, 1872 reused"
+    )
+    line = idb.schema_summary({"migrate": 1, "restore": 9}, ["x is not a plain table of the owner"])
+    assert line.endswith("0 reused; schema reuse unavailable: x is not a plain table of the owner")
+    lines = idb.schema_summary({"restore": 4, "reuse": 9}, (), {"a row changed": 1, "the structure changed": 2})
+    assert lines.splitlines()[1] == (
+        "skeleton_db recreated a kept schema because: the structure changed (2); a row changed (1)"
+    )
+
+
+def test_a_schema_that_cannot_be_reused_says_why(monkeypatch):
+    class Unsupported(FakeConnection):
+        def execute(self, query, *args):
+            outer = self
+            rows = {
+                idb._REUSE_TABLES: [("plain", "r", True, False, 0, None), ("parted", "p", True, False, 0, None)],
+                idb._REUSE_FLAGS: [("trigger", "plain", "guard:D")],
+            }.get(query, [])
+
+            class Result:
+                def fetchall(self):
+                    return rows
+
+                def fetchone(self):
+                    return outer.rows.pop(0) if outer.rows else None
+
+            return Result()
+
+    connection = Unsupported()
+    monkeypatch.setattr(idb, "_owner_connection", lambda pair: connection)
+    monkeypatch.setattr(idb, "_REUSE_UNSUPPORTED", {})
+
+    assert idb.begin_schema_reuse(PAIR) is None
+    assert connection.closed
+    assert idb.schema_reuse_obstacles() == ["parted is not a plain table of the owner"]
 
 
 def os_environ(name):

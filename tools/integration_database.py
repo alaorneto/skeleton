@@ -439,14 +439,28 @@ def begin_schema_reuse(pair):
     try:
         tables = connection.execute(_REUSE_TABLES).fetchall()
         flags = connection.execute(_REUSE_FLAGS).fetchall()
-        supported = (
-            all(kind == "r" and owned for _, kind, owned, _, _, _ in tables)
-            and all(not (kind == "trigger" and not value.endswith(":O")) for kind, _, value in flags)
-            and all(key is not None for _, _, _, _, size, key in tables if size > 0)
+        obstacles = (
+            [
+                f"{name} is not a plain table of the owner"
+                for name, kind, owned, _, _, _ in tables
+                if kind != "r" or not owned
+            ]
+            + [
+                f"trigger {value[:-2]} of {name} is not enabled"
+                for kind, name, value in flags
+                if kind == "trigger" and not value.endswith(":O")
+            ]
+            + [
+                f"{name} has seeded rows and no single-column primary key"
+                for name, _, _, _, size, key in tables
+                if size > 0 and key is None
+            ]
         )
-        if not supported:
+        if obstacles:
+            _REUSE_UNSUPPORTED[pair.database] = obstacles[0]
             connection.close()
             return None
+        _REUSE_UNSUPPORTED.pop(pair.database, None)
         forced = frozenset(name for name, _, _, force, _, _ in tables if force)
         seeded = {}
         # Rows are read with FORCE ROW LEVEL SECURITY lifted in a transaction that is rolled back.
@@ -598,6 +612,10 @@ def reuse_schema(state, template, *, verify=False):
 
 
 _REUSE = {}
+# Why the schema of a database cannot be reused at all (begin_schema_reuse returned None).
+_REUSE_UNSUPPORTED = {}
+# How many times this process recreated a schema it had kept, by the reason of the refusal.
+_REUSE_REFUSALS = {}
 
 
 def current_schema_reuse(pair):
@@ -616,6 +634,7 @@ def template_schema(pair, template):
         every = schema_reuse_verify_every()
         if reuse_schema(state, template, verify=bool(every) and (state.reused + 1) % every == 0):
             return "reuse"
+        _REUSE_REFUSALS[state.reason] = _REUSE_REFUSALS.get(state.reason, 0) + 1
     _forget_schema_reuse(pair.database)
     restore_schema(pair, template)
     if schema_reuse_enabled():
@@ -629,3 +648,31 @@ def template_schema(pair, template):
 def _close_schema_reuse():
     for database in list(_REUSE):
         _forget_schema_reuse(database)
+
+
+def schema_reuse_obstacles():
+    """Why this process recreates the schema for every test although the reuse is on, if it does."""
+    return sorted(set(_REUSE_UNSUPPORTED.values()))
+
+
+def schema_reuse_refusals():
+    """Reason of each refused reuse of this process and how many times it happened."""
+    return dict(_REUSE_REFUSALS)
+
+
+def schema_summary(stats, obstacles=(), refusals=None):
+    """The end of a run: how its schemas were built and why some were recreated; None without database tests."""
+    if not any(stats.get(key) for key in ("migrate", "cached", "restore", "reuse")):
+        return None
+    line = (
+        f"skeleton_db schemas: {stats.get('migrate', 0)} migrated, {stats.get('cached', 0)} from the template cache, "
+        f"{stats.get('restore', 0)} recreated, {stats.get('reuse', 0)} reused"
+    )
+    if obstacles:
+        line += "; schema reuse unavailable: " + "; ".join(obstacles)
+    if refusals:
+        ordered = sorted(refusals.items(), key=lambda item: (-item[1], item[0]))
+        line += "\nskeleton_db recreated a kept schema because: " + "; ".join(
+            f"{reason} ({count})" for reason, count in ordered
+        )
+    return line

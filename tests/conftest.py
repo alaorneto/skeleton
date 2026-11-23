@@ -253,10 +253,49 @@ def _migrate_postgres(pair, stats):
     stats["migrate"] += 1
 
 
+# How the PostgreSQL schemas of this process were built. With -n, each worker sends its counts
+# to the controller, and the run ends with one line of the totals (#760).
+_SCHEMA_STATS = {"migrate": 0, "cached": 0, "restore": 0, "reuse": 0}
+_SCHEMA_TOTALS = {"obstacles": set(), "refusals": {}}
+
+
 @pytest.fixture(scope="session")
 def postgres_schema_stats():
     """How the PostgreSQL schemas of this session were built (asserted by the template tests)."""
-    return {"migrate": 0, "cached": 0, "restore": 0, "reuse": 0}
+    return _SCHEMA_STATS
+
+
+def _add_schema_stats(stats, obstacles, refusals):
+    for key, value in stats.items():
+        _SCHEMA_TOTALS[key] = _SCHEMA_TOTALS.get(key, 0) + value
+    _SCHEMA_TOTALS["obstacles"].update(obstacles)
+    for reason, count in refusals.items():
+        _SCHEMA_TOTALS["refusals"][reason] = _SCHEMA_TOTALS["refusals"].get(reason, 0) + count
+
+
+def pytest_sessionfinish(session):
+    from tools.integration_database import schema_reuse_obstacles, schema_reuse_refusals
+
+    report = [dict(_SCHEMA_STATS), schema_reuse_obstacles(), schema_reuse_refusals()]
+    if hasattr(session.config, "workerinput"):
+        session.config.workeroutput["skeleton_schema"] = report
+    else:
+        _add_schema_stats(*report)
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_testnodedown(node, error):
+    reported = (getattr(node, "workeroutput", None) or {}).get("skeleton_schema")
+    if reported:
+        _add_schema_stats(*reported)
+
+
+def pytest_terminal_summary(terminalreporter):
+    from tools.integration_database import schema_summary
+
+    summary = schema_summary(_SCHEMA_TOTALS, sorted(_SCHEMA_TOTALS["obstacles"]), _SCHEMA_TOTALS["refusals"])
+    for line in (summary or "").splitlines():
+        terminalreporter.write_line(line)
 
 
 def _template_cache_key(pair):
