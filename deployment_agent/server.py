@@ -151,6 +151,13 @@ class ControlHandler(QuietHandler):
         path = urlsplit(self.path)
         if path.query or path.fragment:
             raise AgentError("invalid_control_path")
+        channel = getattr(self.server.service, "channel", None)
+        if channel is not None and channel.should_forward(self.command, path.path):
+            # A follower (#680): the primary runs the request; this node keeps only its own state.
+            forwarded = (
+                self.body(upload=True) if path.path == "/uploads" else self.body() if self.command == "POST" else None
+            )
+            return channel.forward(self.command, path.path, forwarded)
         if self.command == "GET":
             return self._get(path.path)
         if self.command == "POST":
@@ -173,6 +180,8 @@ class ControlHandler(QuietHandler):
             return self.server.service.update_status()
         if path == "/sources":
             return self.server.service.sources()
+        if path == "/cluster":
+            return self.server.service.cluster_status()
         raise AgentError("not_found", 404)
 
     def _status_ticket(self, body: JSON) -> JSON:
@@ -186,10 +195,12 @@ class ControlHandler(QuietHandler):
         return self.server.service.preview(body.get("action"), body.get("artifacts", []), body.get("app_ids", []))
 
     def _submit(self, body: JSON) -> JSON:
-        if set(body) != {"plan_id", "plan_digest", "generation", "operation_id", "actor_id", "request_id"}:
+        required = {"plan_id", "plan_digest", "generation", "operation_id", "actor_id", "request_id"}
+        if not required <= set(body) <= required | {"mode"}:
             raise AgentError("invalid_submit_fields")
-        result = self.server.service.submit(**body)
-        url = self.server.tickets.issue(result["id"])
+        source = getattr(self, "source", None)  # The node that forwarded it (#680), never from the body.
+        result = self.server.service.submit(**body, **({"source": source} if source else {}))
+        url = self.server.tickets.issue(result["id"]) if self.server.tickets is not None else None
         if url:
             result["status_url"] = url
         return result
@@ -206,7 +217,9 @@ class ControlHandler(QuietHandler):
         result = self.server.service.update_agent(
             artifact_id(body["release"]), actor_id=identifier(actor) if actor is not None else None
         )
-        self.restart_after_response = True  # The new version is started by the supervisor (#497).
+        # The new version is started by the supervisor (#497); in a cluster the primary restarts
+        # later, after the other nodes (#689).
+        self.restart_after_response = result.get("state") == "restarting"
         return result
 
     def _sources_set(self, body: JSON) -> JSON:
@@ -225,6 +238,11 @@ class ControlHandler(QuietHandler):
             raise AgentError("invalid_catalogue_selection")
         return self.server.service.fetch_release(**body)
 
+    def _cluster_restart(self, body: JSON) -> JSON:
+        if body:
+            raise AgentError("unknown_fields")
+        return self.server.service.cluster_restart()
+
     POST_ROUTES: dict[str, Callable[["ControlHandler", JSON], JSON]] = {
         "/status-ticket": _status_ticket,
         "/preview": _preview,
@@ -234,6 +252,7 @@ class ControlHandler(QuietHandler):
         "/agent/update": _agent_update,
         "/sources/set": _sources_set,
         "/sources/remove": _sources_remove,
+        "/cluster/restart": _cluster_restart,
     }
 
     restart_after_response = False
@@ -339,6 +358,36 @@ def run_update_checks(
         delay = interval
 
 
+def run_coordination(service: "DeploymentService", stop: threading.Event, *, interval: float = 5.0) -> None:
+    """Heartbeat, renewal and the primary's lock (#678); a database outage only waits for the next tick."""
+    coordinator = service.coordinator
+    if coordinator is None:
+        return
+    try:
+        coordinator.ensure_schema()
+    except Exception as error:  # noqa: BLE001 - the loop below retries; never stop serving
+        log_internal_error(error)
+    from .rollout import Follower
+
+    follower = Follower(service)
+
+    def acquired() -> None:
+        service.reconcile_interrupted()
+        service.publish_cluster_release()
+
+    while not stop.is_set():
+        try:
+            coordinator.tick(describe=service.describe_node, on_acquired=acquired)
+            if coordinator.is_primary:
+                follower.ensure_started()
+            else:
+                follower.tick()  # Answer the primary's phases, or join the cluster's release (#681).
+        except Exception as error:  # noqa: BLE001 - one failed tick never stops the agent
+            log_internal_error(error)
+        stop.wait(interval)
+    coordinator.close()
+
+
 class ShutdownRequest:
     """SIGTERM/SIGINT handler that also covers a signal received before the server exists (#616).
 
@@ -423,6 +472,7 @@ def serve(service: "DeploymentService") -> int:
         shutdown_request.attach(server)
     server.service = service
     server.tickets = tickets
+    service.request_restart = server.request_restart  # A restart outside a request: the cluster's agent update (#689).
     os.chmod(path, 0o660)
     if service.config.get("socket_gid") is not None:
         os.chown(path, -1, service.config["socket_gid"])
@@ -447,10 +497,22 @@ def serve(service: "DeploymentService") -> int:
             daemon=True,
             name="deployment-update-check",
         ).start()
+    channel: Any = None
+    if getattr(service, "coordinator", None) is not None:
+        from .cluster_channel import ClusterChannel
+
+        threading.Thread(
+            target=run_coordination, args=(service, stop_checks), daemon=True, name="deployment-cluster"
+        ).start()
+        channel = ClusterChannel(service, tickets)
+        channel.start()  # The channel between agents (#680), on the private address of cluster.listen.
+        service.channel = channel
     try:
         server.serve_forever()
     finally:
         stop_checks.set()
+        if channel is not None:
+            channel.stop()
         server.server_close()
         if status_server:
             status_server.shutdown()

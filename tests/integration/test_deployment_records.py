@@ -818,3 +818,30 @@ def test_old_agent_answering_with_whole_plan_is_refused(monkeypatch):
         with pytest.raises(DeploymentUnavailable, match="older than this core"):
             request_preview(user=user, action="install", artifacts=["c" * 64])
     assert not DeploymentOperation.objects.exists()
+
+
+def test_forcing_the_window_sends_the_mode_with_the_approval(monkeypatch):
+    """#682/#684: a rolling-eligible plan can still run with the maintenance window."""
+    from skeleton.system import releases
+
+    user = actor(platform=True)
+    sent = []
+    with request_context(actor=user, request_id=uuid4(), source="test:deployment"):
+        row = DeploymentOperation(
+            operation="update",
+            expected_generation=4,
+            plan_digest="b" * 64,
+            plan={"id": str(uuid4()), "generation": 4, "rollout_mode": "rolling"},
+        )
+        row.save()
+
+    def submit(**values):
+        sent.append(values)
+        return agent_status(row, state="queued", stage="approved")
+
+    monkeypatch.setattr(
+        releases, "agent_client", lambda: SimpleNamespace(inventory=lambda: {"generation": 4}, submit=submit)
+    )
+    with request_context(actor=user, request_id=uuid4(), source="test:deployment"):
+        releases.confirm_operation(user=user, operation_id=row.pk, revision=row.revision, force_window=True)
+    assert sent and sent[0]["mode"] == "window"

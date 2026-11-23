@@ -125,7 +125,7 @@ def child_script(tmp_path):
     return script
 
 
-def make_launcher(tmp_path, *, grace=5.0, command=None):
+def make_launcher(tmp_path, *, grace=5.0, command=None, wait_for_agent=False):
     root = tmp_path / "releases"
     root.mkdir(exist_ok=True)
     options = Namespace(
@@ -136,6 +136,7 @@ def make_launcher(tmp_path, *, grace=5.0, command=None):
         active=str(root / "current"),
         grace=grace,
         command=command or [sys.executable, str(child_script(tmp_path)), str(tmp_path / "out.txt")],
+        wait_for_agent=wait_for_agent,
     )
     return launcher.Launcher(options), root
 
@@ -178,6 +179,28 @@ def test_launcher_waits_runs_restarts_and_stops(tmp_path, monkeypatch):
         assert state_of(tmp_path)["state"] == "stopped" and state_of(tmp_path)["id"] == stop
         runner.step()
         assert runner.child is None  # Applied once: reading the same file again changes nothing.
+    finally:
+        runner.stop()
+
+
+@POSIX
+def test_in_a_cluster_the_launcher_waits_for_the_agent_even_with_a_release(tmp_path):
+    """--wait-for-agent (#681): a node back from an update never starts the old pointer by itself."""
+    runner, root = make_launcher(tmp_path, wait_for_agent=True)
+    try:
+        point(root / "current", release(root, "r1"))
+        runner.step()
+        runner.step()
+        assert runner.child is None and state_of(tmp_path) == {
+            "id": "",
+            "pid": None,
+            "reason": "agent",
+            "release": "",
+            "state": "waiting",
+        }
+        request = write_request(tmp_path / "control", "worker", "restart")
+        runner.step()
+        assert state_of(tmp_path)["state"] == "running" and state_of(tmp_path)["id"] == request
     finally:
         runner.stop()
 

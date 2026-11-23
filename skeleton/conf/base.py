@@ -4,12 +4,14 @@ import environ
 
 from skeleton.conf.mailers import mailer_from_url
 from skeleton.conf.paths import project_root
-from skeleton.instance.resolve import instance_env, instance_paths
+from skeleton.instance.resolve import instance_env, instance_mode
 
 BASE_DIR = project_root()
 environ.Env.read_env(BASE_DIR / ".env", overwrite=False)
 # Catalog keys resolve environment > instance SQLite > default (#143); other names read the environment.
 env = instance_env(BASE_DIR)
+# standalone (default) or cluster (#673): in cluster the configuration is the environment only.
+SKELETON_INSTANCE_MODE = instance_mode()
 SECRET_KEY = env("DJANGO_SECRET_KEY", default="development-only-not-for-deployment")
 DEBUG = False
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.1", "testserver"])
@@ -76,8 +78,6 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "skeleton.accounts.middleware.AuthVersionMiddleware",
-    # Administrative maintenance (#447): /platform/ only for full administrators, 503 for everyone else.
-    "skeleton.web.maintenance.MaintenancePlatformGuardMiddleware",
     "skeleton.integrations.tokens.middleware.ApiTokenMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "skeleton.tenancy.middleware.TenantContextMiddleware",
@@ -111,18 +111,29 @@ TEMPLATES = [
 ]
 
 
-def database_config(env, variable, *, conn_max_age=60):
+def database_config(env, variable, *, conn_max_age=None, pooler=None):
     """``DATABASES`` entry of a PostgreSQL URL; empty when the variable is unset (setup, #146).
 
     The data layer is PostgreSQL only (#144): another engine stays in the config only so that
     check ``skeleton.E025`` can refuse it with a clear message. SQLite is never a fallback.
+    Behind a transaction pooler (``DATABASE_TRANSACTION_POOLER``, #676) the startup ``options``
+    are not sent (PgBouncer refuses them; the role's own ``search_path`` applies) and the
+    server-side cursors are off. A DSN may list several hosts for failover (``h1,h2`` with
+    ``target_session_attrs=read-write``).
     """
     if not env.str(variable, default=""):
         return None
+    if conn_max_age is None:
+        conn_max_age = env.int("DATABASE_CONN_MAX_AGE", default=60)
+    if pooler is None:
+        pooler = env.bool("DATABASE_TRANSACTION_POOLER", default=False)
     config = env.db(variable)
     config["ATOMIC_REQUESTS"] = False
     if config["ENGINE"] == "django.db.backends.postgresql":
-        config.setdefault("OPTIONS", {})["options"] = "-c search_path=skeleton,public"
+        if pooler:
+            config["DISABLE_SERVER_SIDE_CURSORS"] = True
+        else:
+            config.setdefault("OPTIONS", {})["options"] = "-c search_path=skeleton,public"
         config["CONN_MAX_AGE"] = conn_max_age
         # A persistent connection may have been closed by the server: probe it before reuse (#333).
         config["CONN_HEALTH_CHECKS"] = conn_max_age != 0
@@ -131,7 +142,31 @@ def database_config(env, variable, *, conn_max_age=60):
 
 _database = database_config(env, "DATABASE_URL")
 DATABASES = {"default": _database} if _database else {}
-CACHES = {"default": env.cache("CACHE_URL", default="locmemcache://skeleton")}
+# Options of Django's cache settings that django-environ returns in lower case from the URL query
+# (?key_prefix=...): Django reads only the upper-case names, so they would be lost in silence (#675).
+CACHE_URL_OPTIONS = ("key_prefix", "timeout", "version", "key_function")
+
+
+def cache_config(env, *, default=None):
+    """``CACHES["default"]`` from ``CACHE_URL`` with the URL options promoted and the instance prefix."""
+    from django.core.exceptions import ImproperlyConfigured
+
+    config = env.cache("CACHE_URL", default=default) if default is not None else env.cache("CACHE_URL")
+    for name in CACHE_URL_OPTIONS:
+        if name in config:
+            value = config.pop(name)
+            config[name.upper()] = int(value) if name in ("timeout", "version") and str(value).isdigit() else value
+    prefix = env("SKELETON_CACHE_KEY_PREFIX", default="")
+    if prefix:
+        if config.get("KEY_PREFIX"):
+            raise ImproperlyConfigured(
+                "Defina o prefixo do cache em um lugar só: CACHE_URL ou SKELETON_CACHE_KEY_PREFIX."
+            )
+        config["KEY_PREFIX"] = prefix
+    return config
+
+
+CACHES = {"default": cache_config(env, default="locmemcache://skeleton")}
 # EMAIL_URL stays the operation interface; it becomes MAILERS["default"] (#127), never the
 # per-connection EMAIL_* settings Django 6.1 deprecated. EMAIL_TIMEOUT (seconds an SMTP
 # connection may block, so the notification jobs never hang on a mute server, #297) is read
@@ -198,6 +233,8 @@ FILE_UPLOAD_HANDLERS = [
     "django.core.files.uploadhandler.TemporaryFileUploadHandler",
 ]
 # Default quota of live attachment bytes per organization (empty: unlimited); the platform overrides it.
+# SKELETON_FILES_ROOT is a volume shared by every node (NFS, EFS, CephFS); checked in cluster mode (#673).
+SKELETON_FILES_SHARED = env.bool("SKELETON_FILES_SHARED", default=False)
 SKELETON_FILES_ORG_QUOTA_BYTES = env.int("SKELETON_FILES_ORG_QUOTA_BYTES", default=0) or None
 # Deleted attachments keep their bytes this long, then files.purge removes them (#192).
 SKELETON_FILES_DELETED_RETENTION_DAYS = env.int("SKELETON_FILES_DELETED_RETENTION_DAYS", default=90)
@@ -407,9 +444,11 @@ SKELETON_RETAINED_SCHEMA_PATHS = SKELETON_DEPLOYMENT_STATE.retained_schema_paths
 SKELETON_MIGRATION_ARCHIVES = SKELETON_DEPLOYMENT_STATE.migration_archives
 SKELETON_FROZEN_INFRASTRUCTURE = SKELETON_DEPLOYMENT_STATE.frozen_infrastructure
 SKELETON_MAINTENANCE_MARKER = env("SKELETON_MAINTENANCE_MARKER", default=None)
-# Administrative maintenance mode (#446): read on every request from the instance SQLite,
-# independent of the deployment marker above. Derived from the bootstrap paths, never configured.
-SKELETON_MAINTENANCE_STORE = str(instance_paths(BASE_DIR)[0])
+# Written by the agent before it stops this node in a rolling update (#682): /health/ready/ answers
+# 503 "draining" so the balancer takes the node out while it still serves the requests in flight.
+SKELETON_DRAIN_MARKER = env("SKELETON_DRAIN_MARKER", default=None)
+# The node's name in a cluster of agents (#681), reported by /health/release/.
+SKELETON_NODE_ID = env("SKELETON_NODE_ID", default="")
 SKELETON_DEPLOYMENT_SMOKE_TOKEN_FILE = env("SKELETON_DEPLOYMENT_SMOKE_TOKEN_FILE", default=None)
 SKELETON_DEPLOYMENT_SMOKE_PATHS = tuple(env.list("SKELETON_DEPLOYMENT_SMOKE_PATHS", default=[]))
 if any(not path.startswith("/") or "?" in path or "#" in path for path in SKELETON_DEPLOYMENT_SMOKE_PATHS):

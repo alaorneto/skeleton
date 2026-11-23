@@ -1,4 +1,8 @@
-"""Jobs during the administrative maintenance mode (#448), in PostgreSQL as the runtime role."""
+"""Jobs during the deployment gate (#448), in PostgreSQL as the runtime role.
+
+The administrative maintenance mode left the application (#674): only the deployment marker,
+written by the agent during an update, pauses the worker and the scheduler.
+"""
 
 import io
 import signal
@@ -9,9 +13,6 @@ from django.core.management import CommandError, call_command
 from django.utils import timezone
 
 from skeleton.accounts.services import bootstrap_identity
-from skeleton.instance import maintenance
-from skeleton.instance.maintenance import enter, leave
-from skeleton.instance.store import InstanceStore
 from skeleton.jobs.models import Job, WorkerHeartbeat
 from skeleton.jobs.periodic import register_periodic
 from skeleton.jobs.registry import JobType, register_job_type
@@ -36,12 +37,10 @@ def declarations(monkeypatch):
 
 
 @pytest.fixture
-def store(tmp_path, settings):
-    path = tmp_path / "instance" / "instance.sqlite3"
-    settings.SKELETON_MAINTENANCE_STORE = str(path)
-    settings.SKELETON_MAINTENANCE_MARKER = None
-    yield InstanceStore(path)
-    maintenance._readers.pop(str(path), None)
+def marker(tmp_path, settings):
+    path = tmp_path / "maintenance"
+    settings.SKELETON_MAINTENANCE_MARKER = str(path)
+    return path
 
 
 @pytest.fixture
@@ -50,14 +49,6 @@ def organization():
         email="ops-queue@example.test", organization="queue-org", name="Queue", password=PASSWORD
     )
     return organization
-
-
-def _switch(store, *, active, pause_jobs=True):
-    if active:
-        enter(store, message="", ends_at=None, pause_jobs=pause_jobs, source="test")
-    else:
-        leave(store, source="test")
-    maintenance.reader_for(store.path)._cached = None  # Do not wait the 5 s of the per-process cache.
 
 
 def _enqueue(organization):
@@ -81,63 +72,42 @@ def _worker_once():
     return out.getvalue().strip()
 
 
-def test_worker_pauses_only_when_the_mode_pauses_jobs(store, organization, monkeypatch):
+def test_the_deployment_marker_pauses_the_worker_and_its_removal_resumes(marker, organization, monkeypatch):
     from skeleton.jobs import worker
 
     beats = []
     original = worker.heartbeat
     monkeypatch.setattr(worker, "heartbeat", lambda *a, **k: beats.append(k.get("state")) or original(*a, **k))
     job_id = _enqueue(organization)
-    _switch(store, active=True, pause_jobs=True)
+    marker.touch()
     assert _worker_once() == "Jobs processados: 0."
     assert RAN == [] and _state(organization, job_id) == "queued"
-    assert "paused" in beats  # --once then exits and records "stopped", as with the deployment marker.
+    assert "paused" in beats  # --once then exits and records "stopped".
     assert WorkerHeartbeat.all_objects.filter(worker_id="maintenance-worker").exists()
-
-    _switch(store, active=True, pause_jobs=False)  # --keep-jobs: the worker goes on.
+    marker.unlink()
     assert _worker_once() == "Jobs processados: 1."
     assert _state(organization, job_id) == "succeeded"
 
-    second = _enqueue(organization)
-    _switch(store, active=True, pause_jobs=True)
-    assert _worker_once() == "Jobs processados: 0."
-    _switch(store, active=False)  # Leaving the mode resumes the queue.
-    assert _worker_once() == "Jobs processados: 1."
-    assert _state(organization, second) == "succeeded"
 
-
-def test_scheduler_does_not_schedule_while_the_mode_pauses_jobs(store, organization):
+def test_the_scheduler_does_not_schedule_behind_the_marker(marker, organization):
     register_periodic("maintenance-tick", "test.maintenance_tick", every=timedelta(minutes=5))
-    _switch(store, active=True, pause_jobs=True)
+    marker.touch()
     out = io.StringIO()
     call_command("run_scheduler", "--once", stdout=out)
     assert out.getvalue().strip() == "Jobs periódicos criados: 0."
     assert not Job.all_objects.filter(job_type="test.maintenance_tick").exists()
-    _switch(store, active=True, pause_jobs=False)
+    marker.unlink()
     out = io.StringIO()
     call_command("run_scheduler", "--once", stdout=out)
     assert out.getvalue().strip() == "Jobs periódicos criados: 1."
 
 
-def test_check_jobs_does_not_report_lag_during_the_pause(store, organization):
+def test_check_jobs_does_not_report_lag_behind_the_marker(marker, organization):
     job_id = _enqueue(organization)
     Job.all_objects.filter(pk=job_id).update(run_after=timezone.now() - timedelta(minutes=30))
     with pytest.raises(CommandError, match="queue_lag"):
         call_command("check_jobs", "--max-lag", "1", stdout=io.StringIO())
-    _switch(store, active=True, pause_jobs=True)
+    marker.touch()
     out = io.StringIO()
     call_command("check_jobs", "--max-lag", "1", stdout=out)
     assert "paused=1" in out.getvalue()
-    _switch(store, active=True, pause_jobs=False)  # Jobs keep running: a late queue is a real lag again.
-    with pytest.raises(CommandError, match="queue_lag"):
-        call_command("check_jobs", "--max-lag", "1", stdout=io.StringIO())
-
-
-def test_the_deployment_marker_pauses_regardless_of_pause_jobs(store, organization, tmp_path, settings):
-    marker = tmp_path / "maintenance"
-    marker.touch()
-    settings.SKELETON_MAINTENANCE_MARKER = str(marker)
-    job_id = _enqueue(organization)
-    _switch(store, active=True, pause_jobs=False)
-    assert _worker_once() == "Jobs processados: 0."
-    assert _state(organization, job_id) == "queued"

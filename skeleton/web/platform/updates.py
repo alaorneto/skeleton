@@ -160,6 +160,18 @@ class SourceForm(forms.Form):
 class ConfirmationForm(forms.Form):
     revision = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
     plan_digest = forms.CharField(widget=forms.HiddenInput)
+    force_window = forms.BooleanField(
+        required=False,
+        label=gettext_lazy("Forçar janela de manutenção"),
+        help_text=gettext_lazy(
+            "O plano pode trocar o release nó a nó, sem tirar o site do ar. Marque para parar todos os nós juntos."
+        ),
+    )
+
+    def __init__(self, *args, rolling=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not rolling:
+            del self.fields["force_window"]  # Only a rolling-eligible plan in a cluster offers the choice (#682).
 
 
 class BoundedPackageUpload(FileUploadHandler):
@@ -253,6 +265,39 @@ ERROR_TEXT = {
     ),
     "stored_artifact_corrupted": gettext_lazy(
         "O pacote guardado no agente foi alterado. Avise o operador do servidor."
+    ),
+    # A cluster of agents (#678-#684).
+    "no_primary": gettext_lazy(
+        "Nenhum agente primário ativo: atualizações e instalação de apps ficam suspensas até um candidato assumir. "
+        "O site continua no ar."
+    ),
+    "primary_unreachable": gettext_lazy(
+        "O agente primário não respondeu pelo canal entre agentes. Confira a rede privada entre os nós."
+    ),
+    "not_primary": gettext_lazy("Este agente deixou de ser o primário; tente de novo em alguns segundos."),
+    "cluster_busy": gettext_lazy("Há uma operação em curso no cluster; espere ela terminar."),
+    "recovery_or_operation_pending": gettext_lazy(
+        "Há uma operação pendente ou interrompida (por exemplo, depois da troca do agente primário). "
+        "O operador precisa concluir a recuperação no servidor antes de outra atualização."
+    ),
+    "rolling_not_eligible": gettext_lazy("Este plano não pode trocar nó a nó: ele precisa da janela de manutenção."),
+    "follower_prepare_failed": gettext_lazy("Um nó não conseguiu receber o release; nada mudou."),
+    "follower_drain_failed": gettext_lazy("Um nó não parou a tempo; a atualização foi desfeita antes das migrations."),
+    "follower_cutover_failed": gettext_lazy(
+        "Um nó não trocou o release depois das migrations. A manutenção continua: veja a recuperação no servidor."
+    ),
+    "rolling_node_failed": gettext_lazy("Um nó falhou na troca nó a nó e voltou ao release anterior."),
+    "agent_versions_differ": gettext_lazy(
+        "Os agentes dos nós estão em versões diferentes. Atualize o agente antes; nos containers, a imagem de cada nó."
+    ),
+    # Problems a node reports in its status (#678, #689).
+    "agent_update_manual": gettext_lazy(
+        "Este nó roda o agente da imagem do container e não segue a versão do cluster sozinho: "
+        "atualize a imagem dele e rode docker compose up -d."
+    ),
+    "cluster_storage_not_shared": gettext_lazy(
+        "Os candidatos não dividem o mesmo storage_root: nenhum deles assume como primário até a montagem "
+        "compartilhada ser corrigida."
     ),
 }
 
@@ -392,10 +437,25 @@ def running_core():
 @require_safe
 def installed(request):
     inventory = None
+    cluster = {"mode": "single"}
     try:
         inventory = agent_client().inventory()
     except (ValueError, RuntimeError, OSError) as exc:
         _error(request, exc)
+    else:
+        try:
+            cluster = agent_client().cluster()
+        except (ValueError, RuntimeError, OSError):
+            cluster = {"mode": "single"}  # An agent of one node (or older): no cluster panel.
+        if cluster.get("problem"):
+            # A sentence, never the bare code; the code is closed and bounded by sanitize_cluster.
+            problem = cluster["problem"]
+            cluster = {
+                **cluster,
+                "problem": ERROR_TEXT.get(problem)
+                or gettext("O agente deste nó informou um problema (%(code)s); veja o log dele no servidor.")
+                % {"code": problem},
+            }
     return render(
         request,
         "skeleton/web/platform/updates/installed.html",
@@ -403,9 +463,23 @@ def installed(request):
             "installed",
             core=running_core(),
             inventory=inventory,
+            cluster=cluster,
             components=ComponentInstallation.objects.order_by("kind", "component_id"),
         ),
     )
+
+
+@platform_page(capability="updates.operate", writes=True)
+@require_http_methods(["POST"])
+@recent_authentication_required
+def cluster_restart(request):
+    """Restart the nodes one at a time with the same release (#682), through this node's agent."""
+    try:
+        agent_client().cluster_restart()
+        messages.success(request, gettext("Reinício em rolagem iniciado: os nós reiniciam um de cada vez."))
+    except (ValueError, RuntimeError, OSError) as exc:
+        _error(request, exc)
+    return redirect("platform:updates")
 
 
 BLOCKED_TEXT = {
@@ -926,7 +1000,12 @@ def operation(request, operation_id):
             if request.POST.get("intent") == "retry":
                 retry_submission(user=request.user, operation_id=row.pk, revision=form.cleaned_data["revision"])
             else:
-                confirm_operation(user=request.user, operation_id=row.pk, revision=form.cleaned_data["revision"])
+                confirm_operation(
+                    user=request.user,
+                    operation_id=row.pk,
+                    revision=form.cleaned_data["revision"],
+                    force_window=request.POST.get("force_window") == "on",
+                )
         except ConcurrentUpdate:
             return HttpResponse(gettext("A operação mudou; atualize o estado antes de confirmar."), status=409)
         except (ValueError, RuntimeError, OSError) as exc:
@@ -961,7 +1040,10 @@ def operation(request, operation_id):
             "operations",
             next_steps=next_steps,
             operation=row,
-            confirmation_form=ConfirmationForm(initial={"revision": row.revision, "plan_digest": row.plan_digest}),
+            confirmation_form=ConfirmationForm(
+                initial={"revision": row.revision, "plan_digest": row.plan_digest},
+                rolling=(row.plan or {}).get("rollout_mode") == "rolling",
+            ),
             status_url=status_url,
             can_retry=submission_can_retry(row),
         ),

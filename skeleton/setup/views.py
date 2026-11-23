@@ -133,6 +133,14 @@ def _state():
     return store.setup_state()
 
 
+def cache_prefix_suggestion(allowed_hosts: str) -> str:
+    """A cache prefix from the first allowed host (#675): ``app.example.com`` gives ``app-example-com``."""
+    import re
+
+    first = allowed_hosts.split(",")[0].strip().lstrip(".").lower()
+    return re.sub(r"[^a-z0-9_-]+", "-", first).strip("-")[:50]
+
+
 def _stored(key: str) -> str | None:
     store, key_path = _store()
     row = store.settings().get(key)
@@ -281,6 +289,9 @@ def _initial(step: str) -> dict:
                 parts = urlsplit(url)
                 host = parts.netloc.rsplit("@", 1)[-1]  # Without user:password@.
                 values["cache_location"] = parts._replace(netloc=host).geturl()
+            values["cache_key_prefix"] = _stored("cache_key_prefix") or cache_prefix_suggestion(
+                _stored("allowed_hosts") or ""
+            )
             for name in ("files_backend", "files_root", "files_s3_bucket", "files_s3_region", "files_s3_endpoint"):
                 value = _stored(name)
                 if value is not None:
@@ -714,6 +725,8 @@ def storage(request):
             try:
                 if data["cache_url"]:
                     write_setting(settings.BASE_DIR, "cache_url", data["cache_url"], source="setup")
+                if data["cache_key_prefix"]:
+                    write_setting(settings.BASE_DIR, "cache_key_prefix", data["cache_key_prefix"], source="setup")
                 write_setting(settings.BASE_DIR, "files_backend", data["files_backend"], source="setup")
                 names = (
                     ("files_root",)

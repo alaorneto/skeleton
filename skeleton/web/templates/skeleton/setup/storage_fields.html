@@ -2,6 +2,7 @@
 <div class="form-stack">
 {% with field=form.cache_location %}{% include "skeleton/web/components/form-field.html" %}{% endwith %}
 {% with field=form.cache_password %}{% include "skeleton/web/components/form-field.html" %}{% endwith %}
+{% with field=form.cache_key_prefix %}{% include "skeleton/web/components/form-field.html" %}{% endwith %}
 <fieldset class="form-field">
 <legend class="mb-1.5 block font-medium text-heading">{{ form.files_backend.label }}{% if show_required %}<span class="required" aria-hidden="true"> *</span>{% endif %}</legend>
 {{ form.files_backend }}

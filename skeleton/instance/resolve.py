@@ -23,6 +23,26 @@ from .store import InstanceStore
 
 ORIGIN_ENV, ORIGIN_INSTANCE, ORIGIN_DEFAULT = "env", "instance", "default"
 
+# Bootstrap variable (#673): ``cluster`` reads the configuration from the environment only, the same
+# on every node, and refuses every write of configuration; ``standalone`` (default) layers the SQLite.
+INSTANCE_MODE_ENV = "SKELETON_INSTANCE_MODE"
+STANDALONE, CLUSTER = "standalone", "cluster"
+
+
+def instance_mode(environment: Mapping[str, str] | None = None) -> str:
+    """``standalone`` or ``cluster``; any other value stops the start."""
+    environment = os.environ if environment is None else environment
+    value = (environment.get(INSTANCE_MODE_ENV) or STANDALONE).strip().lower()
+    if value not in (STANDALONE, CLUSTER):
+        from django.core.exceptions import ImproperlyConfigured
+
+        raise ImproperlyConfigured(f"{INSTANCE_MODE_ENV} aceita só standalone ou cluster.")
+    return value
+
+
+def is_cluster(environment: Mapping[str, str] | None = None) -> bool:
+    return instance_mode(environment) == CLUSTER
+
 
 def instance_paths(base_dir: Path, environment: Mapping[str, str] | None = None) -> tuple[Path, Path]:
     """Store and master key paths; both come only from bootstrap variables."""
@@ -92,9 +112,14 @@ def _store_for(base_dir: Path, environment: Mapping[str, str]) -> tuple[Instance
     return InstanceStore(database), key
 
 
+def _stored(store: InstanceStore, environment: Mapping[str, str]) -> dict[str, tuple[str, bool]]:
+    """The stored rows, or none in cluster mode: there the environment is the only source (#673)."""
+    return {} if is_cluster(environment) else store.settings()
+
+
 def instance_env(base_dir: Path) -> InstanceEnv:
     store, key = _store_for(base_dir, os.environ)
-    return InstanceEnv(LayeredEnviron(os.environ, store.settings(), key))
+    return InstanceEnv(LayeredEnviron(os.environ, _stored(store, os.environ), key))
 
 
 @dataclass(frozen=True)
@@ -110,7 +135,7 @@ def resolve_instance_settings(base_dir: Path, environment: Mapping[str, str] | N
     """Effective origin of every catalog key; secret values are never returned."""
     environment = os.environ if environment is None else environment
     store, _ = _store_for(base_dir, environment)
-    stored = store.settings()
+    stored = _stored(store, environment)
     result = []
     for key, spec in CATALOG.items():
         if spec.env in environment:
@@ -133,11 +158,16 @@ def missing_for_setup(base_dir: Path, environment: Mapping[str, str] | None = No
 
 __all__ = [
     "BY_ENV",
+    "CLUSTER",
+    "INSTANCE_MODE_ENV",
+    "STANDALONE",
     "InstanceEnv",
     "LayeredEnviron",
     "ResolvedSetting",
     "instance_env",
+    "instance_mode",
     "instance_paths",
+    "is_cluster",
     "missing_for_setup",
     "resolve_instance_settings",
 ]

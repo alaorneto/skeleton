@@ -235,7 +235,7 @@ def record_preview(*, user, plan_id):
     return operation
 
 
-def confirm_operation(*, user, operation_id, revision):
+def confirm_operation(*, user, operation_id, revision, force_window=False):
     require_release_operator(user)
     operation = DeploymentOperation.objects.select_for_update().get(pk=operation_id)
     if operation.revision != revision:
@@ -254,6 +254,8 @@ def confirm_operation(*, user, operation_id, revision):
         actor_id=str(user.pk),
         request_id=str(ctx.request_id or uuid4()),
     )
+    if force_window:
+        values["mode"] = "window"  # A rolling-eligible plan run with the maintenance window anyway (#682).
     operation.state = "approved"
     operation.stage = "awaiting_agent"
     # Keep approval identity until the journal acknowledges delivery. HTTP retries

@@ -1,6 +1,9 @@
 """Durable filesystem journal; deliberately independent of the application DB."""
 
-import fcntl
+try:
+    import fcntl
+except ImportError:  # Not POSIX: the modules that never lock still load (#678); locking refuses.
+    fcntl = None  # type: ignore[assignment]
 import hashlib
 import json
 import os
@@ -78,11 +81,13 @@ def atomic_bytes(path: StrPath, data: bytes, mode: int = 0o600) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
-        directory = os.open(path.parent, os.O_DIRECTORY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        flag = getattr(os, "O_DIRECTORY", None)  # POSIX: make the rename durable; elsewhere nothing to sync.
+        if flag is not None:
+            directory = os.open(path.parent, flag)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -113,6 +118,8 @@ def inventory_files(root: StrPath) -> JSON:
 
 @contextmanager
 def deployment_lock(root: StrPath, *, blocking: bool = False) -> Iterator[None]:
+    if fcntl is None:
+        raise AgentError("deployment_lock_unavailable", 409)
     path = Path(root) / "deployment.lock"
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     with path.open("a+b") as stream:

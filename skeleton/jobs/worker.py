@@ -62,19 +62,13 @@ def _log(
 
 
 def maintenance_paused() -> bool:
-    """The deployment marker always pauses; the administrative mode pauses when it says so (#448).
+    """The deployment marker pauses the worker and the scheduler during an update (#448).
 
-    The administrative state comes from the same cached reader as the web gate, so a change
-    reaches the worker and the scheduler within ``MAX_AGE_S`` seconds, before any job is claimed
-    and without the database. An instance SQLite never read successfully counts as paused.
+    There is no administrative maintenance mode in the application (#674): to pause the jobs for
+    a planned maintenance, stop the worker and scheduler services in the infrastructure.
     """
     marker = getattr(settings, "SKELETON_MAINTENANCE_MARKER", None)
-    if marker and Path(marker).exists():
-        return True
-    from skeleton.instance.maintenance import current_state
-
-    state = current_state()
-    return state.is_active() and state.pause_jobs
+    return bool(marker and Path(marker).exists())
 
 
 def default_worker_id() -> str:

@@ -30,12 +30,13 @@ def setup_required(base_dir: Path | None = None, environment: Mapping[str, str] 
 
     The first steps already store every required key, so a restart before the completion has to
     come back to the setup, not to settings that still lack cache, email and the rest (#453).
-    ``SKELETON_SETUP=off`` disables the switch (CI, tools, instances configured elsewhere).
+    ``SKELETON_SETUP=off`` disables the switch (CI, tools, instances configured elsewhere). In
+    cluster mode (#673) the setup never runs: the configuration comes from the environment.
     """
-    from skeleton.instance.resolve import missing_for_setup
+    from skeleton.instance.resolve import is_cluster, missing_for_setup
 
     environment = os.environ if environment is None else environment
-    if environment.get("SKELETON_SETUP", "").lower() in {"off", "0", "false"}:
+    if environment.get("SKELETON_SETUP", "").lower() in {"off", "0", "false"} or is_cluster(environment):
         return False
     base_dir = base_dir or project_root()
     return bool(missing_for_setup(base_dir, environment)) or setup_in_progress(base_dir, environment)

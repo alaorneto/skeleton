@@ -159,3 +159,33 @@ def test_invalid_keyring_is_refused_with_400(store, platform, caplog):
     assert refused not in response.content.decode() and refused not in caplog.text
     assert "integration_encryption_keys" not in store.settings()
     assert refused not in repr(store.changes())
+
+
+def test_cluster_mode_makes_the_page_read_only(store, platform, monkeypatch):
+    """Cluster mode (#673): every node reads the environment; nothing writes the SQLite here."""
+    _, client = platform
+    before = store.path.read_bytes()
+    monkeypatch.setenv("SKELETON_INSTANCE_MODE", "cluster")
+    html = client.get(reverse("platform:instance")).content.decode()
+    assert "modo cluster" in html and "Pedir reinício" not in html
+    assert 'name="action" value="set"' not in html
+    response = change(client, "default_from_email", "ops@example.test")
+    assert response.status_code == 409 and b"instance_cluster_mode" in response.content
+    restart = client.post(
+        reverse("platform:instance-restart"), {"csrfmiddlewaretoken": client.cookies["csrftoken"].value}
+    )
+    assert restart.status_code == 409
+    assert store.path.read_bytes() == before
+
+
+def test_an_invalid_cache_prefix_is_refused_with_400_without_repeating_it(store, platform, caplog):
+    """#675: the prefix of the cache keys is validated on every write."""
+    _, client = platform
+    refused = "Prefixo Errado Zq9"
+    with caplog.at_level(logging.INFO):
+        response = change(client, "cache_key_prefix", refused)
+    assert response.status_code == 400
+    assert refused not in response.content.decode() and refused not in caplog.text
+    assert "cache_key_prefix" not in store.settings()
+    assert change(client, "cache_key_prefix", "inst-a").status_code == 302
+    assert store.settings()["cache_key_prefix"][0] == "inst-a"

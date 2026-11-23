@@ -37,10 +37,12 @@ def test_compose_application_services_are_hardened(name, application):
         assert services[service].startswith("    <<: *hardened\n"), (name, service)
         for key in ("read_only", "cap_drop", "security_opt", "tmpfs"):
             assert f"    {key}:" not in services[service], (name, service, key)  # No override of the anchor.
-    assert set(application) < set(services) and "<<: *hardened" not in services["postgres"]
+    assert set(application) < set(services)
+    if "postgres" in services:  # Only the sandbox brings its own database (#685).
+        assert "<<: *hardened" not in services["postgres"]
 
 
-@pytest.mark.parametrize("name", ["compose.yaml", "compose.sandbox.yaml"])
+@pytest.mark.parametrize("name", ["compose.sandbox.yaml", "deploy/data-server/compose.yaml"])
 def test_redis_password_is_not_in_rendered_command(name):
     _, services = compose_blocks(name)
     redis = services["redis"]

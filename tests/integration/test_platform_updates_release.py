@@ -120,7 +120,12 @@ def agent_double(monkeypatch, *, self_update=True, calls=None):
         "core": {"version": "0.6.0"},
         "agent": {"version": "0.6.0", "self_update": self_update},
     }
-    client = SimpleNamespace(update_agent=update_agent, inventory=lambda: inventory, upload=lambda path: offer())
+    client = SimpleNamespace(
+        update_agent=update_agent,
+        inventory=lambda: inventory,
+        upload=lambda path: offer(),
+        cluster=lambda: {"mode": "single"},
+    )
     from skeleton.system import releases
 
     monkeypatch.setattr(releases, "agent_client", lambda: client)
@@ -402,6 +407,9 @@ class PathAgent:
     def fetch_release(self, **identifiers):
         self.calls.append(("fetch_release", identifiers))
         return self.fetched
+
+    def cluster(self):
+        return {"mode": "single"}
 
     def preview(self, action, artifacts=None, app_ids=None):
         self.calls.append(("preview", action, artifacts))

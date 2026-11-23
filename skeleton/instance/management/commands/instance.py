@@ -1,23 +1,29 @@
-"""``manage.py instance status|show|set|unset|import-env|export-template|rotate-key|setup-token`` (#143, #342, #466).
+"""``manage.py instance status|show|set|unset|import-env|export-env|export-template|rotate-key|setup-token``.
 
-Secrets are written encrypted, read back only by the settings, and never printed: ``show``
-masks them and every subcommand reports keys and origins, not values.
+(#143, #342, #466, #673.) Secrets are written encrypted, read back only by the settings, and never
+printed: ``show`` masks them and every subcommand reports keys and origins, not values. In cluster
+mode (#673) the subcommands that write configuration refuse; ``export-env`` moves a standalone
+instance's configuration to a private environment file for the nodes of a cluster.
 """
 
 import os
 import sys
+from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
+from skeleton.common.logging import security_event
 from skeleton.instance import crypto
-from skeleton.instance.resolve import instance_paths, missing_for_setup, resolve_instance_settings
+from skeleton.instance.resolve import instance_mode, instance_paths, missing_for_setup, resolve_instance_settings
 from skeleton.instance.schema import BOOTSTRAP_ENV, CATALOG, spec_for
 from skeleton.instance.store import InstanceStore
-from skeleton.instance.writer import write_setting
+from skeleton.instance.writer import InstanceClusterMode, export_environment, refuse_in_cluster, write_setting
 
 MASK = "****** (definido)"
+# Write configuration: refused in cluster mode, where the environment is the only source (#673).
+WRITING = {"set", "unset", "import-env", "rotate-key", "setup-token"}
 
 
 class Command(BaseCommand):
@@ -39,6 +45,10 @@ class Command(BaseCommand):
         imported = actions.add_parser("import-env", help="Store the catalog keys present in the current environment.")
         imported.add_argument("--keep-existing", action="store_true", help="Do not replace keys already stored.")
         actions.add_parser("export-template", help="Print a commented .env template with no values.")
+        exported = actions.add_parser(
+            "export-env", help="Write every effective value, secrets decrypted, to a new private file (cluster, #673)."
+        )
+        exported.add_argument("--output", required=True, help="New file (created 0600, never overwritten).")
         rotate = actions.add_parser("rotate-key", help="Generate a new master key and re-encrypt every stored secret.")
         rotate.add_argument("--drop-old", action="store_true", help="Remove the previous keys from the key file.")
         actions.add_parser("setup-token", help="Issue a new single-use setup token, replacing any open one.")
@@ -48,13 +58,18 @@ class Command(BaseCommand):
         store = InstanceStore(database)
         handler = getattr(self, "_" + options["action"].replace("-", "_"))
         try:
+            if options["action"] in WRITING:
+                refuse_in_cluster()
             handler(store, key, options)
+        except InstanceClusterMode as exc:
+            raise CommandError(str(exc)) from None
         except (crypto.InstanceKeyError, InvalidToken, KeyError, ValueError) as exc:
             raise CommandError(str(exc.args[0] if exc.args else exc)) from None
 
     # ----------------------------------------------------------------- subcommands
 
     def _status(self, store, key, options):
+        self.stdout.write(f"Modo: {instance_mode()}")
         self.stdout.write(f"SQLite da instância: {store.path} ({'existe' if store.exists() else 'ausente'})")
         self.stdout.write(f"Chave mestra: {key} ({'existe' if key.is_file() else 'ausente'})")
         self.stdout.write(f"Versão do schema: {store.schema_version() or '-'}")
@@ -141,6 +156,14 @@ class Command(BaseCommand):
         if store.exists() and setup_completed(store):
             raise CommandError("O setup já foi concluído; não há token a emitir.")
         issue_token(store, force=True, stream=self.stdout)
+
+    def _export_env(self, store, key, options):
+        if options["output"] == "-":
+            raise CommandError("export_requires_file: o arquivo leva segredos; informe um caminho, não o terminal.")
+        names = export_environment(settings.BASE_DIR, Path(options["output"]), source="cli:export-env")
+        security_event("instance.exported", reason_code=f"keys:{len(names)}", source="cli:export-env")
+        self.stdout.write(self.style.SUCCESS(f"{len(names)} chaves exportadas para {options['output']} (0600)."))
+        self.stdout.write("Guarde o arquivo no cofre de segredos e apague esta cópia depois de distribuí-lo.")
 
     def _export_template(self, store, key, options):
         self.stdout.write("# Variáveis de bootstrap (somente no ambiente):")

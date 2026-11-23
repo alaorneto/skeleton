@@ -249,3 +249,78 @@ def test_backup_refuses_relative_missing_or_symlinked_recovery_path(tmp_path, ki
     code = "recovery_path_symlink" if kind == "nested_symlink" else "invalid_recovery_path"
     with pytest.raises(AgentError, match=code):
         result.backup(tmp_path / "previous", "op-1")
+
+
+def test_abort_after_migrations_with_an_external_backup_proves_the_restore(service, tmp_path, monkeypatch):
+    """#683: after the operator's PITR, abort checks that the schema is back before reopening."""
+    events = [{"stage": "approved", "at": "t"}, {"stage": "migration_started", "at": "t"}]
+    backup = tmp_path / "backup.json"
+    atomic_json(backup, {"kind": "external", "restore_point": "skeleton-x", "lsn": "0/1"})
+    operation = journal_operation(service, tmp_path, events=events, backup=str(backup))
+    operation["plan"]["applied_migrations"] = [["app", "0001"]]
+    service.store.put("operations", operation["id"], operation)
+    monkeypatch.setattr(
+        service.backend, "probe", lambda release: {"applied": [["app", "0001"], ["app", "0002"]]}, raising=False
+    )
+    assert recovery_refused(service, operation, "abort", "database_restore_required")
+    operation = service.store.get("operations", operation["id"])
+    assert recovery_refused(service, operation, "abort", "external_restore_incomplete", external_restored=True)
+
+
+def test_a_candidate_that_takes_over_marks_the_running_operation_interrupted(service, tmp_path):
+    """#678: the new primary reconciles the journal it shares and refuses new work until recover."""
+    import threading
+
+    from deployment_agent import server
+
+    running = journal_operation(service, tmp_path, state="running", stage="migration_started")
+    published = []
+
+    class TakingOver:
+        is_primary = False
+
+        def ensure_schema(self):
+            pass
+
+        def tick(self, *, describe, on_acquired):
+            describe()
+            self.is_primary = True
+            on_acquired()
+            stop.set()
+
+        def publish_release(self, *args):
+            published.append(args)
+
+        def close(self):
+            pass
+
+    stop = threading.Event()
+    service.coordinator = TakingOver()
+    server.run_coordination(service, stop, interval=0)
+    operation = service.store.get("operations", running["id"])
+    assert (operation["state"], operation["stage"], operation["error"]) == (
+        "interrupted",
+        "interrupted",
+        "agent_interrupted",
+    )
+    assert marker(service) is not None and published  # Under maintenance; the cluster's release recorded.
+    with pytest.raises(AgentError, match="recovery_or_operation_pending"):
+        service.ensure_available()
+
+
+def test_abort_after_the_operators_point_in_time_restore_reopens_on_the_previous_release(
+    service, tmp_path, monkeypatch
+):
+    """#683: with the graph back to the previous release's, abort --external-restored reopens."""
+    events = [{"stage": "approved", "at": "t"}, {"stage": "migration_started", "at": "t"}]
+    backup = tmp_path / "backup.json"
+    atomic_json(backup, {"kind": "external", "restore_point": "skeleton-y", "lsn": "0/2"})
+    operation = journal_operation(service, tmp_path, events=events, backup=str(backup))
+    operation["plan"]["applied_migrations"] = [["app", "0001"]]
+    service.store.put("operations", operation["id"], operation)
+    monkeypatch.setattr(service.backend, "probe", lambda release: {"applied": [["app", "0001"]]}, raising=False)
+    service.health = lambda inventory: None
+    result = service.recover(operation["id"], "abort", external_restored=True)
+    assert (result["state"], result["stage"]) == ("cancelled", "aborted")
+    assert service.backend.cutover.calls == [(service.source,)]
+    assert marker(service) is None  # Reopened on the release before the update.

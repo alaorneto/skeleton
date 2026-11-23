@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Self
 from urllib.parse import urlsplit
 
+from .coordination import validate_cluster
 from .github import REPOSITORY
 from .github import valid_settings as github_settings_valid
 from .storage import AgentError, private_file
@@ -95,6 +96,22 @@ def _valid_source(source: JSON, values: JSON) -> bool:
 
 def _validate_optional(values: JSON) -> None:
     """Shape of the optional keys at load time (#246); existence on disk is the preflight's job."""
+    backup = values.get("backup")
+    if backup is not None:
+        if (
+            not isinstance(backup, dict)
+            or set(backup) - {"mode", "acknowledge_continuous_backup", "restore_point"}
+            or backup.get("mode", "pg_dump") not in ("pg_dump", "external")
+            or not isinstance(backup.get("restore_point", True), bool)
+        ):
+            raise AgentError("invalid_backup_config")
+        if backup.get("mode") == "external" and backup.get("acknowledge_continuous_backup") is not True:
+            raise AgentError("external_backup_not_acknowledged")  # The operator owns the PITR (#683).
+    if "drain_marker" in values and not _absolute(values["drain_marker"]):
+        raise AgentError("invalid_drain_marker")  # The rolling update's marker (#682).
+    grace = values.get("drain_grace", 20)
+    if isinstance(grace, bool) or not isinstance(grace, int | float) or not 0 <= grace <= 600:
+        raise AgentError("invalid_drain_grace")
     paths = values.get("recovery_paths")
     if paths is not None and (not isinstance(paths, list) or not all(_absolute(path) for path in paths)):
         raise AgentError("invalid_recovery_path")
@@ -298,6 +315,13 @@ def _validate_credentials(values: JSON) -> None:
     build = read_environment(values["build_env_file"])
     if "MIGRATION_DATABASE_URL" in runtime or "MIGRATION_DATABASE_URL" in build:
         raise AgentError("migration_secret_in_runtime")
+    if (values.get("cluster") or {}).get("role") == "follower":
+        # A follower never migrates (#678): the owner credential never reaches its node.
+        if migration.get("MIGRATION_DATABASE_URL") or values.get("backup_env_file"):
+            raise AgentError("follower_has_owner")
+        if not effective_runtime_database(runtime):
+            raise AgentError("missing_runtime_credentials")
+        return
     if not migration.get("MIGRATION_DATABASE_URL"):
         raise AgentError("missing_migration_credentials")
     runtime_url = effective_runtime_database(runtime)
@@ -343,6 +367,7 @@ class Config:
         _validate_health(values)
         _validate_optional(values)
         _validate_compose(values)
+        validate_cluster(values)
         _validate_credentials(values)
         token = private_file(values["token_file"]).read_text().strip()
         if not token.isascii() or len(token) < 32:
