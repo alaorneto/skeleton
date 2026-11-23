@@ -13,65 +13,50 @@ items. The base plan's price says what happens above it:
 the attachment belongs to). Snapshots older than ``SKELETON_BILLING_USAGE_RETENTION_DAYS`` are
 deleted by the same job.
 
-**Plan limits.** A metric is registered in code with ``register_quota_metric(code, counter)``,
-where ``counter(organization_id)`` returns the current amount in the current organization's
-context. The core registers ``members`` (active memberships), checked when a membership is
-admitted or reactivated. A price's ``limits`` maps a metric to a maximum; the limits of the
-active items add up (a seat pack adds to the plan); a metric no active item limits is
-unlimited. ``check_quota`` raises ``QuotaLimitExceeded`` (``quota_exceeded``).
+**Plan limits.** The metrics and the limit belong to the core (``skeleton.common.limits`` and
+``skeleton.system.limits``, #695); billing is one source of the limit. A price's ``limits`` maps
+a metric to a maximum and the limits of the active items add up (a seat pack adds to the plan),
+so without an instance default the limit is that sum, as before. ``register_quota_metric`` keeps
+the billing's entry point for apps and refuses a code that is already a usage meter;
+``check_quota`` raises ``QuotaLimitExceeded`` (``quota_exceeded``).
 """
 
 from __future__ import annotations
 
 import math
-import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 from django.conf import settings
 from django.db.models import Max, Sum
 
+from skeleton.common.limits import (
+    LimitContribution,
+    register_limit_metric,
+    register_limit_source,
+    registered_limit_metrics,
+)
+
 from .engine import LineDraft, live_items, register_line_source
 
 OVERAGE_ORDER = 500
-_METRIC = re.compile(r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)?\Z")
-_metrics: dict[str, Callable[[Any], int]] = {}
+# The plan adds to the core limit after the apps (#696, order 100) and before the platform (#697, 300).
+PLAN_SOURCE_ORDER = 200
 
 
 def register_quota_metric(code: str, counter: Callable[[Any], int]) -> None:
-    """Declare a metric a price can limit; ``code`` is ``members`` or ``<app_label>.<name>``."""
+    """Declare a metric a price can limit; ``code`` is ``<app_label>.<name>`` (the core registers its own)."""
     from .usage import is_meter
 
-    if not _METRIC.match(code):
-        raise ValueError(f"Invalid quota metric code: {code!r}.")
-    if is_meter(code):
+    if isinstance(code, str) and is_meter(code):
         raise ValueError(f"{code} is already a usage meter; a code is either a metric or a meter.")
-    if code in _metrics and _metrics[code] is not counter:
-        raise ValueError(f"Quota metric {code} is already registered.")
-    _metrics[code] = counter
+    register_limit_metric(code, counter)
 
 
 def registered_metrics() -> frozenset[str]:
-    return frozenset(_metrics)
-
-
-def _members(organization_id: Any) -> int:
-    from skeleton.tenancy.models import Membership
-
-    return Membership.objects.filter(organization_id=organization_id, is_active=True).count()
-
-
-def _external_people(organization_id: Any) -> int:
-    from skeleton.tenancy.models import ExternalAccess
-
-    return ExternalAccess.objects.filter(organization_id=organization_id, is_active=True).count()
-
-
-def register_core_metrics() -> None:
-    register_quota_metric("members", _members)
-    # External people of the portal (#531): never counted in ``members``.
-    register_quota_metric("external_people", _external_people)
+    return registered_limit_metrics()
 
 
 def plan_limit(subscription: Any, metric: str, *, now: datetime) -> int | None:
@@ -84,25 +69,30 @@ def plan_limit(subscription: Any, metric: str, *, now: datetime) -> int | None:
     return sum(values) if values else None
 
 
-def check_quota(metric: str, *, increment: int = 1, now: datetime | None = None) -> None:
-    """Refuse ``increment`` more of ``metric`` in the current organization above the plan limit."""
-    from skeleton.common.exceptions import QuotaLimitExceeded
+def plan_source(organization_id: UUID, metric: str) -> Iterable[LimitContribution]:
+    """What the subscription adds to the limit of ``metric``: nothing with billing off or no subscription."""
+    from skeleton.tenancy.context import current_context
 
     from . import engine
 
-    if metric not in _metrics:
-        raise ValueError(f"Unknown quota metric {metric!r}.")
-    if not engine.billing_enabled() or increment <= 0:
-        return
+    if not engine.billing_enabled() or current_context().organization_id != organization_id:
+        return ()
     subscription = engine.current_subscription()
     if subscription is None:
-        return
-    limit = plan_limit(subscription, metric, now=now or engine.clock())
-    if limit is None:
-        return
-    current = _metrics[metric](subscription.organization_id)
-    if current + increment > limit:
-        raise QuotaLimitExceeded(metric, limit)
+        return ()
+    limit = plan_limit(subscription, metric, now=engine.clock())
+    return () if limit is None else (LimitContribution("billing", limit),)
+
+
+def check_quota(metric: str, *, increment: int = 1) -> None:
+    """Refuse ``increment`` more of ``metric`` in the current organization above its limit (#695).
+
+    ``ValueError`` for an unknown metric; ``QuotaLimitExceeded`` above the limit.
+    """
+    from skeleton.system.limits import check_limit
+    from skeleton.tenancy.context import current_context
+
+    check_limit(current_context().organization_id, metric, increment)
 
 
 def storage_terms(items: list[Any]) -> tuple[int, str, int | None, int | None, int | None]:
@@ -213,5 +203,5 @@ def snapshot_job(**payload: object) -> None:
 
 
 def register_quota() -> None:
-    register_core_metrics()
+    register_limit_source("billing", plan_source, order=PLAN_SOURCE_ORDER)
     register_line_source(overage_lines, order=OVERAGE_ORDER)

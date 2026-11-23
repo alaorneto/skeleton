@@ -17,6 +17,10 @@ class SystemConfig(AppConfig):
         from .jobs import register_system_jobs
 
         register_system_jobs()
+        from .limits import register_limits
+
+        # Organization limits (#695): the core metrics and the resolver, with or without billing.
+        register_limits()
         from .synchronization import post_migrate_catalog
 
         post_migrate.connect(post_migrate_catalog, sender=self, dispatch_uid="skeleton.sync.catalog")

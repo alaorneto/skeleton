@@ -40,9 +40,6 @@ class EntitlementPolicy(Protocol):
     def may_use_exempt_routes(self, organization_id: UUID, user: Any) -> bool:
         """Whether ``user`` may reach the exempt routes (settle the account) while access is limited."""
 
-    def check_limit(self, organization_id: UUID, metric: str, increment: int) -> None:
-        """Raise ``QuotaLimitExceeded`` when ``increment`` more of ``metric`` passes the plan limit (#398)."""
-
 
 # A storage_quota answer that leaves the decision to the platform setting.
 NO_OPINION = object()
@@ -115,9 +112,14 @@ def may_use_exempt_routes(organization_id: UUID, user: Any) -> bool:
 
 
 def check_limit(organization_id: UUID, metric: str, increment: int = 1) -> None:
-    """Refuse ``increment`` more of ``metric`` above the plan limit; no policy, no limit (#398)."""
-    if _policy is not None:
-        _policy.check_limit(organization_id, metric, increment)
+    """Refuse ``increment`` more of ``metric`` above the organization's limit (#398, #695).
+
+    The limit is the core's (``skeleton.common.limits``): the instance default plus what each
+    source adds, billing's plan among them. Without a registered resolver nothing is limited.
+    """
+    from .limits import check
+
+    check(organization_id, metric, increment)
 
 
 def writes_allowed(level: AccessLevel) -> bool:
