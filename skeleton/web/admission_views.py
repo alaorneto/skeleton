@@ -219,7 +219,13 @@ def admission_policy(request, organization_id):
         "request_default_role": record.request_default_role_id if record else None,
         "revision": admission.revision_of(record),
     }
-    form = AdmissionPolicyForm(request.POST if request.method == "POST" else None, initial=initial)
+    from skeleton.tenancy.setting_locks import locked_fields
+
+    from .organization_settings_views import lock_fields
+
+    data = request.POST.copy() if request.method == "POST" else None
+    # Flags the platform locked (#701) are shown read-only and sent with their locked value.
+    form = lock_fields(AdmissionPolicyForm(data, initial=initial), locked_fields("admission"), data)
     status = 200
     if request.method == "POST":
         if form.is_valid():

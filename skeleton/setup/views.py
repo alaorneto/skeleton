@@ -724,10 +724,25 @@ def email(request):
     return _step(request, "email", form, intro=intro, status=400 if request.method == "POST" else 200)
 
 
+def _configured_files_root() -> str:
+    """The attachments folder the instance is configured with, offered before any stored value (#737).
+
+    The location of ``STORAGES["skeleton_files"]`` already resolves ``SKELETON_FILES_ROOT``
+    (``/files``, a persistent volume, in the Compose files). Under the deployment agent
+    ``BASE_DIR`` is the frozen, read-only release: ``BASE_DIR/var/files`` is only the fallback
+    of a plain local checkout.
+    """
+    config = settings.STORAGES.get("skeleton_files") or {}
+    location = (config.get("OPTIONS") or {}).get("location")
+    if config.get("BACKEND") == "django.core.files.storage.FileSystemStorage" and location:
+        return str(location)
+    return str(settings.BASE_DIR / "var" / "files")
+
+
 @setup_page
 @require_http_methods(["GET", "POST"])
 def storage(request):
-    initial = {"files_root": str(settings.BASE_DIR / "var" / "files"), "files_backend": "local"}
+    initial = {"files_root": _configured_files_root(), "files_backend": "local"}
     initial.update(_initial("storage"))
     form = forms.StorageForm(
         request.POST or None, initial=initial, strict=_strict(), kept_password=_secret_of("cache_url")

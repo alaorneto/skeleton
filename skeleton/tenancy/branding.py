@@ -171,6 +171,9 @@ def replace_logo(*, actor: Any, upload: IO[bytes], expected_revision: int) -> An
     from .models import OrganizationSettings
 
     _check_revision(expected_revision)
+    from .setting_locks import require_keys_unlocked
+
+    require_keys_unlocked("organization.logo", field="logo")  # Locked by the platform (#701).
     _checked_logo(upload)
     with organization_lock(actor) as organization:
         record = _locked_settings(organization, expected_revision)
@@ -203,6 +206,9 @@ def remove_logo(*, actor: Any, expected_revision: int) -> Any:
     from skeleton.access.services import organization_lock
 
     _check_revision(expected_revision)
+    from .setting_locks import require_keys_unlocked
+
+    require_keys_unlocked("organization.logo", field="logo")  # Locked by the platform (#701).
     with organization_lock(actor) as organization:
         record = _locked_settings(organization, expected_revision)
         if record is None or not record.logo_key:
@@ -326,6 +332,9 @@ def replace_icon(*, actor: Any, upload: IO[bytes], expected_revision: int) -> An
     from .site import sync_site
 
     _check_revision(expected_revision)
+    from .setting_locks import require_keys_unlocked
+
+    require_keys_unlocked("organization.icon", field="icon")  # Locked by the platform (#701).
     _checked_icon(upload)
     with organization_lock(actor) as organization:
         record = _locked_settings(organization, expected_revision)
@@ -358,6 +367,9 @@ def remove_icon(*, actor: Any, expected_revision: int) -> Any:
     from .site import sync_site
 
     _check_revision(expected_revision)
+    from .setting_locks import require_keys_unlocked
+
+    require_keys_unlocked("organization.icon", field="icon")  # Locked by the platform (#701).
     with organization_lock(actor) as organization:
         record = _locked_settings(organization, expected_revision)
         if record is None or not record.icon_key:
