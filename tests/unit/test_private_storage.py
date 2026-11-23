@@ -12,6 +12,14 @@ from skeleton.files.checks import private_storage_checks
 from skeleton.files.storage import StorageError, object_key, storage_problems
 
 
+@pytest.fixture(autouse=True)
+def instance_storage(monkeypatch):
+    """No database here: every organization uses the instance's storage (#705 resolves it by a global row)."""
+    from skeleton.files import locations
+
+    monkeypatch.setattr(locations, "location_for", lambda organization_id: None)
+
+
 def test_keys_are_two_uuids_and_never_a_user_file_name():
     org, attachment = uuid4(), uuid4()
     assert object_key(org, attachment) == f"org/{org}/{attachment}"

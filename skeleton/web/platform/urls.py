@@ -13,6 +13,7 @@ from . import (
     native_clients_views,
     privacy_views,
     remote_instances_views,
+    storage_views,
     updates,
     views,
 )
@@ -23,6 +24,15 @@ urlpatterns = [
     path("instance/", instance_views.instance, name="instance"),
     path("insights/", insights_views.insights, name="insights"),
     path("api-clients/", api_clients_views.api_clients, name="api-clients"),
+    path("storage/", storage_views.storage_locations, name="storage"),
+    path("storage/new/", storage_views.storage_location_create, name="storage-create"),
+    path("storage/<uuid:sysid>/", storage_views.storage_location, name="storage-location"),
+    path("storage/<uuid:sysid>/test/", storage_views.storage_location_test, name="storage-location-test"),
+    path(
+        "organizations/<uuid:sysid>/storage/location/",
+        storage_views.organization_storage_location,
+        name="organization-storage-location",
+    ),
     path("remote-instances/", remote_instances_views.remote_instances, name="remote-instances"),
     path("remote-instances/<uuid:sysid>/", remote_instances_views.remote_instance, name="remote-instance"),
     path(
@@ -119,8 +129,15 @@ urlpatterns = [
     path("users/<uuid:sysid>/roles/<uuid:assignment>/revoke/", views.user_role_revoke, name="user-role-revoke"),
     path("organizations/", views.organizations, name="organizations"),
     path("organizations/new/", views.organization_create, name="organization-create"),
+    path("organizations/policy/", views.organization_policy, name="organization-policy"),
     path("organizations/<uuid:sysid>/", views.organization_detail, name="organization"),
     path("organizations/<uuid:sysid>/storage/", views.organization_storage, name="organization-storage"),
+    path("organizations/<uuid:sysid>/settings/", views.organization_setting_locks, name="organization-settings"),
+    path(
+        "organizations/<uuid:sysid>/apps/<str:app_label>/configuration/",
+        views.organization_app_configuration,
+        name="organization-app-configuration",
+    ),
     path("organizations/<uuid:sysid>/limits/", views.organization_limits, name="organization-limits"),
     path(
         "organizations/<uuid:sysid>/apps/<str:app_label>/assign/",

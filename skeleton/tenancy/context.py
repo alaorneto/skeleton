@@ -43,6 +43,8 @@ PLATFORM_ADMIN_REASONS = frozenset(
         "platform:billing",
         # The platform assigning or withdrawing an app in one organization (#699).
         "platform:apps",
+        # The platform locking a setting of one organization and writing its value (#701).
+        "platform:setting-lock",
     }
 )
 # Admission by the person (#26, #27): opened by the admission services for one organization,

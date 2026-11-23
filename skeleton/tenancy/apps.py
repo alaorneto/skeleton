@@ -13,3 +13,9 @@ class TenancyConfig(AppConfig):
         from .limit_notices import register_limit_notices
 
         register_limit_notices()
+        from .setting_locks import register_tenancy_providers
+
+        register_tenancy_providers()  # Settings the platform may lock (#701).
+        from .provisioning import register_provisioning_jobs
+
+        register_provisioning_jobs()  # Provisioning rules applied to existing organizations (#703).

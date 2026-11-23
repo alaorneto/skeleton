@@ -29,7 +29,7 @@ def orphan_keys(organization_id: Any, *, now: Any = None) -> list[str]:
     from skeleton.tenancy.models import OrganizationSettings
 
     from .models import Attachment
-    from .storage import list_prefix, private_storage
+    from .storage import list_prefix, storage_for_key
 
     now = now or timezone.now()
     keys = [
@@ -56,13 +56,12 @@ def orphan_keys(organization_id: Any, *, now: Any = None) -> list[str]:
 
     for row in TransferJob.objects.values_list("file_key", "report_key"):
         referenced |= {key for key in row if key}
-    storage = private_storage()
     orphans = []
     for key in keys:
         if key in referenced:
             continue
         try:
-            modified = storage.get_modified_time(key)
+            modified = storage_for_key(key).get_modified_time(key)
         except (FileNotFoundError, OSError):
             continue
         if timezone.is_naive(modified):

@@ -62,6 +62,8 @@ class DetachedFileResponse(HttpResponse):
         from skeleton.files import storage
 
         accel = getattr(settings, "SKELETON_FILES_ACCEL", "")
+        if accel and storage.storage_for_key(self.storage_key) is not storage.private_storage():
+            accel = ""  # The web server reaches only the instance's local storage (#705).
         if accel == "nginx":
             response = HttpResponse(content_type=self.file_type)
             prefix = getattr(settings, "SKELETON_FILES_ACCEL_PREFIX", "/_protected/")

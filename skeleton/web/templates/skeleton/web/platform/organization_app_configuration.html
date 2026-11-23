@@ -1,0 +1,22 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% load i18n %}{% block page_title %}{{ application.label }} · {{ subject.name }}{% endblock %}
+{% block content %}
+<div class="max-w-3xl">
+<div class="page-header">
+  <div class="min-w-0">
+    <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'platform:organizations' %}">{% translate "Organizações" %}</a></li><li><a href="{% url 'platform:organization' subject.pk %}">{{ subject.name }}</a></li><li><span aria-current="page">{{ application.label }}</span></li></ol></nav>
+    <h1>{% translate "Campos da plataforma" %}</h1>
+    <p class="page-description">{% blocktranslate with app=application.label %}Campos de {{ app }} que só a plataforma define, por organização. A organização os vê só para leitura; a app lê o valor gravado aqui.{% endblocktranslate %}</p>
+  </div>
+</div>
+<section class="card">
+  <form method="post">
+    {% csrf_token %}
+    {% include "skeleton/web/components/form-errors.html" %}
+    {% include "skeleton/web/components/form-fields.html" %}
+    <p class="mt-2 text-sm/6 text-body-subtle">{% translate "A mudança é auditada e exige autenticação recente. Sem a app ativa, a configuração fica guardada para quando ela for ativada." %}</p>
+    <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Salvar" %}</button><a class="btn btn-secondary" href="{% url 'platform:organization' subject.pk %}">{% translate "Voltar" %}</a></div>
+  </form>
+</section>
+</div>
+{% endblock %}
