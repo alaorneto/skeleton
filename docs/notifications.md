@@ -78,6 +78,8 @@ O job `notifications.fanout` (sistema, por organização) cria uma linha `Notifi
 
 Os avisos da [cobrança](billing.md#inadimplência) (`billing.*`) são tipos sem tabela-alvo, obrigatórios, por email e na aplicação: `authorize` reconfere no fan-out que a pessoa ainda administra a organização, e `dedupe_key` faz cada etapa sair uma vez. A exceção é `billing.usage_threshold` (#525), o aviso de 80% e 100% do limite de um medidor de uso: não é obrigatório (a pessoa pode desligar o canal) e leva só o código do medidor e os números ([medidores de uso](billing.md#medidores-de-uso)).
 
+O limite de membros atingido (`organization.member_limit_reached`, [#698](https://github.com/alaorneto/skeleton/issues/698)) é um tipo sem tabela-alvo e não obrigatório, por email e na aplicação, para quem tem `members.manage` (`authorize` reconfere no fan-out); leva só `limit` e `used`, e `dedupe_key` faz sair um por dia e valor de limite ([limites da organização](organization-limits.md#aviso-ao-chegar-no-limite)).
+
 ## Caixa de notificações
 
 | Rota | O que faz |

@@ -10,3 +10,6 @@ class TenancyConfig(AppConfig):
 
     def ready(self):
         from . import checks  # noqa: F401 - registers the organization site checks (#477)
+        from .limit_notices import register_limit_notices
+
+        register_limit_notices()

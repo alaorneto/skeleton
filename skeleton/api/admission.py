@@ -10,7 +10,7 @@ from django.http import Http404
 from rest_framework.response import Response
 
 from skeleton.access.capabilities import ADMISSION_DECIDE, require_resource_capability
-from skeleton.common.exceptions import ConcurrentUpdate
+from skeleton.common.exceptions import ConcurrentUpdate, QuotaLimitExceeded
 from skeleton.tenancy import admission
 
 from .errors import BoundaryError
@@ -206,6 +206,9 @@ class OrganizationJoinRequestsAPI(TenantAPI):
             raise Http404 from None
         except ConcurrentUpdate:
             raise _stale() from None
+        except QuotaLimitExceeded as full:
+            # The request stays pending: the transaction rolled back (#698).
+            raise BoundaryError("quota_exceeded", " ".join(full.messages), 409) from None
         except ValidationError:
             raise BoundaryError("not_pending", "O pedido não está mais pendente.", 409) from None
         return etag(Response(request_data(record, decider=True)), record.revision)

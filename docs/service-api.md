@@ -243,7 +243,7 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | Serviço | Módulo | Métodos | Issue |
 |---|---|---|---|
 | `IdentityService` | `skeleton.service_api.identity` | `me`, `get_person`, `people`, `update_my_preferences`, `update_my_profile` | [#102](https://github.com/alaorneto/skeleton/issues/102), [#475](https://github.com/alaorneto/skeleton/issues/475) |
-| `OrganizationService` | `skeleton.service_api.organizations` | `current`, `my_organizations`, `members`, `groups`, `is_member`, `member_refs`, `settings`, `update_settings` | [#103](https://github.com/alaorneto/skeleton/issues/103), [#167](https://github.com/alaorneto/skeleton/issues/167) |
+| `OrganizationService` | `skeleton.service_api.organizations` | `current`, `my_organizations`, `members`, `groups`, `is_member`, `member_refs`, `settings`, `update_settings`, `limits` | [#103](https://github.com/alaorneto/skeleton/issues/103), [#167](https://github.com/alaorneto/skeleton/issues/167), [#698](https://github.com/alaorneto/skeleton/issues/698) |
 | `ExternalAccessService` | `skeleton.service_api.external` | `invite`, `revoke_invitation`, `resend_invitation`, `accesses`, `invitations`, `access_for`, `revoke`, `me` | [#532](https://github.com/alaorneto/skeleton/issues/532) |
 | `AccessService` | `skeleton.service_api.access` | `can`, `require`, `capabilities`, `granted_record_ids`, `my_groups`, `grant_member_table_access`, `grant_record_access`, `revoke_record_access`, `record_grants` | [#104](https://github.com/alaorneto/skeleton/issues/104) |
 | `ApplicationService`, `ApplicationAdministrationService` | `skeleton.service_api.applications` | `is_enabled`, `require_enabled`, `my_configuration`; administração: `applications`, `application`, `configure` | [#105](https://github.com/alaorneto/skeleton/issues/105) |
@@ -294,6 +294,10 @@ IdentityService().update_my_preferences(actor=request.user, expected_revision=me
 | `member_refs(*, actor, user_ids, include_service_accounts=False) -> tuple[MemberRef, ...]` | Vínculos ativos da organização entre `user_ids` (`user_id`, `membership_id`, ordenados por `user_id`), só pessoas por padrão; sem nome nem email. Vínculo ativo do ator, ou `actor=None` em `system_context` (jobs) (#343) | `InvalidInput` (identificador inválido, mais de 500) |
 | `settings(*, actor) -> OrganizationSettingsInfo` | vínculo ativo | `ContextRequired` sem organização |
 | `update_settings(*, actor, display_name, default_language, default_timezone, brand_color, expected_revision) -> OrganizationSettingsInfo` | administrador da organização | `Forbidden`; `InvalidInput` (idioma fora de `LANGUAGES`, fuso inválido, cor fora de `#RRGGBB`, nome acima de 200 caracteres); `Conflict("stale_revision")` |
+
+| `limits(*, actor) -> tuple[LimitInfo, ...]` (desde 0.6.0) | vínculo ativo com `members.view` ou `members.manage` | `Forbidden` sem a capacidade |
+
+`LimitInfo` tem `metric`, `used`, `limit`, `reserved` (convites pendentes, só em `members`) e `over_limit`; só aparecem as métricas com limite ([limites da organização](organization-limits.md)).
 
 As configurações começam em branco com `revision=0` e passam a existir na primeira gravação; valores em branco significam "use o padrão da instância", e `has_logo` diz se há logo sem revelar a chave do storage.
 

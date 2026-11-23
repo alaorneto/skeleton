@@ -59,6 +59,7 @@ urlpatterns = [
     path("o/<uuid:organization_id>/catalog/", views.CatalogView.as_view(), name="catalog"),
     path("o/<uuid:organization_id>/search/", views.GlobalSearchView.as_view(), name="search"),
     path("o/<uuid:organization_id>/membership/", views.OwnMembershipView.as_view(), name="own-membership"),
+    path("o/<uuid:organization_id>/limits/", views.LimitsView.as_view(), name="limits"),
     path(
         "o/<uuid:organization_id>/membership/leave/",
         views.LeaveOrganizationView.as_view(),
