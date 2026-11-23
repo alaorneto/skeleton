@@ -7,6 +7,8 @@ var/
 **/*.sqlite3
 **/*.sqlite3-*
 **/*.pem
+# The official publisher's public key goes into the agent image (#656, #720).
+!deploy/release/publishers/*.pub.pem
 **/*.key
 **/__pycache__
 .pytest_cache
