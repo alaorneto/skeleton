@@ -147,6 +147,7 @@ Use as classes abaixo nos templates do núcleo e das apps; elas encapsulam os pa
 | `form-stack`, `form-field`, `helptext`, `errorlist`, `form-actions` | Formulários simples; `components/form-fields.html` substitui `form.as_p` mantendo ids, ajuda, erros e `aria-describedby`. Todo campo obrigatório (Django `required`, `marked_required` ou o atributo `data-required` no widget) leva `*` e os demais "(opcional)"; checkbox não leva marca; acima dos campos aparece uma vez "Campos com * são obrigatórios.". `hide_marks=True` no `include` desliga as marcas (login, LDAP, token do setup). O renderer de registros (`skeleton_crud/field.html`) segue a mesma regra, sem "(opcional)" nos campos com a caixa "alterar este campo" (#474). |
 | `required`, `optional` | Marcas do rótulo: `*` nos obrigatórios (`show_required`) e "(opcional)" nos demais (`show_optional`), passadas ao `include` de `form-fields.html`. |
 | `setup-steps`, `setup-step-number` | Lista numerada das etapas do setup do primeiro acesso (vertical no desktop, linha rolável no celular); `setup-step-done` e `setup-step-later` marcam o estado. |
+| `setup-files`, `data-files-section` | Passo de anexos do setup ([#729](https://github.com/alaorneto/skeleton/issues/729)): o contêiner dos rádios `files_backend` e das seções `data-files-section="local"` e `"s3"`; o CSS (`:has(input:checked)`) mostra só a seção da opção marcada, sem script. Sem CSS ou sem `:has`, as duas aparecem; os campos escondidos continuam no formulário e a validação é do servidor. |
 
 ### Tabelas
 

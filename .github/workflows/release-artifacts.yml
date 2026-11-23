@@ -126,6 +126,35 @@ jobs:
         if: always()
         run: rm -f "$RUNNER_TEMP/release.key"
 
+  sandbox-branch:
+    # The Coolify sandbox builds from the branch sandbox (#724): it moves only to a published final
+    # release that is the latest, after its signed assets and index are attached, and only forward.
+    name: Branch do sandbox na última release
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write # mover refs/heads/sandbox
+    env:
+      TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Mover o branch sandbox para a tag
+        run: |
+          latest=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          if [ "$latest" != "$TAG" ]; then
+            echo "$TAG não é a release final mais recente ($latest): o branch sandbox fica onde está." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha)
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/sandbox" --silent 2>/dev/null; then
+            # force=false: the API refuses anything that is not a fast-forward.
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/sandbox" -f sha="$sha" -F force=false --silent
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref=refs/heads/sandbox -f sha="$sha" --silent
+          fi
+          echo "Branch sandbox em $TAG ($sha)." >> "$GITHUB_STEP_SUMMARY"
+
   refresh:
     name: Renovar a validade do índice
     if: github.event_name == 'schedule'

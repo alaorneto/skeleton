@@ -161,6 +161,20 @@ def test_member_limit_counts_the_plan_and_the_packs(billing):
         provision_membership(organization=scenario.b, user=extra[0], role=Role.objects.get(code="member"))
 
 
+def test_the_instance_default_adds_to_the_plan(billing, settings):
+    from skeleton.system.limits import limit_status
+
+    scenario, prices = billing
+    settings.SKELETON_ORGANIZATION_MEMBER_LIMIT = 1
+    with system_context(reason="test:quota-default", organization_id=scenario.a.pk):
+        assert limit_status("members").limit == 1  # No subscription: only the instance default.
+    subscribe(scenario.a, prices["members"])
+    with system_context(reason="test:quota-default-plan", organization_id=scenario.a.pk):
+        status = limit_status("members")
+        assert (status.limit, status.base) == (5, 1)  # The default plus the plan's 4 (#695).
+        assert [(item.source, item.amount) for item in status.contributions] == [("billing", 4)]
+
+
 def test_an_app_metric_is_checked_by_the_billing_quota(billing):
     from skeleton.billing import quota
     from skeleton.billing.models import Price, Product
@@ -185,4 +199,6 @@ def test_an_app_metric_is_checked_by_the_billing_quota(billing):
             with pytest.raises(ValueError):
                 quota.check_quota("example_notes.unknown")
     finally:
-        quota._metrics.pop("example_notes.notes", None)
+        from skeleton.common import limits
+
+        limits._metrics.pop("example_notes.notes", None)

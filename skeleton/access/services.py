@@ -215,6 +215,19 @@ def _delete(
         ensure_last_admin()
 
 
+def require_seat(organization_id: Any, identity: User) -> None:
+    """Refuse one more active membership above the organization's member limit (#398, #695).
+
+    Service accounts are integrations, not people: they never take a seat. The caller holds
+    ``organization_lock``, so two admissions for the last seat have one winner.
+    """
+    if identity.is_service_account:
+        return
+    from skeleton.common.entitlements import check_limit
+
+    check_limit(organization_id, "members", 1)
+
+
 def provision_membership(*, organization: Organization, user: User, role: Role) -> Membership:
     context = current_context()
     if not context.system or context.organization_id != organization.pk:
@@ -244,9 +257,7 @@ def admit_member(*, organization: Organization, user: User, role: Role) -> Membe
     membership = Membership.all_objects.filter(organization=organization, user=user).first()
     was_active = membership is not None and membership.is_active and membership.deleted_at is None
     if not was_active:
-        from skeleton.common.entitlements import check_limit
-
-        check_limit(organization.pk, "members", 1)  # The plan's seats (#398).
+        require_seat(organization.pk, user)
     if membership is None:
         membership = Membership(organization=organization, user=user, is_active=True)
         membership.save()
@@ -279,15 +290,20 @@ def create_membership(*, user: User | None, data: Mapping[str, Any]) -> Membersh
         from skeleton.events.core_events import membership_changed
 
         existing = Membership.all_objects.filter(organization=organization, user=identity).first()
+        active = data.get("is_active", True)
         if existing:
             if existing.deleted_at is not None:
-                existing.is_active = data.get("is_active", True)
+                if active:
+                    require_seat(organization.pk, identity)  # Restoring an active membership takes a seat (#695).
+                existing.is_active = active
                 existing.restore()
                 membership_changed(existing, was_active=False)
             else:
-                return update_membership(existing, user=user, data={"is_active": data.get("is_active", True)})
+                return update_membership(existing, user=user, data={"is_active": active})
             ensure_last_admin()
             return existing
+        if active:
+            require_seat(organization.pk, identity)  # A new active membership takes a seat (#695).
         record = Membership(organization=organization, **data)
         record.save()
         membership_changed(record, was_active=False)
@@ -316,9 +332,7 @@ def update_membership(record: Membership, *, user: User | None, data: Mapping[st
         was_active = record.is_active
         record.is_active = data.get("is_active", record.is_active)
         if record.is_active and not was_active:
-            from skeleton.common.entitlements import check_limit
-
-            check_limit(record.organization_id, "members", 1)  # The plan's seats (#398).
+            require_seat(record.organization_id, record.user)
         record.save(update_fields={"is_active"})
         membership_changed(record, was_active=was_active)
         ensure_last_admin()
