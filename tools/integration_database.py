@@ -7,6 +7,8 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
+from contextlib import contextmanager
 from pathlib import Path
 
 # The barriers of a destructive reset (#334), the worker databases and the schema template
@@ -48,10 +50,11 @@ from skeleton.testing.database import (  # noqa: F401 - re-exported for the core
     worker_database_urls,
 )
 
-# Cache of the template between local runs (#350). Migrating costs 4 to 8 s per process and per
-# worker, and between two runs of the suite usually only tests changed. The cache is keyed by
-# everything that shapes the migrated schema; any difference migrates again. The CI disables it
-# (SKELETON_TEST_TEMPLATE_CACHE=0) so that every run proves the migrations.
+# Cache of the template between local runs (#350). Migrating costs about 20 s per process, and
+# between two runs of the suite usually only tests changed. The cache is keyed by everything
+# that shapes the migrated schema; any difference migrates again. The CI points it at a directory
+# of the job, empty at the start, so that every run proves the migrations once; with
+# SKELETON_TEST_TEMPLATE_CACHE=0 every process migrates.
 
 CACHE_ENV = "SKELETON_TEST_TEMPLATE_CACHE"
 CACHE_FORMAT = 1
@@ -170,12 +173,89 @@ def save_cached_template(directory, key, template):
             pass
         return False
     entries = sorted(directory.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
-    for stale in entries[CACHE_ENTRIES_KEPT:]:
+    kept = {path.stem for path in entries[:CACHE_ENTRIES_KEPT]}
+    # Old entries, and the lock files of builds whose entry is gone or was never stored.
+    stale = entries[CACHE_ENTRIES_KEPT:] + [path for path in directory.glob("*.lock") if path.stem not in kept]
+    for path in stale:
         try:
-            stale.unlink()
+            path.unlink()
         except OSError:
-            pass
+            pass  # Only a cache; on Windows a lock file that is still held cannot be removed.
     return True
+
+
+# One build per run (#756). With a cold cache every pytest-xdist worker used to migrate its own
+# database at the same time; now the first one builds and stores the template and the others
+# wait and read it. The lock is the operating system's, on an open file: it goes away with the
+# process that holds it, so a killed run never blocks the next one.
+
+BUILD_LOCK_TIMEOUT = 600.0
+_BUILD_LOCK_POLL = 0.1
+
+
+def _try_lock(handle):
+    """Take the exclusive lock of an open file without waiting; False when another process has it."""
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return False
+    return True
+
+
+def _unlock(handle):
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        pass  # Closing the file releases it anyway.
+
+
+@contextmanager
+def template_build_lock(directory, key, *, timeout=BUILD_LOCK_TIMEOUT):
+    """Hold the build of the template of ``key``: one process migrates, the others wait here.
+
+    Yields True when this process holds the lock. Yields False, without waiting, when the cache
+    is disabled or the key is not a digest, and after ``timeout`` seconds or when the lock file
+    cannot be opened: the caller then builds its own template, as before the lock existed. The
+    caller reads the cache again once inside, because the holder it waited for has stored it.
+    """
+    if directory is None or not re.fullmatch(r"[0-9a-f]{64}", key or ""):
+        yield False
+        return
+    try:
+        Path(directory).mkdir(parents=True, exist_ok=True)
+        handle = open(Path(directory) / f"{key}.lock", "a+b")  # noqa: SIM115 - held across the yield
+    except OSError:
+        yield False
+        return
+    try:
+        deadline = time.monotonic() + timeout
+        held = _try_lock(handle)
+        while not held and time.monotonic() < deadline:
+            time.sleep(_BUILD_LOCK_POLL)
+            held = _try_lock(handle)
+        try:
+            yield held
+        finally:
+            if held:
+                _unlock(handle)
+    finally:
+        handle.close()
 
 
 def pg_dump_version():

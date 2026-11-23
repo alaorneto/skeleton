@@ -279,6 +279,7 @@ def postgres_template(django_db_blocker, postgres_schema_stats):
         dump_schema,
         load_cached_template,
         save_cached_template,
+        template_build_lock,
         template_cache_dir,
         template_enabled,
     )
@@ -289,21 +290,25 @@ def postgres_template(django_db_blocker, postgres_schema_stats):
     directory = template_cache_dir()
     key = _template_cache_key(pair) if directory is not None else None
     cached = load_cached_template(directory, key)
-    if cached is not None:
-        postgres_schema_stats["cached"] += 1
-        return cached
-    original = connections["default"].settings_dict.copy()
-    with django_db_blocker.unblock():
-        try:
-            _migrate_postgres(pair, postgres_schema_stats)
-        finally:
-            _configure(original)
-        try:
-            template = dump_schema(pair)
-        except RuntimeError as exc:
-            raise pytest.UsageError(str(exc)) from exc
-    save_cached_template(directory, key, template)
-    return template
+    if cached is None:
+        # One build per run (#756): the first worker migrates, the others wait and read its template.
+        with template_build_lock(directory, key) as held:
+            cached = load_cached_template(directory, key) if held else None
+            if cached is None:
+                original = connections["default"].settings_dict.copy()
+                with django_db_blocker.unblock():
+                    try:
+                        _migrate_postgres(pair, postgres_schema_stats)
+                    finally:
+                        _configure(original)
+                    try:
+                        template = dump_schema(pair)
+                    except RuntimeError as exc:
+                        raise pytest.UsageError(str(exc)) from exc
+                save_cached_template(directory, key, template)
+                return template
+    postgres_schema_stats["cached"] += 1
+    return cached
 
 
 @pytest.fixture

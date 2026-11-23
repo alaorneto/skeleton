@@ -462,6 +462,114 @@ def test_cache_keeps_only_the_newest_entries(tmp_path):
     assert f"{0:064x}" not in kept
 
 
+def test_cache_removes_the_lock_files_of_entries_it_no_longer_keeps(tmp_path):
+    import os
+
+    for index in range(idb.CACHE_ENTRIES_KEPT + 2):
+        key = f"{index:064x}"
+        (tmp_path / f"{key}.lock").touch()
+        assert idb.save_cached_template(tmp_path, key, TEMPLATE)
+        os.utime(tmp_path / f"{key}.json", (1_000_000 + index, 1_000_000 + index))
+    (tmp_path / f"{'e' * 64}.lock").touch()  # A build that never stored its template.
+    newest = "f" * 64
+    (tmp_path / f"{newest}.lock").touch()
+    assert idb.save_cached_template(tmp_path, newest, TEMPLATE)
+    kept = {path.stem for path in tmp_path.glob("*.json")}
+    assert {path.stem for path in tmp_path.glob("*.lock")} <= kept and newest in kept
+    assert (tmp_path / f"{newest}.lock").exists()
+
+
+# One build of the template per run (#756): the lock belongs to the process that holds it.
+
+_HOLD_LOCK = """
+import sys
+from tools import integration_database as idb
+
+with idb.template_build_lock(sys.argv[1], sys.argv[2]) as held:
+    print("held" if held else "refused", flush=True)
+    sys.stdin.readline()
+"""
+
+
+def _lock_holder(tmp_path, key):
+    """Another process holding the build lock until its stdin closes (or it is killed)."""
+    import subprocess
+    import sys
+
+    process = subprocess.Popen(
+        [sys.executable, "-c", _HOLD_LOCK, str(tmp_path), key],
+        cwd=idb.ROOT,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    assert process.stdout.readline().strip() == "held"
+    return process
+
+
+def test_build_lock_is_exclusive_between_processes_and_released_at_exit(tmp_path):
+    key = "a" * 64
+    holder = _lock_holder(tmp_path, key)
+    try:
+        with idb.template_build_lock(tmp_path, key, timeout=0) as held:
+            assert held is False, "Another process is building this template."
+        with idb.template_build_lock(tmp_path, "b" * 64, timeout=0) as held:
+            assert held is True, "The lock is per key."
+    finally:
+        holder.communicate("\n", timeout=30)
+    with idb.template_build_lock(tmp_path, key, timeout=30) as held:
+        assert held is True
+
+
+def test_build_lock_of_a_killed_process_does_not_block_the_next_run(tmp_path):
+    key = "a" * 64
+    holder = _lock_holder(tmp_path, key)
+    holder.kill()
+    holder.wait(timeout=30)
+    holder.stdin.close()
+    holder.stdout.close()
+    with idb.template_build_lock(tmp_path, key, timeout=30) as held:
+        assert held is True
+
+
+def test_a_waiting_process_gets_the_lock_when_the_builder_finishes(tmp_path):
+    import threading
+
+    key = "a" * 64
+    holder = _lock_holder(tmp_path, key)
+    waiting, outcome = threading.Event(), []
+
+    def wait_for_the_template():
+        waiting.set()
+        with idb.template_build_lock(tmp_path, key, timeout=30) as held:
+            outcome.append(held)
+
+    thread = threading.Thread(target=wait_for_the_template)
+    thread.start()
+    try:
+        assert waiting.wait(timeout=30)
+    finally:
+        holder.communicate("\n", timeout=30)
+    thread.join(timeout=30)
+    assert outcome == [True]
+
+
+@pytest.mark.parametrize("key", ["../outside", "A" * 64, "", None])
+def test_build_lock_is_not_taken_without_a_cache_or_a_digest(tmp_path, key):
+    with idb.template_build_lock(tmp_path / "cache", key) as held:
+        assert held is False
+    with idb.template_build_lock(None, "a" * 64) as held:
+        assert held is False
+    assert not (tmp_path / "cache").exists()
+
+
+def test_build_lock_fails_open_when_the_directory_cannot_be_used(tmp_path):
+    blocked = tmp_path / "file"
+    blocked.write_text("not a directory", encoding="utf-8")
+    with idb.template_build_lock(blocked, "a" * 64) as held:
+        assert held is False, "The caller migrates by itself, as before the lock existed."
+
+
 # The barriers moved to the wheel for derived projects (#334): same refusals, one implementation.
 
 
