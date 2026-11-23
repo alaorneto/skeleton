@@ -39,7 +39,7 @@ PACKAGE_ERROR_MESSAGES = {
     ),
     "brand_color": gettext_lazy("A cor da marca precisa ser #RRGGBB com contraste AA (4,5:1) com o texto branco."),
     "radius": gettext_lazy("Os cantos precisam ser sharp, default ou round."),
-    "font": gettext_lazy("A fonte precisa ser inter, system ou serif."),
+    "font": gettext_lazy("A fonte precisa ser default, system ou serif."),
     "font_family": gettext_lazy("tokens.font_family precisa ser a família de uma das fontes declaradas em fonts."),
     "image_path": gettext_lazy(
         "A imagem %(path)s não existe, não está em images/ ou tem extensão não aceita (PNG, JPEG, WebP ou SVG; ícone só PNG)."
@@ -53,7 +53,7 @@ PACKAGE_ERROR_MESSAGES = {
     "logo_dark_without_logo": gettext_lazy("O logo para o modo escuro só vale junto com o logo."),
     "too_many_fonts": gettext_lazy("O pacote pode ter até 8 fontes."),
     "font_family_name": gettext_lazy(
-        "O nome da família de fonte é inválido ou reservado (letras, números, espaço e hífen; nunca serif, sans-serif ou Inter Variable)."
+        "O nome da família de fonte é inválido ou reservado (letras, números, espaço e hífen; nunca um nome genérico do CSS, como serif ou sans-serif)."
     ),
     "font_file": gettext_lazy("A fonte %(path)s precisa ser um .woff2 em fonts/, até 512 KB, declarado uma vez só."),
     "font_weight": gettext_lazy('O peso de fonte precisa ser 100 a 900 em centenas, ou uma faixa como "100 900".'),

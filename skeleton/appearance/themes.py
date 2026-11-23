@@ -35,7 +35,7 @@ FONT_TOKENS = {
 }
 # The core stack of frontend/src/tokens.css; a package family goes in front of it.
 CORE_FONT_STACK = (
-    '"Inter Variable",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,'
+    '"IBM Plex Sans Variable",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,'
     '"Noto Sans",sans-serif,"Apple Color Emoji","Segoe UI Emoji"'
 )
 _FAMILY = re.compile(r"[A-Za-z][A-Za-z0-9 -]{0,62}[A-Za-z0-9]")
@@ -60,7 +60,7 @@ class ThemeValues:
     name: str
     brand_color: str = ""
     radius: str = "default"
-    font: str = "inter"
+    font: str = "default"
     custom_css: str = ""
     font_family: str = ""
     fonts: tuple[ThemeFont, ...] = ()

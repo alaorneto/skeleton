@@ -23,6 +23,7 @@ from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.http import require_http_methods, require_POST, require_safe
 
 from skeleton.accounts.reauthentication import recent_authentication_required
+from skeleton.appearance.package_format import canonical_font
 from skeleton.common.logging import security_event
 from skeleton.web.views import form_error
 
@@ -59,7 +60,7 @@ RADIUS_CHOICES = (
     ("round", gettext_lazy("Arredondado")),
 )
 FONT_CHOICES = (
-    ("inter", gettext_lazy("Inter (padrão)")),
+    ("default", gettext_lazy("IBM Plex Sans (padrão)")),
     ("system", gettext_lazy("Fonte do sistema")),
     ("serif", gettext_lazy("Serifada do sistema")),
 )
@@ -377,7 +378,7 @@ def appearance_theme_create(request):
     from skeleton.appearance.services import create_theme
 
     if request.method != "POST":
-        return _theme_form_page(request, ThemeForm(initial={"radius": "default", "font": "inter"}))
+        return _theme_form_page(request, ThemeForm(initial={"radius": "default", "font": "default"}))
     if _unknown_fields(request, THEME_POST):
         return HttpResponseBadRequest(gettext("Campo não permitido."))
     form = ThemeForm(request.POST)
@@ -412,6 +413,7 @@ def appearance_theme(request, sysid):
         raise Http404  # A package theme is changed by sending a newer version (#637).
     if request.method != "POST":
         initial = {name: getattr(theme, name) for name in ("name", "brand_color", "radius", "font", "custom_css")}
+        initial["font"] = canonical_font(initial["font"])  # A theme saved before #690 shows the default.
         return _theme_form_page(request, ThemeForm(initial={**initial, "revision": theme.revision}), theme=theme)
     if _unknown_fields(request, THEME_POST):
         return HttpResponseBadRequest(gettext("Campo não permitido."))

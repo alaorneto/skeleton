@@ -15,7 +15,9 @@ from skeleton.common.models import SystemRecord
 from skeleton.tenancy.models import BRAND_COLOR_PATTERN
 
 RADII = ("sharp", "default", "round")
-FONTS = ("inter", "system", "serif")
+FONTS = ("default", "system", "serif")
+# Stored by themes made before #690, when the core font had its own name; read as "default".
+LEGACY_FONTS = ("inter",)
 SOURCES = ("form", "package")
 BRAND_SLOT = "instance"
 
@@ -32,7 +34,7 @@ class InstanceTheme(SystemRecord):
     # "" keeps the core colour; otherwise #rrggbb with AA contrast against white (validated by the service).
     brand_color = models.CharField(max_length=7, blank=True, default="")
     radius = models.CharField(max_length=8, default="default")
-    font = models.CharField(max_length=8, default="inter")
+    font = models.CharField(max_length=8, default="default")
     # Up to 32 KiB, validated by skeleton.appearance.css_validation; never embedded in HTML.
     custom_css = models.TextField(blank=True, default="")
     source = models.CharField(max_length=8, default="form")
@@ -80,7 +82,7 @@ class InstanceTheme(SystemRecord):
                 name="sk_appearance_theme_brand_color",
             ),
             models.CheckConstraint(condition=Q(radius__in=RADII), name="sk_appearance_theme_radius"),
-            models.CheckConstraint(condition=Q(font__in=FONTS), name="sk_appearance_theme_font"),
+            models.CheckConstraint(condition=Q(font__in=FONTS + LEGACY_FONTS), name="sk_appearance_theme_font"),
         ]
 
     def __str__(self):

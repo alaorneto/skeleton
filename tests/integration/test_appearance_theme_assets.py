@@ -49,7 +49,7 @@ def test_the_stylesheet_declares_the_fonts_and_the_family(storage):
     face = f'src:url("/brand/fonts/aurora-sans.woff2?v={ref.version}") format("woff2")'
     for css in (current.theme_css, current.theme_css_tokens):  # Fonts are generated, also in safe mode.
         assert '@font-face{font-family:"Aurora Sans";' in css and face in css
-        assert '--font-sans:"Aurora Sans","Inter Variable"' in css
+        assert '--font-sans:"Aurora Sans","IBM Plex Sans Variable"' in css
     client = Client()
     assert face in client.get("/brand/theme.css").content.decode()
     assert face in client.get("/brand/theme.css?safe=1").content.decode()

@@ -17,7 +17,7 @@ import unicodedata
 from typing import Any
 
 from .package_build import build_theme_zip
-from .package_format import ThemePackageError, read_theme_archive
+from .package_format import ThemePackageError, canonical_font, read_theme_archive
 from .package_messages import describe
 from .services import _require_platform
 
@@ -51,7 +51,12 @@ def _base_manifest(values: Any, slug: str) -> dict[str, Any]:
         "version": "1.0.0",
         "name": values.name,
         "compatibility": {"skeleton": _compatibility()},
-        "tokens": {"brand_color": values.brand_color, "radius": values.radius, "font": values.font, "font_family": ""},
+        "tokens": {
+            "brand_color": values.brand_color,
+            "radius": values.radius,
+            "font": canonical_font(values.font),
+            "font_family": "",
+        },
     }
     return manifest
 

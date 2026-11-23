@@ -34,7 +34,7 @@ def test_the_full_example_is_read():
     assert (package.brand_color, package.radius, package.font, package.font_family) == (
         "#1d4ed8",
         "round",
-        "inter",
+        "default",
         "Aurora Sans",
     )
     assert (package.product_name, package.footer_text) == ("Aurora", "Aurora · atendimento ao cliente")
@@ -49,7 +49,7 @@ def test_defaults_are_filled_in_the_manifest():
     minimal = {"format": 1, "id": "org.example.theme.min", "version": "0.1.0", "name": "Min"}
     minimal["compatibility"] = {"skeleton": ">=0.0.0"}
     package = read_theme_archive(make_zip({"theme.json": json.dumps(minimal).encode()}))
-    assert package.manifest["tokens"] == {"brand_color": "", "radius": "default", "font": "inter", "font_family": ""}
+    assert package.manifest["tokens"] == {"brand_color": "", "radius": "default", "font": "default", "font_family": ""}
     assert "css" not in package.manifest and package.custom_css == "" and package.images == ()
     with_css = make_zip({"theme.json": json.dumps(minimal).encode(), "theme.css": b".a{}"})
     assert read_theme_archive(with_css).manifest["css"] == "theme.css"
@@ -122,11 +122,6 @@ CASES = [
     (
         "generic family",
         with_manifest(tokens={}, fonts=[{"family": "Serif", "file": "fonts/aurora-sans.woff2"}]),
-        "font_family_name",
-    ),
-    (
-        "inter reserved",
-        with_manifest(tokens={}, fonts=[{"family": "Inter Variable", "file": "fonts/aurora-sans.woff2"}]),
         "font_family_name",
     ),
     ("font not woff2", theme_zip({"fonts/aurora-sans.woff2": b"OTTO" + b"\0" * 10}), "font_file"),
@@ -227,3 +222,26 @@ def test_the_reader_does_not_import_django():
     code = "import sys, skeleton.appearance.package_format; print('django' in sys.modules)"
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=environment, check=True)
     assert result.stdout.strip() == "False"
+
+
+def test_the_legacy_name_of_the_core_font_is_read_as_the_default():
+    """#690: packages made for older cores say "inter"; they keep working, read as "default"."""
+    legacy = {"format": 1, "id": "org.example.theme.old", "version": "0.1.0", "name": "Old"}
+    legacy["compatibility"] = {"skeleton": ">=0.0.0"}
+    legacy["tokens"] = {"font": "inter"}
+    package = read_theme_archive(make_zip({"theme.json": json.dumps(legacy).encode()}))
+    assert package.font == "default" and package.manifest["tokens"]["font"] == "default"
+    legacy["tokens"] = {"font": "Inter"}  # Only the exact legacy name; anything else is refused.
+    with pytest.raises(ThemePackageError) as refused:
+        read_theme_archive(make_zip({"theme.json": json.dumps(legacy).encode()}))
+    assert refused.value.code == "font"
+
+
+def test_a_package_may_name_the_core_family_or_the_old_one():
+    """#690: no family is reserved but the generic CSS keywords: a package that ships its own
+    IBM Plex Sans (or Inter) under the usual name keeps installing on every core."""
+    for family in ("IBM Plex Sans Variable", "Inter Variable"):
+        tokens = {"font_family": family}
+        fonts = [{"family": family, "file": "fonts/aurora-sans.woff2", "weight": "100 900"}]
+        package = read_theme_archive(with_manifest(tokens=tokens, fonts=fonts))
+        assert package.font_family == family and package.fonts[0].family == family

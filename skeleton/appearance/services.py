@@ -138,9 +138,12 @@ def clean_theme_values(data: dict[str, Any]) -> dict[str, Any]:
             raise ValidationError({"radius": gettext("Escolha um raio da lista.")})
         values["radius"] = data["radius"]
     if "font" in data:
-        if data["font"] not in FONTS:
+        from .package_format import canonical_font
+
+        font = canonical_font(data["font"])
+        if font not in FONTS:
             raise ValidationError({"font": gettext("Escolha uma fonte da lista.")})
-        values["font"] = data["font"]
+        values["font"] = font
     if "custom_css" in data:
         values["custom_css"] = validate_custom_css(data["custom_css"])
     return values

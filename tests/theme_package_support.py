@@ -36,7 +36,7 @@ def manifest(**changes: Any) -> dict[str, Any]:
         "description": "Tema da marca Aurora.",
         "publisher": "org.example",
         "compatibility": {"skeleton": ">=0.0.0"},
-        "tokens": {"brand_color": "#1d4ed8", "radius": "round", "font": "inter", "font_family": "Aurora Sans"},
+        "tokens": {"brand_color": "#1d4ed8", "radius": "round", "font": "default", "font_family": "Aurora Sans"},
         "brand": {"product_name": "Aurora", "footer_text": "Aurora · atendimento ao cliente"},
         "images": {"logo": "images/logo.svg", "logo_dark": "images/logo-dark.png", "icon": "images/icon.png"},
         "fonts": [{"family": "Aurora Sans", "file": "fonts/aurora-sans.woff2", "weight": "100 900", "style": "normal"}],

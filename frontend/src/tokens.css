@@ -21,20 +21,38 @@
 }
 
 @font-face {
-  font-family: "Inter Variable";
+  font-family: "IBM Plex Sans Variable";
   font-style: normal;
   font-display: swap;
-  font-weight: 100 900;
-  src: url("vendor/inter-5.3.0/inter-latin-wght-normal.woff2") format("woff2-variations");
+  font-weight: 100 700;
+  src: url("vendor/ibm-plex-sans-5.3.0/ibm-plex-sans-latin-wght-normal.woff2") format("woff2-variations");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
     U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
-  font-family: "Inter Variable";
+  font-family: "IBM Plex Sans Variable";
   font-style: normal;
   font-display: swap;
-  font-weight: 100 900;
-  src: url("vendor/inter-5.3.0/inter-latin-ext-wght-normal.woff2") format("woff2-variations");
+  font-weight: 100 700;
+  src: url("vendor/ibm-plex-sans-5.3.0/ibm-plex-sans-latin-ext-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "IBM Plex Sans Variable";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 100 700;
+  src: url("vendor/ibm-plex-sans-5.3.0/ibm-plex-sans-latin-wght-italic.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "IBM Plex Sans Variable";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 100 700;
+  src: url("vendor/ibm-plex-sans-5.3.0/ibm-plex-sans-latin-ext-wght-italic.woff2") format("woff2-variations");
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
     U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
@@ -43,7 +61,7 @@
 /* Tokens. Escalas primitivas + mapeamento semântico do Flowbite 4.     */
 /* ------------------------------------------------------------------ */
 @theme {
-  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+  --font-sans: "IBM Plex Sans Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
     "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
   --font-body: var(--font-sans);
   --font-mono: ui-monospace, "Cascadia Mono", "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;

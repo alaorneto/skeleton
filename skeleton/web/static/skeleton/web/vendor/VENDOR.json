@@ -7,17 +7,19 @@
       "license": "MIT",
       "source": "npm:flowbite"
     },
-    "@fontsource-variable/inter": {
+    "@fontsource-variable/ibm-plex-sans": {
       "version": "5.3.0",
       "license": "OFL-1.1",
-      "source": "npm:@fontsource-variable/inter"
+      "source": "npm:@fontsource-variable/ibm-plex-sans"
     }
   },
   "files": {
     "vendor/flowbite-4.0.2/flowbite.min.js": "93127c1aa8ddcfaeaa484ed44d60b87dac0c31926ffac47fb86684f3bb14d90d",
     "vendor/flowbite-4.0.2/LICENSE.md": "2ef12ba4b6b1172b8139d382e8b285e1ae034350151a71cb43fe55ca63199e6e",
-    "vendor/inter-5.3.0/inter-latin-wght-normal.woff2": "3100e775e8616cd2611beecfa23a4263d7037586789b43f035236a2e6fbd4c62",
-    "vendor/inter-5.3.0/inter-latin-ext-wght-normal.woff2": "34b9c504cab7a73e37b746343a449132e56cf7b5481af2cb81dc74dcff25c956",
-    "vendor/inter-5.3.0/LICENSE": "3b0a5fca3d17942cde889069889dedbbbd075e9b599968c82a95f4d944e9b345"
+    "vendor/ibm-plex-sans-5.3.0/ibm-plex-sans-latin-wght-normal.woff2": "e2291e842cf5af167122a22881a740c7f2dda7716f1e8cd76680264f4a859470",
+    "vendor/ibm-plex-sans-5.3.0/ibm-plex-sans-latin-ext-wght-normal.woff2": "d160e20920ae4d6556518d352d3af27a74e9b0de3d8fe17b1c1044fc75aa2f81",
+    "vendor/ibm-plex-sans-5.3.0/ibm-plex-sans-latin-wght-italic.woff2": "4363757d2695c7633f98472855849f7c30528eba869d7968ee35b58c87cf14c1",
+    "vendor/ibm-plex-sans-5.3.0/ibm-plex-sans-latin-ext-wght-italic.woff2": "bf44b77cc751203b2f0ce95c048a9d8f984313f84b58106c7c4410ca50314016",
+    "vendor/ibm-plex-sans-5.3.0/LICENSE": "d0283623ef57e722fd0eb688a8041589670c608ab780cd3612d06ba6f153d3fd"
   }
 }
