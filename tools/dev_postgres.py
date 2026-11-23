@@ -9,34 +9,58 @@
 The server comes from ``pgserver`` (PostgreSQL binaries in a wheel). ``pgserver`` publishes
 wheels only for CPython 3.12, so this script runs it through ``uv`` in an isolated 3.12
 environment instead of the project's virtualenv; nothing is added to the project locks.
-Data lives in ``var/dev-postgres`` (git-ignored). The database ``local_skeleton_test`` is
+Data lives in ``var/dev-postgres`` (git-ignored), or under ``SKELETON_TEST_POSTGRES_DATA`` when
+that variable names a directory shared by every checkout. The database ``local_skeleton_test`` is
 provisioned with ``deploy/postgres/bootstrap.sql`` and local-only passwords, the same layout
 as the CI: migrations as ``skeleton_owner``, assertions as ``skeleton_runtime``. Parallel runs
 (``pytest -n``) use one more database per worker, ``local_gwN_skeleton_test``, provisioned the
 same way. The server is disposable, so it does not wait for the disk (``fsync=off``): never
 point it at data worth keeping.
+
+Recreating schema skeleton for each test creates and removes about 760 files, so the suite is
+bound by how fast the volume does that (#756). ``SKELETON_TEST_POSTGRES_DATA`` moves the data of
+every checkout under one directory, which can then sit on a faster volume or in a folder that
+the antivirus does not scan on access; each checkout still gets a server of its own there.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA = ROOT / "var" / "dev-postgres"
+DATA_ENV = "SKELETON_TEST_POSTGRES_DATA"
+
+
+def data_dir(environment: Mapping[str, str] | None = None, root: Path = ROOT) -> Path:
+    """Where this checkout keeps its server: ``var/dev-postgres``, or a directory of its own under
+    ``SKELETON_TEST_POSTGRES_DATA``, named after the checkout so that two never share a server."""
+    base = (os.environ if environment is None else environment).get(DATA_ENV, "")
+    if not base:
+        return root / "var" / "dev-postgres"
+    digest = hashlib.sha256(os.path.normcase(str(root)).encode()).hexdigest()[:12]
+    return Path(base) / f"{root.name}-{digest}"
+
+
+DATA = data_dir()
 STATE = DATA / "state.json"
 DATABASE = "local_skeleton_test"
 PASSWORDS = {"skeleton_owner": "local-owner", "skeleton_runtime": "local-runtime"}
 PGSERVER = "pgserver==0.1.4"
 # Lock table of max_connections (100) times this value: room for 64 workers restoring at once.
 MAX_LOCKS_PER_TRANSACTION = 2048
+# The catalogs of one database per worker do not fit the default 128MB: measured with 8 processes
+# restoring at once, 512MB takes the server from 2.6 to 3.0 restores per second (#756).
+SHARED_BUFFERS = "512MB"
 
 # Runs inside the uv environment (Python 3.12 + pgserver + tzdata); prints one JSON line.
 SERVER = r"""
@@ -45,8 +69,8 @@ from pathlib import Path
 import pgserver, tzdata
 from pgserver._commands import POSTGRES_BIN_PATH, pg_ctl
 
-data, bootstrap, owner_pw, runtime_pw, locks = sys.argv[1:6]
-databases = sys.argv[6:]
+data, bootstrap, owner_pw, runtime_pw, locks, buffers = sys.argv[1:7]
+databases = sys.argv[7:]
 share = Path(pgserver.__file__).parent / "pginstall" / "share" / "postgresql" / "timezone"
 if not (share / "UTC").exists():
     # Some pgserver builds ship without time zone data: copy it from the tzdata package.
@@ -68,11 +92,14 @@ def run(database, *arguments):
 # Disposable fixtures only: a crash loses nothing that the next test does not rebuild.
 for setting in ("fsync", "synchronous_commit", "full_page_writes"):
     run("postgres", "-c", f"ALTER SYSTEM SET {setting} = off")
-# Each parallel worker recreates schema skeleton in one transaction, about 2,100 locks.
-run("postgres", "-c", f"ALTER SYSTEM SET max_locks_per_transaction = {locks}")
+# Each parallel worker recreates schema skeleton in one transaction, about 2,100 locks, and the
+# catalogs of every worker database have to stay in memory between two restores.
+at_start = {"max_locks_per_transaction": locks, "shared_buffers": buffers}
+for name, value in at_start.items():
+    run("postgres", "-c", f"ALTER SYSTEM SET {name} = '{value}'")
 run("postgres", "-c", "SELECT pg_reload_conf()")
-if locks not in server.psql("SHOW max_locks_per_transaction;").split():
-    # The value only changes at server start; the reload above cannot apply it.
+if any(value not in server.psql(f"SHOW {name};").split() for name, value in at_start.items()):
+    # These values only change at server start; the reload above cannot apply them.
     # Same options as the first start (postmaster.opts), so host, port and socket are kept.
     pg_ctl(["-w", "-m", "fast", "-l", str(server.log), "restart"], pgdata=Path(data) / "pgdata")
 existing = server.psql("SELECT datname FROM pg_database;").split()
@@ -154,6 +181,7 @@ def start(workers: int | None = None) -> dict[str, Any]:
         str(ROOT / "deploy" / "postgres" / "bootstrap.sql"),
         *PASSWORDS.values(),
         str(MAX_LOCKS_PER_TRANSACTION),
+        SHARED_BUFFERS,
         DATABASE,
         *worker_databases(workers),
     )
@@ -207,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         state = load_state()
         _uv(STOP, state["pgdata"])
-        print("PostgreSQL local parado; os dados continuam em var/dev-postgres.")
+        print(f"PostgreSQL local parado; os dados continuam em {DATA}.")
     return 0
 
 

@@ -462,6 +462,114 @@ def test_cache_keeps_only_the_newest_entries(tmp_path):
     assert f"{0:064x}" not in kept
 
 
+def test_cache_removes_the_lock_files_of_entries_it_no_longer_keeps(tmp_path):
+    import os
+
+    for index in range(idb.CACHE_ENTRIES_KEPT + 2):
+        key = f"{index:064x}"
+        (tmp_path / f"{key}.lock").touch()
+        assert idb.save_cached_template(tmp_path, key, TEMPLATE)
+        os.utime(tmp_path / f"{key}.json", (1_000_000 + index, 1_000_000 + index))
+    (tmp_path / f"{'e' * 64}.lock").touch()  # A build that never stored its template.
+    newest = "f" * 64
+    (tmp_path / f"{newest}.lock").touch()
+    assert idb.save_cached_template(tmp_path, newest, TEMPLATE)
+    kept = {path.stem for path in tmp_path.glob("*.json")}
+    assert {path.stem for path in tmp_path.glob("*.lock")} <= kept and newest in kept
+    assert (tmp_path / f"{newest}.lock").exists()
+
+
+# One build of the template per run (#756): the lock belongs to the process that holds it.
+
+_HOLD_LOCK = """
+import sys
+from tools import integration_database as idb
+
+with idb.template_build_lock(sys.argv[1], sys.argv[2]) as held:
+    print("held" if held else "refused", flush=True)
+    sys.stdin.readline()
+"""
+
+
+def _lock_holder(tmp_path, key):
+    """Another process holding the build lock until its stdin closes (or it is killed)."""
+    import subprocess
+    import sys
+
+    process = subprocess.Popen(
+        [sys.executable, "-c", _HOLD_LOCK, str(tmp_path), key],
+        cwd=idb.ROOT,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    assert process.stdout.readline().strip() == "held"
+    return process
+
+
+def test_build_lock_is_exclusive_between_processes_and_released_at_exit(tmp_path):
+    key = "a" * 64
+    holder = _lock_holder(tmp_path, key)
+    try:
+        with idb.template_build_lock(tmp_path, key, timeout=0) as held:
+            assert held is False, "Another process is building this template."
+        with idb.template_build_lock(tmp_path, "b" * 64, timeout=0) as held:
+            assert held is True, "The lock is per key."
+    finally:
+        holder.communicate("\n", timeout=30)
+    with idb.template_build_lock(tmp_path, key, timeout=30) as held:
+        assert held is True
+
+
+def test_build_lock_of_a_killed_process_does_not_block_the_next_run(tmp_path):
+    key = "a" * 64
+    holder = _lock_holder(tmp_path, key)
+    holder.kill()
+    holder.wait(timeout=30)
+    holder.stdin.close()
+    holder.stdout.close()
+    with idb.template_build_lock(tmp_path, key, timeout=30) as held:
+        assert held is True
+
+
+def test_a_waiting_process_gets_the_lock_when_the_builder_finishes(tmp_path):
+    import threading
+
+    key = "a" * 64
+    holder = _lock_holder(tmp_path, key)
+    waiting, outcome = threading.Event(), []
+
+    def wait_for_the_template():
+        waiting.set()
+        with idb.template_build_lock(tmp_path, key, timeout=30) as held:
+            outcome.append(held)
+
+    thread = threading.Thread(target=wait_for_the_template)
+    thread.start()
+    try:
+        assert waiting.wait(timeout=30)
+    finally:
+        holder.communicate("\n", timeout=30)
+    thread.join(timeout=30)
+    assert outcome == [True]
+
+
+@pytest.mark.parametrize("key", ["../outside", "A" * 64, "", None])
+def test_build_lock_is_not_taken_without_a_cache_or_a_digest(tmp_path, key):
+    with idb.template_build_lock(tmp_path / "cache", key) as held:
+        assert held is False
+    with idb.template_build_lock(None, "a" * 64) as held:
+        assert held is False
+    assert not (tmp_path / "cache").exists()
+
+
+def test_build_lock_fails_open_when_the_directory_cannot_be_used(tmp_path):
+    blocked = tmp_path / "file"
+    blocked.write_text("not a directory", encoding="utf-8")
+    with idb.template_build_lock(blocked, "a" * 64) as held:
+        assert held is False, "The caller migrates by itself, as before the lock existed."
+
+
 # The barriers moved to the wheel for derived projects (#334): same refusals, one implementation.
 
 
@@ -691,6 +799,193 @@ def test_worker_databases_problem_reports_missing_databases_before_the_lock_tabl
     assert kit.worker_databases_problem(2) == "pytest -n 2: raise max_locks_per_transaction"
     monkeypatch.delenv(kit.OWNER_ENV)
     assert kit.worker_databases_problem(2) is None
+
+
+# Reuse of the schema between tests (#760): the decisions, without a database.
+
+
+@pytest.mark.parametrize(("value", "enabled"), [(None, True), ("1", True), ("", True), ("0", False)])
+def test_schema_reuse_is_on_unless_switched_off(value, enabled):
+    environment = {} if value is None else {idb.REUSE_ENV: value}
+    assert idb.schema_reuse_enabled(environment) is enabled
+
+
+def test_schema_reuse_verification_interval_comes_from_the_environment():
+    assert idb.schema_reuse_verify_every({}) == idb.REUSE_VERIFY_DEFAULT > 0
+    assert idb.schema_reuse_verify_every({idb.REUSE_VERIFY_ENV: "1"}) == 1
+    assert idb.schema_reuse_verify_every({idb.REUSE_VERIFY_ENV: "0"}) == 0
+    for value in ("-1", "often", "1.5", "1234567"):
+        with pytest.raises(RuntimeError, match=idb.REUSE_VERIFY_ENV):
+            idb.schema_reuse_verify_every({idb.REUSE_VERIFY_ENV: value})
+
+
+def test_catalog_markers_cover_every_catalog_once_and_never_take_input():
+    labels = [label for label, _ in idb._STABLE_CATALOGS + idb._VOLATILE_CATALOGS]
+    assert len(labels) == len(set(labels))
+    # The reuse rewrites only pg_class and pg_trigger rows (FORCE ROW LEVEL SECURITY, triggers).
+    assert [label for label, _ in idb._VOLATILE_CATALOGS] == ["class", "trigger"]
+    for query in (idb._REUSE_STABLE, idb._REUSE_VOLATILE, idb._REUSE_FLAGS, idb._REUSE_TABLES, idb._REUSE_SIZES):
+        assert "%s" not in query and "{" not in query
+        assert "'skeleton'" in query
+
+
+class FakeReuse:
+    def __init__(self):
+        self.connection = FakeConnection()
+        self.reused = 0
+        self.reason = ""
+
+
+@pytest.fixture
+def fake_reuse(monkeypatch):
+    """template_schema() with the database steps replaced by a log of what was asked."""
+    log = []
+    answers = {"reuse": True, "begin": True}
+    monkeypatch.delenv(idb.REUSE_ENV, raising=False)
+    monkeypatch.delenv(idb.REUSE_VERIFY_ENV, raising=False)
+    monkeypatch.setattr(idb, "_REUSE", {})
+    monkeypatch.setattr(idb, "_REUSE_REFUSALS", {})
+    monkeypatch.setattr(idb, "restore_schema", lambda pair, template: log.append("restore"))
+
+    def begin(pair):
+        log.append("begin")
+        return FakeReuse() if answers["begin"] else None
+
+    def reuse(state, template, *, verify=False):
+        log.append("reuse+verify" if verify else "reuse")
+        state.reused += bool(answers["reuse"])
+        state.reason = "" if answers["reuse"] else "the structure of the schema changed"
+        return answers["reuse"]
+
+    monkeypatch.setattr(idb, "begin_schema_reuse", begin)
+    monkeypatch.setattr(idb, "reuse_schema", reuse)
+    return log, answers
+
+
+def test_first_test_recreates_the_schema_and_the_next_ones_reuse_it(fake_reuse):
+    log, _ = fake_reuse
+    assert [idb.template_schema(PAIR, "template") for _ in range(3)] == ["restore", "reuse", "reuse"]
+    assert log == ["restore", "begin", "reuse", "reuse"]
+
+
+def test_a_refused_reuse_recreates_the_schema_and_starts_over(fake_reuse):
+    log, answers = fake_reuse
+    idb.template_schema(PAIR, "template")
+    refused = idb.current_schema_reuse(PAIR)
+    answers["reuse"] = False
+
+    assert idb.template_schema(PAIR, "template") == "restore"
+    assert log == ["restore", "begin", "reuse", "restore", "begin"]
+    assert refused.connection.closed, "The owner connection of a discarded state must not stay open."
+    assert idb.schema_reuse_refusals() == {"the structure of the schema changed": 1}
+    assert idb.current_schema_reuse(PAIR) is not refused
+
+    answers["reuse"] = True
+    assert idb.template_schema(PAIR, "template") == "reuse"
+
+
+def test_every_nth_reuse_asks_for_the_whole_comparison(fake_reuse, monkeypatch):
+    log, _ = fake_reuse
+    monkeypatch.setenv(idb.REUSE_VERIFY_ENV, "3")
+    for _ in range(7):
+        idb.template_schema(PAIR, "template")
+    assert log[2:] == ["reuse", "reuse", "reuse+verify", "reuse", "reuse", "reuse+verify"]
+    del log[:]
+    monkeypatch.setenv(idb.REUSE_VERIFY_ENV, "0")
+    for _ in range(4):
+        idb.template_schema(PAIR, "template")
+    assert log == ["reuse"] * 4
+
+
+def test_reuse_switched_off_never_keeps_a_state(fake_reuse, monkeypatch):
+    log, _ = fake_reuse
+    idb.template_schema(PAIR, "template")
+    kept = idb.current_schema_reuse(PAIR)
+    monkeypatch.setenv(idb.REUSE_ENV, "0")
+
+    assert [idb.template_schema(PAIR, "template") for _ in range(2)] == ["restore", "restore"]
+    assert log == ["restore", "begin", "restore", "restore"]
+    assert kept.connection.closed and idb.current_schema_reuse(PAIR) is None
+
+
+def test_a_schema_that_cannot_be_reused_is_recreated_for_every_test(fake_reuse):
+    log, answers = fake_reuse
+    answers["begin"] = False
+    assert [idb.template_schema(PAIR, "template") for _ in range(2)] == ["restore", "restore"]
+    assert log == ["restore", "begin", "restore", "begin"]
+
+
+def test_each_worker_database_keeps_its_own_state(fake_reuse):
+    log, _ = fake_reuse
+    other = kit.DatabasePair(RUNTIME, OWNER, "ci_gw1_skeleton_test")
+    assert idb.template_schema(PAIR, "template") == "restore"
+    assert idb.template_schema(other, "template") == "restore"
+    assert idb.template_schema(PAIR, "template") == "reuse"
+    assert idb.current_schema_reuse(PAIR) is not idb.current_schema_reuse(other)
+
+
+def test_reuse_reports_a_database_error_as_a_refusal_not_as_a_failure():
+    import psycopg
+
+    class Broken:
+        def execute(self, *args, **kwargs):
+            raise psycopg.OperationalError("the connection is closed")
+
+    state = idb.SchemaReuse(
+        pair=PAIR,
+        connection=Broken(),
+        tables=(),
+        forced=frozenset(),
+        seeded={},
+        setvals="",
+        flags=[],
+        stable=[],
+        volatile=[],
+    )
+    assert idb.reuse_schema(state, "template") is False
+    assert state.reason == "OperationalError: the connection is closed" and state.reused == 0
+
+
+def test_summary_says_how_the_schemas_of_a_run_were_built():
+    assert idb.schema_summary({"migrate": 0, "cached": 0, "restore": 0, "reuse": 0}) is None
+    assert idb.schema_summary({}) is None
+    assert (
+        idb.schema_summary({"migrate": 1, "cached": 7, "restore": 188, "reuse": 1872})
+        == "skeleton_db schemas: 1 migrated, 7 from the template cache, 188 recreated, 1872 reused"
+    )
+    line = idb.schema_summary({"migrate": 1, "restore": 9}, ["x is not a plain table of the owner"])
+    assert line.endswith("0 reused; schema reuse unavailable: x is not a plain table of the owner")
+    lines = idb.schema_summary({"restore": 4, "reuse": 9}, (), {"a row changed": 1, "the structure changed": 2})
+    assert lines.splitlines()[1] == (
+        "skeleton_db recreated a kept schema because: the structure changed (2); a row changed (1)"
+    )
+
+
+def test_a_schema_that_cannot_be_reused_says_why(monkeypatch):
+    class Unsupported(FakeConnection):
+        def execute(self, query, *args):
+            outer = self
+            rows = {
+                idb._REUSE_TABLES: [("plain", "r", True, False, 0, None), ("parted", "p", True, False, 0, None)],
+                idb._REUSE_FLAGS: [("trigger", "plain", "guard:D")],
+            }.get(query, [])
+
+            class Result:
+                def fetchall(self):
+                    return rows
+
+                def fetchone(self):
+                    return outer.rows.pop(0) if outer.rows else None
+
+            return Result()
+
+    connection = Unsupported()
+    monkeypatch.setattr(idb, "_owner_connection", lambda pair: connection)
+    monkeypatch.setattr(idb, "_REUSE_UNSUPPORTED", {})
+
+    assert idb.begin_schema_reuse(PAIR) is None
+    assert connection.closed
+    assert idb.schema_reuse_obstacles() == ["parted is not a plain table of the owner"]
 
 
 def os_environ(name):

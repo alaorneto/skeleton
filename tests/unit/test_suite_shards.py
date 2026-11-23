@@ -32,12 +32,62 @@ def test_slices_are_disjoint_and_together_are_the_whole_suite(total):
         assert selected == [nodeid for nodeid in NODEIDS if nodeid in selected], "Collection order is kept."
 
 
-def test_a_file_is_never_split_and_slices_are_balanced_by_files():
+def test_a_file_is_never_split_and_files_of_equal_weight_are_dealt_evenly():
     assignment = suite_shards.shard_files([suite_shards.file_of(nodeid) for nodeid in NODEIDS], 2)
     assert len(assignment) == 6
     assert sorted(assignment.values()) == [1, 1, 1, 2, 2, 2]
-    selected, _ = suite_shards.split_shard(NODEIDS, assignment["tests/unit/test_a.py"], 2)
-    assert {"tests/unit/test_a.py::test_one", "tests/unit/test_a.py::test_two[param]"} <= set(selected)
+    for index in (1, 2):
+        selected, deselected = suite_shards.split_shard(NODEIDS, index, 2)
+        kept, left = ({suite_shards.file_of(nodeid) for nodeid in chunk} for chunk in (selected, deselected))
+        assert not kept & left
+
+
+def _suite(files):
+    """Node ids and costs of a made-up suite: ``files`` maps a path to (tests, cost of each)."""
+    nodeids = [f"{path}::test_{number}" for path, (tests, _) in files.items() for number in range(tests)]
+    costs = {f"{path}::test_{number}": cost for path, (tests, cost) in files.items() for number in range(tests)}
+    return nodeids, costs
+
+
+def _load(nodeids, costs, index, total):
+    return sum(costs[nodeid] for nodeid in suite_shards.split_shard(nodeids, index, total, costs)[0])
+
+
+@pytest.mark.parametrize("total", [2, 3, 5, 8])
+def test_slices_are_balanced_by_the_cost_of_their_tests(total):
+    database = suite_shards.DATABASE_COST
+    files = {f"tests/integration/test_db_{number:02d}.py": (number % 7 + 1, database) for number in range(40)}
+    files |= {f"tests/unit/test_pure_{number:02d}.py": (number * 3 + 1, 1) for number in range(40)}
+    nodeids, costs = _suite(files)
+    loads = [_load(nodeids, costs, index, total) for index in range(1, total + 1)]
+    heaviest_file = max(suite_shards.file_weights(nodeids, costs).values())
+    assert sum(loads) == sum(costs.values())
+    assert max(loads) - min(loads) <= heaviest_file
+    # Dealing the files round-robin by path, as before #757, leaves the slices further apart.
+    by_count = [0] * total
+    for position, path in enumerate(sorted(files)):
+        by_count[position % total] += files[path][0] * files[path][1]
+    assert max(loads) - min(loads) < max(by_count) - min(by_count)
+
+
+def test_a_database_test_weighs_more_than_many_tests_without_a_database():
+    files = {
+        "tests/integration/test_db.py": (4, suite_shards.DATABASE_COST),
+        "tests/unit/test_a.py": (30, 1),
+        "tests/unit/test_b.py": (30, 1),
+        "tests/unit/test_c.py": (30, 1),
+    }
+    nodeids, costs = _suite(files)
+    alone, _ = suite_shards.split_shard(nodeids, 1, 2, costs)
+    assert {suite_shards.file_of(nodeid) for nodeid in alone} == {"tests/integration/test_db.py"}
+
+
+def test_without_costs_every_test_weighs_the_same():
+    files = {"tests/unit/test_big.py": (10, 1), "tests/unit/test_a.py": (3, 1), "tests/unit/test_b.py": (3, 1)}
+    nodeids, _ = _suite(files)
+    first, second = suite_shards.split_shard(nodeids, 1, 2)[0], suite_shards.split_shard(nodeids, 2, 2)[0]
+    assert {suite_shards.file_of(nodeid) for nodeid in first} == {"tests/unit/test_big.py"}
+    assert len(second) == 6
 
 
 def test_slices_do_not_depend_on_collection_order_or_path_separator():
@@ -87,7 +137,9 @@ def test_the_option_partitions_a_real_collection():
     whole = _collected()
     first, second = _collected("--shard", "1/2"), _collected("--shard", "2/2")
     assert first and second
-    assert len({suite_shards.file_of(nodeid) for nodeid in first}) == 2
+    files = [{suite_shards.file_of(nodeid) for nodeid in chunk} for chunk in (first, second)]
+    assert not files[0] & files[1], "A file is never split."
+    assert sorted(files[0] | files[1]) == sorted(FILES)
     assert not set(first) & set(second)
     assert sorted(first + second) == sorted(whole)
 

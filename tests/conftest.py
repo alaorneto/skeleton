@@ -41,7 +41,8 @@ def pytest_addoption(parser):
         "--shard",
         metavar="I/N",
         default=None,
-        help="Run only slice I of N of the test files (tools/suite_shards.py); the N slices are the whole suite.",
+        help="Run only slice I of N of the test files, balanced by cost (tools/suite_shards.py); "
+        "the N slices are the whole suite.",
     )
 
 
@@ -97,10 +98,12 @@ def _require_worker_databases(count):
 
 def _keep_shard(config, items):
     """--shard I/N: keep the files of one slice; the other slices run them, none is skipped."""
-    from tools.suite_shards import parse_shard, split_shard
+    from tools.suite_shards import DATABASE_COST, parse_shard, split_shard
 
     index, total = parse_shard(config.getoption("shard"))
-    selected, _ = split_shard([item.nodeid for item in items], index, total)
+    # A test that recreates the schema weighs more: the slices take the same time, not the same files.
+    costs = {item.nodeid: DATABASE_COST if "skeleton_db" in getattr(item, "fixturenames", ()) else 1 for item in items}
+    selected, _ = split_shard([item.nodeid for item in items], index, total, costs)
     keep = set(selected)
     deselected = [item for item in items if item.nodeid not in keep]
     if deselected:
@@ -250,10 +253,49 @@ def _migrate_postgres(pair, stats):
     stats["migrate"] += 1
 
 
+# How the PostgreSQL schemas of this process were built. With -n, each worker sends its counts
+# to the controller, and the run ends with one line of the totals (#760).
+_SCHEMA_STATS = {"migrate": 0, "cached": 0, "restore": 0, "reuse": 0}
+_SCHEMA_TOTALS = {"obstacles": set(), "refusals": {}}
+
+
 @pytest.fixture(scope="session")
 def postgres_schema_stats():
     """How the PostgreSQL schemas of this session were built (asserted by the template tests)."""
-    return {"migrate": 0, "cached": 0, "restore": 0}
+    return _SCHEMA_STATS
+
+
+def _add_schema_stats(stats, obstacles, refusals):
+    for key, value in stats.items():
+        _SCHEMA_TOTALS[key] = _SCHEMA_TOTALS.get(key, 0) + value
+    _SCHEMA_TOTALS["obstacles"].update(obstacles)
+    for reason, count in refusals.items():
+        _SCHEMA_TOTALS["refusals"][reason] = _SCHEMA_TOTALS["refusals"].get(reason, 0) + count
+
+
+def pytest_sessionfinish(session):
+    from tools.integration_database import schema_reuse_obstacles, schema_reuse_refusals
+
+    report = [dict(_SCHEMA_STATS), schema_reuse_obstacles(), schema_reuse_refusals()]
+    if hasattr(session.config, "workerinput"):
+        session.config.workeroutput["skeleton_schema"] = report
+    else:
+        _add_schema_stats(*report)
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_testnodedown(node, error):
+    reported = (getattr(node, "workeroutput", None) or {}).get("skeleton_schema")
+    if reported:
+        _add_schema_stats(*reported)
+
+
+def pytest_terminal_summary(terminalreporter):
+    from tools.integration_database import schema_summary
+
+    summary = schema_summary(_SCHEMA_TOTALS, sorted(_SCHEMA_TOTALS["obstacles"]), _SCHEMA_TOTALS["refusals"])
+    for line in (summary or "").splitlines():
+        terminalreporter.write_line(line)
 
 
 def _template_cache_key(pair):
@@ -279,6 +321,7 @@ def postgres_template(django_db_blocker, postgres_schema_stats):
         dump_schema,
         load_cached_template,
         save_cached_template,
+        template_build_lock,
         template_cache_dir,
         template_enabled,
     )
@@ -289,29 +332,39 @@ def postgres_template(django_db_blocker, postgres_schema_stats):
     directory = template_cache_dir()
     key = _template_cache_key(pair) if directory is not None else None
     cached = load_cached_template(directory, key)
-    if cached is not None:
-        postgres_schema_stats["cached"] += 1
-        return cached
-    original = connections["default"].settings_dict.copy()
-    with django_db_blocker.unblock():
-        try:
-            _migrate_postgres(pair, postgres_schema_stats)
-        finally:
-            _configure(original)
-        try:
-            template = dump_schema(pair)
-        except RuntimeError as exc:
-            raise pytest.UsageError(str(exc)) from exc
-    save_cached_template(directory, key, template)
-    return template
+    if cached is None:
+        # One build per run (#756): the first worker migrates, the others wait and read its template.
+        with template_build_lock(directory, key) as held:
+            cached = load_cached_template(directory, key) if held else None
+            if cached is None:
+                original = connections["default"].settings_dict.copy()
+                with django_db_blocker.unblock():
+                    try:
+                        _migrate_postgres(pair, postgres_schema_stats)
+                    finally:
+                        _configure(original)
+                    try:
+                        template = dump_schema(pair)
+                    except RuntimeError as exc:
+                        raise pytest.UsageError(str(exc)) from exc
+                save_cached_template(directory, key, template)
+                return template
+    postgres_schema_stats["cached"] += 1
+    return cached
 
 
 @pytest.fixture
 def skeleton_db(request, tmp_path, django_db_blocker):
-    """Real committed per-test DB; protected rows are never flushed/deleted."""
+    """Real committed per-test DB that starts at the migrated schema.
+
+    The schema is recreated from the template when the previous test changed its structure, a
+    row the migrations seeded, or left a doubt; otherwise only the rows written since the
+    template are deleted, by the owner, and the result is checked (#760). No test deletes or
+    flushes protected rows itself.
+    """
     from django.contrib.contenttypes.models import ContentType
 
-    from tools.integration_database import restore_schema
+    from tools.integration_database import template_schema
 
     original = connections["default"].settings_dict.copy()
     with django_db_blocker.unblock():
@@ -321,9 +374,8 @@ def skeleton_db(request, tmp_path, django_db_blocker):
         if template is None:
             _migrate_postgres(pair, stats)
         else:
-            # Same starting point as migrate: a recreated schema, never a flushed one.
-            restore_schema(pair, template)
-            stats["restore"] += 1
+            # Same starting point as migrate: the template, recreated or checked against it.
+            stats[template_schema(pair, template)] += 1
         # migrate's post_migrate handlers clear this cache; the restore does not run them.
         ContentType.objects.clear_cache()
         _configure_postgres(pair.runtime)
@@ -355,8 +407,8 @@ def skeleton_db(request, tmp_path, django_db_blocker):
 def owner_schema_editor(skeleton_db):
     """DDL of a throwaway test table as ``skeleton_owner``, the role that migrates.
 
-    Only setup DDL runs as the owner; every assertion keeps the runtime connection. The next
-    test restores the schema from the template, so the table never outlives its test.
+    Only setup DDL runs as the owner; every assertion keeps the runtime connection. The DDL is a
+    change of structure, so the next test recreates the schema and the table never outlives its test.
     """
     pair = _disposable_pair()
 
