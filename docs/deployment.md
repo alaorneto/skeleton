@@ -401,7 +401,7 @@ No resto, ele segue o `compose.yaml`: o agente e os serviços de aplicação (`w
 
 1. **DNS:** um registro A do host do sandbox (por exemplo `sandbox.example.com`) para o IP da VPS.
 2. **Projeto:** no Coolify, crie um projeto e um environment `sandbox`.
-3. **Recurso:** no environment, *+ New* → *Public Repository* (repositório privado: *Private Repository (with GitHub App)*), a URL do repositório e o branch. *Build Pack* `Docker Compose`, *Base Directory* `/` e *Docker Compose Location* `/compose.sandbox.yaml`.
+3. **Recurso:** no environment, *+ New* → *Public Repository* (repositório privado: *Private Repository (with GitHub App)*), a URL do repositório e o branch `sandbox` ([abaixo](#o-branch-sandbox)), nunca a `main`. *Build Pack* `Docker Compose`, *Base Directory* `/` e *Docker Compose Location* `/compose.sandbox.yaml`.
 4. **Variáveis** (aba *Environment Variables*). Gere cada senha com `openssl rand -hex 32`, só letras e dígitos, porque elas entram em URLs sem codificação:
 
    | Variável | Uso |
@@ -413,8 +413,16 @@ No resto, ele segue o `compose.yaml`: o agente e os serviços de aplicação (`w
    | `REDIS_PASSWORD` | `requirepass` do Redis |
 
 5. **Domínio:** na configuração do serviço `web`, informe `https://<SANDBOX_HOST>:8000`. O sufixo `:8000` é a porta do container, não uma porta pública; o Coolify emite o certificado e o Traefik termina o TLS.
-6. **Auto Deploy:** desligado. O sandbox não segue a `main`: o código que ele roda vem dos releases publicados, pelo agente.
+6. **Auto Deploy:** opcional. Ligado, o Coolify reconstrói as imagens quando o branch `sandbox` anda, o que só acontece numa release final nova; o release ativo continua o mesmo até a atualização pela tela.
 7. *Deploy*. Na primeira vez, o `agent` instala o release publicado mais novo (ou `SKELETON_CORE_VERSION`) e cria o schema, e o `web` sobe em modo setup.
+
+### O branch `sandbox`
+
+O Coolify constrói as imagens a partir do branch do recurso, e a imagem não é só embalagem: o agente (`deployment_agent` e o wheel do núcleo dentro da imagem `agent`), o inicializador da imagem de runtime, o `Dockerfile`, o `.dockerignore` e o `compose.sandbox.yaml` vêm do branch. O código da aplicação, não: ele vem do release assinado que o agente instala. Apontado para a `main`, um *Redeploy* pegaria trabalho ainda não publicado (#724).
+
+Por isso o recurso usa o branch `sandbox`, que só aponta para a última versão final publicada. O workflow "Artefatos de release" (`.github/workflows/release-artifacts.yml`, job "Branch do sandbox na última release") o move para o commit da tag depois de anexar os artefatos e o índice assinados, então o agente do sandbox nunca vê um release sem índice. Ele só anda para frente (fast-forward; um movimento que não é fast-forward falha o job) e fica parado numa pré-release ou num hotfix de uma linha antiga, que não são a release mais recente. Não faça push nele à mão; um ruleset que só deixe o `github-actions[bot]` atualizá-lo é a proteção recomendada.
+
+Antes da primeira release com este job, o branch não existe. Crie-o na última tag, por exemplo `git push origin v0.5.1^{commit}:refs/heads/sandbox`, ou espere a próxima versão final.
 
 ### Primeiro acesso
 
@@ -430,7 +438,7 @@ Na conclusão, o processo sai, a política de reinício o traz de volta em modo 
 
 ### Atualizar o sandbox
 
-O sandbox não recebe deploy a cada merge (o job `deploy-sandbox` saiu do CI, #654). Versões novas do core e apps chegam pela tela `/platform/updates/`, que consulta o repositório oficial: escolha a versão, confira o plano e confirme cada passo ([atualizações](updates.md)). Um *Redeploy* no Coolify só reconstrói as imagens do agente e de runtime; o release ativo continua o mesmo.
+O sandbox não recebe deploy a cada merge (o job `deploy-sandbox` saiu do CI, #654). Versões novas do core e apps chegam pela tela `/platform/updates/`, que consulta o repositório oficial: escolha a versão, confira o plano e confirme cada passo ([atualizações](updates.md)). Um *Redeploy* no Coolify só reconstrói as imagens do agente e de runtime a partir do [branch `sandbox`](#o-branch-sandbox); o release ativo continua o mesmo.
 
 **Sandbox criado antes do agente.** O volume `postgres_data` já tem o schema e o `instance` a configuração, mas não há estado do agente, e a primeira partida sobre um banco já migrado não é coberta pelos testes. Como o sandbox só tem dados de teste, apague os volumes do recurso (`postgres_data`, `instance` e os do agente) antes do primeiro *Deploy* com este arquivo e refaça o [primeiro acesso](#primeiro-acesso).
 
