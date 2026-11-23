@@ -41,7 +41,7 @@ Ligue `SKELETON_ORGANIZATION_SIGNUP_ENABLED` (e ajuste `SKELETON_ORGANIZATION_SI
 
 ## 8. Cliente da API de plataforma
 
-Em `/platform/api-clients/`, crie um cliente para a central e emita um token com os escopos que ela precisa (`platform.instance:read`, `platform.organizations:read`, `platform.billing:read`, `platform.metrics:read` e, só se for preciso o contato de cobrança, `platform.billing_contacts:read`), a validade e, de preferência, a rede de origem da central. O token aparece uma vez ([clientes e tokens de plataforma](platform-api.md#clientes-e-tokens-de-plataforma)).
+Ligue `SKELETON_INSIGHTS_ENABLED` para a instância coletar o resumo por organização e as métricas diárias que a central lê ([resumo e métricas](platform-api.md#resumo-e-métricas-skeletoninsights)). Em `/platform/api-clients/`, crie um cliente para a central e emita um token com os escopos que ela precisa (`platform.instance:read`, `platform.organizations:read`, `platform.billing:read`, `platform.metrics:read` e, só se for preciso o contato de cobrança, `platform.billing_contacts:read`), a validade e, de preferência, a rede de origem da central. O token aparece uma vez ([clientes e tokens de plataforma](platform-api.md#clientes-e-tokens-de-plataforma)).
 
 ## 9. Na instância central
 

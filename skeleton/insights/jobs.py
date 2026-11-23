@@ -5,6 +5,9 @@
   in 5-minute windows).
 - ``insights.metrics`` (global, hourly): today's metrics; ``insights.daily`` (global, 00:20 UTC):
   the previous day closed and the retention of the metrics.
+
+The schedules and the consumers exist only with ``SKELETON_INSIGHTS_ENABLED`` (read at start); the
+job types are always registered, so a job already queued still runs.
 """
 
 from __future__ import annotations
@@ -70,6 +73,11 @@ def register_insights() -> None:
     register_job_type(
         JobType(DAILY_JOB, daily, {}, run_as="system", max_attempts=3, scope="global", owner_app="sk_insights")
     )
+    from django.conf import settings
+
+    if not getattr(settings, "SKELETON_INSIGHTS_ENABLED", False):
+        # Opt-in (#710): an instance that does not report to a central schedules nothing.
+        return
     register_periodic("insights.refresh", REFRESH_JOB, every=timedelta(hours=1))
     register_periodic(METRICS_JOB, METRICS_JOB, every=timedelta(hours=1), per_organization=False)
     register_periodic(DAILY_JOB, DAILY_JOB, daily_at=time(0, 20), per_organization=False)
