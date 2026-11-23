@@ -9,7 +9,7 @@ What an organization may use comes from its current subscription:
 - **Storage:** the sum of ``included_storage_bytes × quantity`` of the active items, or the
   overage hard cap when the base plan bills the excess (``quota.storage_quota``); ``NO_OPINION``
   without a subscription or when no item includes storage, so the platform setting applies.
-- **Limits:** the plan limits of the registered quota metrics (``quota.check_quota``).
+- **Limits:** not here: the plan is one source of the core's organization limits (``quota.plan_source``, #695).
 - **Exempt routes:** the billing pages, for who holds ``billing.manage`` (#404).
 
 With billing off (``SKELETON_BILLING_ENABLED``) every answer allows everything. The summary is
@@ -77,13 +77,6 @@ def _load(organization_id: UUID) -> Summary:
 
 
 class BillingPolicy:
-    def check_limit(self, organization_id: UUID, metric: str, increment: int) -> None:
-        from .quota import check_quota, registered_metrics
-
-        if current_context().organization_id != organization_id or metric not in registered_metrics():
-            return
-        check_quota(metric, increment=increment)
-
     def entitled_apps(self, organization_id: UUID, app_labels: tuple[str, ...]) -> dict[str, bool]:
         summary = _summary(organization_id)
         if summary is None:

@@ -236,6 +236,9 @@ FILE_UPLOAD_HANDLERS = [
 # SKELETON_FILES_ROOT is a volume shared by every node (NFS, EFS, CephFS); checked in cluster mode (#673).
 SKELETON_FILES_SHARED = env.bool("SKELETON_FILES_SHARED", default=False)
 SKELETON_FILES_ORG_QUOTA_BYTES = env.int("SKELETON_FILES_ORG_QUOTA_BYTES", default=0) or None
+# Default member limit of every organization (empty or 0: no default, unlimited); apps, the plan and
+# the platform add to it (#695, docs/organization-limits.md).
+SKELETON_ORGANIZATION_MEMBER_LIMIT = env.int("SKELETON_ORGANIZATION_MEMBER_LIMIT", default=0) or None
 # Deleted attachments keep their bytes this long, then files.purge removes them (#192).
 SKELETON_FILES_DELETED_RETENTION_DAYS = env.int("SKELETON_FILES_DELETED_RETENTION_DAYS", default=90)
 # Form data of closed flow instances is emptied after this many days; 0 keeps it (#422).

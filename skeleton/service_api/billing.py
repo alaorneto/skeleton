@@ -251,7 +251,7 @@ class BillingService(ServiceAPI):
 
     @service_method(read_only=True, since="0.1.0", allow_system=True)
     def check_quota(self, *, actor: AbstractBaseUser | None, metric: str, increment: int = 1) -> None:
-        """Refuse ``increment`` more of ``metric`` above the plan limit.
+        """Refuse ``increment`` more of ``metric`` above the organization's limit (plan, apps, instance default).
 
         Autorização: qualquer membro.
         Erros: ``Conflict("quota_exceeded")`` acima do limite;

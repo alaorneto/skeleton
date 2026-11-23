@@ -12,7 +12,9 @@ from skeleton.billing import quota, usage
 def meters(monkeypatch):
     """An isolated meter and metric registry with one meter of acme_reminders."""
     monkeypatch.setattr(usage, "_meters", {})
-    monkeypatch.setattr(quota, "_metrics", {"members": lambda organization_id: 0})
+    from skeleton.common import limits
+
+    monkeypatch.setattr(limits, "_metrics", {"members": limits.LimitMetric("members", lambda organization_id: 0)})
     usage.register_usage_meter("acme_reminders.messages", label="Mensagens", unit_label="mensagem")
     return usage
 

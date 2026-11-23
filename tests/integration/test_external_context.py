@@ -210,7 +210,8 @@ def test_a_write_in_the_portal_is_audited_with_the_person_and_the_portal_source(
 
 
 def test_seats_never_count_external_people(scenario):
-    from skeleton.billing.quota import _external_people, _members
+    from skeleton.system.limits import count_external_people as _external_people
+    from skeleton.system.limits import count_members as _members
     from skeleton.tenancy.models import ExternalAccess
 
     with system_context(reason="test:external-metrics", organization_id=scenario.a.pk):

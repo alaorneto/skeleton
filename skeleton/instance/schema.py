@@ -340,6 +340,13 @@ _SPECS = (
         "files_org_quota_bytes", "SKELETON_FILES_ORG_QUOTA_BYTES", "int", "Cota de anexos por organização", _int(0)
     ),
     SettingSpec(
+        "organization_member_limit",
+        "SKELETON_ORGANIZATION_MEMBER_LIMIT",
+        "int",
+        "Limite padrão de membros por organização",
+        _int(0),
+    ),
+    SettingSpec(
         "files_deleted_retention_days",
         "SKELETON_FILES_DELETED_RETENTION_DAYS",
         "int",
