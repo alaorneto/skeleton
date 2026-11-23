@@ -214,7 +214,7 @@ def run_blocks(text):
 def test_workflow_keeps_least_privilege_and_no_input_interpolation():
     text = WORKFLOW.read_text(encoding="utf-8")
     assert re.search(r"^permissions: \{\}$", text, re.M)
-    assert text.count("contents: write") == 2  # publish and refresh only
+    assert text.count("contents: write") == 3  # publish, sandbox-branch and refresh only
     triggers = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
     assert "pull_request" not in triggers and {"workflow_dispatch:", "schedule:"} <= set(triggers.split())
     blocks = run_blocks(text)
@@ -228,6 +228,19 @@ def test_the_core_wheel_is_attached_with_its_hash_in_the_release_body():
     assert '"$RUNNER_TEMP"/out/*.whl' in text
     (block,) = [block for block in run_blocks(text) if "gh release edit" in block]
     assert "django_skeleton-" in block and "SHA256SUMS" in block and "--notes-file" in block
+
+
+def test_sandbox_branch_follows_only_the_latest_final_release_forward():
+    """#724: the sandbox builds from a branch that moves only after the assets, never backwards."""
+    text = WORKFLOW.read_text(encoding="utf-8")
+    job = text.split("\n  sandbox-branch:\n", 1)[1].split("\n  refresh:\n", 1)[0]
+    assert "needs: publish" in job
+    assert "environment:" not in job and "secrets." not in job and "checkout" not in job
+    assert "contents: write" in job and "actions:" not in job and "timeout-minutes:" in job
+    (block,) = run_blocks(job)
+    assert '[ "$latest" != "$TAG" ]' in block  # a pre-release or an old line's hotfix is not latest
+    assert "-F force=false" in block and "force=true" not in block and "--force" not in block
+    assert "refs/heads/sandbox" in block
 
 
 def test_release_dispatches_the_artifacts_workflow():
