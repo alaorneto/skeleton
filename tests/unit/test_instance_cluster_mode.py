@@ -1,5 +1,7 @@
 """Cluster mode of the instance (#673): configuration from the environment only, no writes, export-env."""
 
+import base64
+import json
 import os
 import stat
 import subprocess
@@ -165,3 +167,64 @@ def test_production_in_cluster_mode_names_the_missing_keys(tmp_path):
     assert result.returncode != 0
     assert "Modo cluster: faltam no ambiente as chaves" in result.stderr and "database_url" in result.stderr
     assert not (tmp_path / "instance.sqlite3").exists()
+
+
+def test_the_exported_file_starts_a_cluster_node_with_the_same_configuration(instance, tmp_path, settings, monkeypatch):
+    """#673: the file of export-env, as the env_file of a node, gives the same keys: sessions stay valid."""
+    from django.utils.crypto import salted_hmac
+
+    database, key = instance
+    database_password = "db-password-never-plain"
+    values = {
+        "secret_key": SECRET,
+        "allowed_hosts": "app.example",
+        "database_url": f"postgres://runtime:{database_password}@db.example:5432/app",
+        "cache_url": "rediscache://cache.example:6379/1",
+        "cache_key_prefix": "inst-a",
+        "email_url": "smtp+tls://mailer:mail-pass@mail.example:587",
+        "default_from_email": "app@example.org",
+        "mfa_encryption_keys": base64.urlsafe_b64encode(bytes(range(32))).decode(),
+    }
+    for name, value in values.items():
+        write_setting(settings.BASE_DIR, name, value, source="test")
+    exported = tmp_path / "cluster.env"
+    export_environment(settings.BASE_DIR, exported, source="test")
+    # The SQLite changes afterwards: a cluster node never reads it.
+    write_setting(settings.BASE_DIR, "default_from_email", "changed@example.org", source="test")
+    parsed: dict[str, str] = {}
+    monkeypatch.setattr(environ.Env, "ENVIRON", parsed)
+    environ.Env.read_env(str(exported), overwrite=True)
+    environment = {
+        name: value
+        for name, value in os.environ.items()
+        if name not in BY_ENV and not name.startswith(("TEST_", "DJANGO_", "SKELETON_"))
+    }
+    environment.update(
+        parsed,
+        DJANGO_SETTINGS_MODULE="config.settings.production",
+        SKELETON_INSTANCE_MODE="cluster",
+        SKELETON_INSTANCE_DB=str(database),
+        SKELETON_INSTANCE_KEY_FILE=str(key),
+        SKELETON_PROJECT_ROOT=str(ROOT),
+        PYTHONIOENCODING="utf-8",
+    )
+    session_salt = "django.contrib.auth.models.AbstractBaseUser.get_session_auth_hash"
+    script = (
+        "import json, django; django.setup(); from django.conf import settings as s; "
+        "from django.utils.crypto import salted_hmac; "
+        f"print(json.dumps([salted_hmac({session_salt!r}, 'password-hash', algorithm='sha256').hexdigest(), "
+        "s.ALLOWED_HOSTS, s.DATABASES['default']['HOST'], s.CACHES['default']['KEY_PREFIX'], s.DEFAULT_FROM_EMAIL]))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script], cwd=ROOT, env=environment, capture_output=True, text=True, timeout=120
+    )
+    assert result.returncode == 0, result.stderr[-2000:]
+    expected_hash = salted_hmac(session_salt, "password-hash", secret=SECRET, algorithm="sha256").hexdigest()
+    assert json.loads(result.stdout.strip().splitlines()[-1]) == [
+        expected_hash,  # The session auth hash of a user logged in before: the session stays valid.
+        ["app.example"],
+        "db.example",
+        "inst-a",
+        "app@example.org",
+    ]
+    assert SECRET not in result.stdout + result.stderr

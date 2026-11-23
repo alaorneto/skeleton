@@ -176,3 +176,16 @@ def test_cluster_mode_makes_the_page_read_only(store, platform, monkeypatch):
     )
     assert restart.status_code == 409
     assert store.path.read_bytes() == before
+
+
+def test_an_invalid_cache_prefix_is_refused_with_400_without_repeating_it(store, platform, caplog):
+    """#675: the prefix of the cache keys is validated on every write."""
+    _, client = platform
+    refused = "Prefixo Errado Zq9"
+    with caplog.at_level(logging.INFO):
+        response = change(client, "cache_key_prefix", refused)
+    assert response.status_code == 400
+    assert refused not in response.content.decode() and refused not in caplog.text
+    assert "cache_key_prefix" not in store.settings()
+    assert change(client, "cache_key_prefix", "inst-a").status_code == 302
+    assert store.settings()["cache_key_prefix"][0] == "inst-a"

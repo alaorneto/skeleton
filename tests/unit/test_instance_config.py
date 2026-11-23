@@ -520,3 +520,13 @@ def test_version_3_drops_the_administrative_maintenance_table(tmp_path):
     with sqlite3.connect(path) as connection:
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert "maintenance" not in tables and {"setting", "setup_state", "change_log"} <= tables
+
+
+def test_an_invalid_cache_prefix_is_refused_by_the_cli_without_repeating_it(instance):
+    """#675: the CLI refuses through the catalog, like the setup and /platform/instance/."""
+    database, _ = instance
+    refused = "Prefixo Errado Zq9"
+    with pytest.raises(CommandError) as error:
+        run("set", "cache_key_prefix", refused)
+    assert refused not in str(error.value)
+    assert InstanceStore(database).settings() == {}

@@ -62,3 +62,18 @@ def test_the_platform_has_no_maintenance_page(skeleton_db):
     assert client.get("/platform/maintenance/").status_code == 404
     html = client.get(reverse("platform:overview")).content.decode()
     assert "/platform/maintenance/" not in html
+
+
+def test_the_drain_marker_only_takes_the_node_out_of_the_balancer(skeleton_db, tmp_path, settings):
+    """#682: while a node drains, its readiness says so and every page keeps answering."""
+    marker = tmp_path / "drain"
+    settings.SKELETON_DRAIN_MARKER = str(marker)
+    client = Client()
+    assert client.get("/health/ready/").status_code == 200
+    marker.write_text("{}")
+    ready = client.get("/health/ready/")
+    assert ready.status_code == 503 and ready.json() == {"status": "draining"}
+    assert client.get(reverse("account_login")).status_code == 200
+    assert client.get("/health/live/").status_code == 200
+    marker.unlink()
+    assert client.get("/health/ready/").status_code == 200
