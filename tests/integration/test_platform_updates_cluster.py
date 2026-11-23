@@ -114,3 +114,12 @@ def test_the_panel_shows_each_agent_version_and_warns_when_alive_nodes_differ(ad
     agent(monkeypatch, cluster={**same, "nodes": [same["nodes"][0], {**b, "agent_version": "0.6.0"}]})
     html = admin.get(reverse("platform:updates")).content.decode()
     assert "Os agentes dos nós estão em versões diferentes" in html and "0.6.0" in html
+
+
+def test_a_problem_of_the_node_reads_as_a_sentence_never_as_the_bare_code(admin, monkeypatch):
+    agent(monkeypatch, cluster={**CLUSTER, "problem": "agent_update_manual"})
+    html = admin.get(reverse("platform:updates")).content.decode()
+    assert "atualize a imagem dele" in html and "agent_update_manual" not in html
+    agent(monkeypatch, cluster={**CLUSTER, "problem": "something_new"})
+    html = admin.get(reverse("platform:updates")).content.decode()
+    assert "informou um problema (something_new)" in html

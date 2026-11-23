@@ -290,6 +290,15 @@ ERROR_TEXT = {
     "agent_versions_differ": gettext_lazy(
         "Os agentes dos nós estão em versões diferentes. Atualize o agente antes; nos containers, a imagem de cada nó."
     ),
+    # Problems a node reports in its status (#678, #689).
+    "agent_update_manual": gettext_lazy(
+        "Este nó roda o agente da imagem do container e não segue a versão do cluster sozinho: "
+        "atualize a imagem dele e rode docker compose up -d."
+    ),
+    "cluster_storage_not_shared": gettext_lazy(
+        "Os candidatos não dividem o mesmo storage_root: nenhum deles assume como primário até a montagem "
+        "compartilhada ser corrigida."
+    ),
 }
 
 
@@ -438,6 +447,15 @@ def installed(request):
             cluster = agent_client().cluster()
         except (ValueError, RuntimeError, OSError):
             cluster = {"mode": "single"}  # An agent of one node (or older): no cluster panel.
+        if cluster.get("problem"):
+            # A sentence, never the bare code; the code is closed and bounded by sanitize_cluster.
+            problem = cluster["problem"]
+            cluster = {
+                **cluster,
+                "problem": ERROR_TEXT.get(problem)
+                or gettext("O agente deste nó informou um problema (%(code)s); veja o log dele no servidor.")
+                % {"code": problem},
+            }
     return render(
         request,
         "skeleton/web/platform/updates/installed.html",
