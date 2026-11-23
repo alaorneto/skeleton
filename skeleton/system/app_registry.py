@@ -25,6 +25,8 @@ class ConfigField:
     label: str | None = None
     help_text: str = ""
     section_id: str | None = None
+    # "platform": only the platform administrator writes it, per organization (#702).
+    managed_by: str = "organization"
 
 
 @dataclass(frozen=True)
@@ -147,6 +149,7 @@ class AppManifest:
                     field.get("label"),
                     field.get("help_text", ""),
                     field.get("section_id"),
+                    field.get("managed_by", "organization"),
                 )
                 for field in runtime["configuration_fields"]
             ),

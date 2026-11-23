@@ -41,6 +41,10 @@ PLATFORM_ADMIN_REASONS = frozenset(
         "platform:organization-inspect",
         # The platform acting on one organization's billing account (#405).
         "platform:billing",
+        # The platform assigning or withdrawing an app in one organization (#699).
+        "platform:apps",
+        # The platform locking a setting of one organization and writing its value (#701).
+        "platform:setting-lock",
     }
 )
 # Admission by the person (#26, #27): opened by the admission services for one organization,
@@ -50,7 +54,16 @@ JOIN_REASONS = frozenset({"join:request", "join:link", "join:domain"})
 # ``join:domain`` runs when an email is confirmed, possibly before any login: the confirmed
 # address of the person is the proof.
 _ANONYMOUS_JOIN_REASONS = frozenset({"join:link", "join:domain"})
-HTTP_SYSTEM_REASONS = VALIDATED_IDENTITY_REASONS | PLATFORM_ADMIN_REASONS | JOIN_REASONS
+# The platform API (#711): a ``platform`` token reading one organization's billing, read-only.
+# Admitted only when the request runs with the scope ``platform.billing:read`` (never a session).
+PLATFORM_CLIENT_REASONS = frozenset({"platform:api"})
+PLATFORM_CLIENT_SCOPES = frozenset({"platform.billing:read", "platform.billing_contacts:read"})
+# The self-service signup of an organization (#715): opened only by ``skeleton.tenancy.signup``
+# for the authenticated person, after its own checks; never for an anonymous request.
+SIGNUP_REASONS = frozenset({"organization:signup"})
+HTTP_SYSTEM_REASONS = (
+    VALIDATED_IDENTITY_REASONS | PLATFORM_ADMIN_REASONS | JOIN_REASONS | PLATFORM_CLIENT_REASONS | SIGNUP_REASONS
+)
 
 _selected: ContextVar[UUID | None] = ContextVar("skeleton_selected_tenant", default=None)
 # Per-request memo (#24): created by request_context, gone when the request ends. Never an
@@ -296,6 +309,13 @@ def system_context(*, reason: str, organization_id: IdentityRef = None, using: s
         reason in VALIDATED_IDENTITY_REASONS
         or bool(prior and prior.platform_admin and reason in PLATFORM_ADMIN_REASONS)
         or bool(prior and reason in JOIN_REASONS and (prior.actor is not None or reason in _ANONYMOUS_JOIN_REASONS))
+        or bool(prior and reason in SIGNUP_REASONS and prior.actor is not None)
+        or bool(
+            prior
+            and reason in PLATFORM_CLIENT_REASONS
+            and prior.credential_scopes is not None
+            and prior.credential_scopes & PLATFORM_CLIENT_SCOPES
+        )
     )
     if prior and not prior.system and not admitted:
         raise InvalidContext("A request cannot promote itself to a system context.")

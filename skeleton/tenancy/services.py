@@ -48,8 +48,15 @@ def update_organization(organization, *, actor, data, expected_revision, using="
         return previous
 
 
-def create_organization(*, owner, slug, name, using="default"):
-    """Runs under system_context(reason="organization:create"), which HTTP opens only for the platform."""
+def create_organization(*, owner, slug, name, settings=None, storage_location="default", using="default"):
+    """Runs under system_context(reason="organization:create"), which HTTP opens only for the platform.
+
+    ``settings`` carries the values of the platform's ``required`` provisioning rules (#703);
+    every rule is applied before ``organization_created``, in the same transaction.
+    ``storage_location`` is the platform's storage location for its files (#706): a
+    ``StorageLocation``, ``None`` for the instance's storage, or ``"default"`` (the active
+    default location, else the instance's storage).
+    """
     from skeleton.access.capabilities import BUILTIN_ROLES
     from skeleton.access.models import Role
     from skeleton.access.services import provision_membership, reconcile_builtin_roles
@@ -71,6 +78,12 @@ def create_organization(*, owner, slug, name, using="default"):
                 roles[code].save(using=using)
             provision_membership(organization=organization, user=owner, role=roles["organization_admin"])
         reconcile_builtin_roles(organization_id=organization.pk, using=using)
+        from .provisioning import apply_provisioning
+
+        apply_provisioning(organization, provided=settings)
+        from skeleton.files.locations import assign_at_creation
+
+        assign_at_creation(organization, storage_location)
         from skeleton.common.organization_hooks import organization_created
 
         with system_context(reason="organization:bootstrap", organization_id=organization.pk, using=using):

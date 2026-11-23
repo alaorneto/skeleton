@@ -285,6 +285,34 @@ def own_membership_data(membership):
     }
 
 
+LIMIT_INFO = obj({"metric": string(), "used": INTEGER, "limit": INTEGER, "reserved": INTEGER, "over_limit": BOOLEAN})
+
+
+class LimitsView(TenantAPI):
+    """Usage and limit of the organization's limited metrics (#698); unlimited ones are absent."""
+
+    token_methods = ("GET",)
+    openapi = {"GET": Operation("Uso e limite das métricas limitadas da organização", results(LIMIT_INFO))}
+
+    def get(self, request, organization_id):
+        from skeleton.service_api.organizations import OrganizationService
+
+        return Response(
+            {
+                "results": [
+                    {
+                        "metric": item.metric,
+                        "used": item.used,
+                        "limit": item.limit,
+                        "reserved": item.reserved,
+                        "over_limit": item.over_limit,
+                    }
+                    for item in OrganizationService().limits(actor=request.user)
+                ]
+            }
+        )
+
+
 class OwnMembershipView(TenantAPI):
     """The actor's own membership in this organization; its ETag is what leaving requires."""
 

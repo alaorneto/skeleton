@@ -11,7 +11,7 @@ from django.core.exceptions import PermissionDenied
 from django.utils.translation import gettext
 
 from .base import ServiceAPI, service_method
-from .errors import Forbidden, InvalidInput, Unavailable
+from .errors import Conflict, Forbidden, InvalidInput, Unavailable
 from .errors import NotFound as NotFoundError
 from .identity import _user
 
@@ -159,10 +159,14 @@ class ApplicationState:
     configuration_valid: bool = True
     # Offered by the platform but not contracted by the organization (billing, #404).
     contract_required: bool = False
+    # ``enabled`` and configuration fields the platform locked (#701, since 0.6.0).
+    locked_fields: tuple[str, ...] = ()
 
 
 def _state(app_label: str) -> ApplicationState:
-    from skeleton.system.applications import application_state
+    from skeleton.system.app_registry import get_app
+    from skeleton.system.applications import application_state, platform_fields
+    from skeleton.tenancy.setting_locks import locked_fields
 
     state = application_state(app_label)
     return ApplicationState(
@@ -178,6 +182,11 @@ def _state(app_label: str) -> ApplicationState:
         sysid=state["sysid"],
         configuration_valid=state["configuration_valid"],
         contract_required=state["contract_required"],
+        locked_fields=tuple(
+            sorted(
+                {*locked_fields(f"apps.{app_label}"), *(field.name for field in platform_fields(get_app(app_label)))}
+            )
+        ),
     )
 
 
@@ -249,7 +258,8 @@ class ApplicationAdministrationService(ServiceAPI):
         Autorização: capacidade ``apps.manage``; a app precisa estar disponível para ativar ou
         configurar (indisponível, só a desativação de uma app ativa é aceita).
         Erros: NotFound para app não instalada; InvalidInput para configuração, dependência ou
-        app indisponível (``app_unavailable``); Conflict("stale_revision").
+        app indisponível (``app_unavailable``); Conflict("stale_revision"); Conflict("setting_locked")
+        para a ativação ou um campo travado pela plataforma (desde 0.6.0).
         Efeitos: grava ``AppInstallation`` (auditado) na transação do chamador.
         """
         from skeleton.system.app_registry import get_app
@@ -264,5 +274,16 @@ class ApplicationAdministrationService(ServiceAPI):
         if not current.available and (enabled is not False or not current.enabled):
             raise InvalidInput({"enabled": ["Aplicativo indisponível para esta organização."]})
         values = dict(configuration) if isinstance(configuration, tuple) else configuration
-        configure_application(app_label, user=actor, enabled=enabled, configuration=values, revision=expected_revision)
+        from django.core.exceptions import ValidationError
+
+        from .organizations import is_setting_locked
+
+        try:
+            configure_application(
+                app_label, user=actor, enabled=enabled, configuration=values, revision=expected_revision
+            )
+        except ValidationError as exc:
+            if is_setting_locked(exc):
+                raise Conflict("setting_locked") from None
+            raise
         return _state(app_label)

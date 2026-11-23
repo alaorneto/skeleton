@@ -82,6 +82,70 @@ def _clean(data: dict[str, Any]) -> dict[str, Any]:
     return values
 
 
+def clean_field(name: str, value: Any) -> Any:
+    """One setting validated and normalized like ``update_settings`` stores it (#701)."""
+    if name in CALENDAR_FIELDS:
+        from .business_hours import parse_holidays, parse_hours
+
+        if not isinstance(value, str):
+            raise ValidationError({"value": gettext("Use um texto.")})
+        return parse_hours(value) if name == "business_hours" else parse_holidays(value)
+    if name in SITE_FIELDS:
+        if not isinstance(value, bool):
+            raise ValidationError({"value": gettext("Use verdadeiro ou falso.")})
+        return value
+    if name not in WRITE_FIELDS:
+        raise ValidationError({"value": gettext("Campo não permitido.")})
+    if not isinstance(value, str):
+        raise ValidationError({"value": gettext("Use um texto.")})
+    value = value.strip()
+    if name == "brand_color":
+        from .branding import validate_brand_color
+
+        value = value.lower()
+        validate_brand_color(value)
+    if name == "default_language" and value:
+        from django.conf import settings
+
+        if value not in dict(settings.LANGUAGES):
+            raise ValidationError({"value": gettext("Idioma indisponível.")})
+    if name == "default_timezone" and value:
+        from zoneinfo import available_timezones
+
+        if value not in available_timezones():
+            raise ValidationError({"value": gettext("Fuso horário inválido.")})
+    return value
+
+
+def write_settings_field(name: str, value: Any) -> Any:
+    """Write one already validated setting in the current organization, without an actor.
+
+    For the platform locking it (#701), inside the system context of the organization: the
+    same lock, row and site index as ``update_settings``.
+    """
+    from skeleton.access.services import organization_lock
+
+    from .models import OrganizationSettings
+    from .site import sync_site
+
+    with organization_lock() as organization:
+        record = OrganizationSettings.objects.select_for_update().filter(organization=organization).first()
+        if name == "site_enabled" and value and not (record is not None and record.site_enabled):
+            refusal = site_refusal(organization)
+            if refusal:
+                raise ValidationError({"value": refusal})
+        if record is None:
+            record = OrganizationSettings(organization=organization, **{name: value})
+            record.save()
+        elif getattr(record, name) != value:
+            setattr(record, name, value)
+            record.save(update_fields={name})
+        else:
+            return record
+        sync_site(organization, record)
+        return record
+
+
 def site_refusal(organization: Any) -> str | None:
     """Why this organization cannot have its own address (#480), or ``None`` when it can."""
     from skeleton.common.hostnames import slug_problem
@@ -113,6 +177,13 @@ def update_settings(*, actor: Any, data: dict[str, Any], expected_revision: int)
     if type(expected_revision) is not int:
         raise ValidationError({"revision": gettext("Informe a revisão.")})
     values = _clean(data)
+    from .setting_locks import require_unlocked
+
+    # A setting the platform locked (#701) keeps its value: a form sends it unchanged.
+    require_unlocked(
+        {f"organization.{name}": value for name, value in values.items()},
+        field_of={f"organization.{name}": name for name in values},
+    )
     with organization_lock(actor) as organization:
         record = OrganizationSettings.objects.select_for_update().filter(organization=organization).first()
         if revision_of(record) != expected_revision:

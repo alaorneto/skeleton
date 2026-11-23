@@ -303,5 +303,12 @@ def post_migrate_catalog(sender, using, apps, **kwargs):
         from .bundled import sync_bundled_components
         from .models import ComponentInstallation
 
-        if ComponentInstallation._meta.db_table in physical_tables(connections[using]):
+        tables = physical_tables(connections[using])
+        if ComponentInstallation._meta.db_table in tables:
             sync_bundled_components(using=using)
+        from .models import InstanceIdentity
+
+        if InstanceIdentity._meta.db_table in tables:
+            from .instance_identity import ensure_instance_identity
+
+            ensure_instance_identity(using=using)  # The single identity row of this base (#708).

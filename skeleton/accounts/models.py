@@ -18,9 +18,12 @@ from .managers import UserManager
 class AccountType(models.TextChoices):
     HUMAN = "human", gettext_lazy("Pessoa")
     SERVICE = "service", gettext_lazy("Conta de serviço")
+    # A client of the platform API (#709): reads the instance by a ``platform`` token, never logs in.
+    PLATFORM_CLIENT = "platform_client", gettext_lazy("Cliente de API da plataforma")
 
 
 SERVICE_EMAIL_DOMAIN = "service.invalid"
+PLATFORM_CLIENT_EMAIL_DOMAIN = "platform-client.invalid"
 
 
 class User(SystemRecord, AbstractBaseUser, PermissionsMixin):
@@ -61,6 +64,13 @@ class User(SystemRecord, AbstractBaseUser, PermissionsMixin):
                     is_staff=False,
                     is_superuser=False,
                     local_password_allowed=False,
+                )
+                | Q(
+                    account_type="platform_client",
+                    service_organization__isnull=True,
+                    is_staff=False,
+                    is_superuser=False,
+                    local_password_allowed=False,
                 ),
                 name="sk_accounts_user_service_account",
             ),
@@ -73,7 +83,15 @@ class User(SystemRecord, AbstractBaseUser, PermissionsMixin):
 
     @property
     def is_service_account(self):
-        return self.account_type == AccountType.SERVICE
+        """A non-interactive account: a service account of an organization or a platform client (#709).
+
+        Every login path, the platform roles and the person-only lists refuse both alike.
+        """
+        return self.account_type in (AccountType.SERVICE, AccountType.PLATFORM_CLIENT)
+
+    @property
+    def is_platform_client(self):
+        return self.account_type == AccountType.PLATFORM_CLIENT
 
     def clean_fields(self, exclude=None):
         self.email = UserManager.normalize_email(self.email)

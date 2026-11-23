@@ -1,0 +1,22 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% load i18n skeleton_format %}{% block page_title %}{{ client.first_name }}{% endblock %}
+{% block content %}
+<div class="max-w-4xl">
+<div class="page-header"><div class="min-w-0">
+  <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'platform:api-clients' %}">{% translate "Clientes da API" %}</a></li><li><span aria-current="page">{{ client.first_name }}</span></li></ol></nav>
+  <h1>{{ client.first_name }}</h1>
+</div>
+{% if client.is_active %}<form method="post" action="{% url 'platform:api-client-deactivate' client.pk %}">{% csrf_token %}<button type="submit" class="btn btn-danger-outline">{% translate "Desativar cliente" %}</button></form>{% endif %}
+</div>
+{% if issued %}<div class="alert alert-warning mb-5" role="status"><div class="min-w-0"><p>{% translate "Copie o token agora: ele não será mostrado de novo." %}</p><input class="mt-2 w-full font-mono" type="text" value="{{ issued }}" readonly aria-label="{% translate "Token emitido" %}"></div></div>{% endif %}
+<div class="table-scroll mb-5"><table><thead><tr><th scope="col">{% translate "Token" %}</th><th scope="col">{% translate "Escopos" %}</th><th scope="col">{% translate "Validade" %}</th><th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
+{% for token in tokens %}<tr><td><span class="cell-primary">{{ token.name }}</span><span class="cell-secondary"><code>skt_{{ token.prefix }}_…</code>{% if token.allowed_networks %} · {{ token.allowed_networks|join:", " }}{% endif %}</span></td><td class="col-text">{{ token.scopes|join:", " }}</td><td>{{ token.expires_at|moment }}</td>
+<td class="col-actions"><form method="post">{% csrf_token %}<input type="hidden" name="action" value="revoke"><input type="hidden" name="token" value="{{ token.pk }}"><input type="hidden" name="revision" value="{{ token.revision }}"><button type="submit" class="btn btn-danger-outline btn-sm">{% translate "Revogar" %}</button></form></td></tr>
+{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhum token.") %}{% endfor %}
+</tbody></table></div>
+{% if client.is_active %}<section class="card"><h2>{% translate "Emitir token" %}</h2>
+  <form method="post" class="mt-4">{% csrf_token %}{% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" %}
+    <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Emitir" %}</button></div></form>
+</section>{% endif %}
+</div>
+{% endblock %}

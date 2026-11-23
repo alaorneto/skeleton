@@ -193,6 +193,7 @@ Uma app pode importar do núcleo apenas os nomes abaixo. A coluna "Uso" é a lis
 | Módulo | Uso |
 |---|---|
 | `skeleton.service_api` e submódulos | Base, erros, DTOs e serviços do núcleo |
+| `skeleton.service_api.insights` | `register_instance_metric`: métricas da app somadas aos números de gestão da instância ([API de gestão](platform-api.md#resumo-e-métricas-skeletoninsights), #710) |
 | `skeleton.common.models` | Bases `SystemRecord`, `OrganizationRecord`, `SecuredRecord` e o `SealableMixin` dos registros selados |
 | `skeleton.common.money` | Dinheiro em inteiros da menor unidade: `parse`, `format_amount`, `scale`, `percent`, `exponent`, `validate_currency` e a tabela `CURRENCY_EXPONENTS` (#541) |
 | `skeleton.common.sealing` | `canonical_bytes` e `digest`: o resumo SHA-256 das partes da app que entram no selo (`extra_digest`) |
@@ -243,7 +244,7 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | Serviço | Módulo | Métodos | Issue |
 |---|---|---|---|
 | `IdentityService` | `skeleton.service_api.identity` | `me`, `get_person`, `people`, `update_my_preferences`, `update_my_profile` | [#102](https://github.com/alaorneto/skeleton/issues/102), [#475](https://github.com/alaorneto/skeleton/issues/475) |
-| `OrganizationService` | `skeleton.service_api.organizations` | `current`, `my_organizations`, `members`, `groups`, `is_member`, `member_refs`, `settings`, `update_settings` | [#103](https://github.com/alaorneto/skeleton/issues/103), [#167](https://github.com/alaorneto/skeleton/issues/167) |
+| `OrganizationService` | `skeleton.service_api.organizations` | `current`, `my_organizations`, `members`, `groups`, `is_member`, `member_refs`, `settings`, `update_settings`, `limits` | [#103](https://github.com/alaorneto/skeleton/issues/103), [#167](https://github.com/alaorneto/skeleton/issues/167), [#698](https://github.com/alaorneto/skeleton/issues/698) |
 | `ExternalAccessService` | `skeleton.service_api.external` | `invite`, `revoke_invitation`, `resend_invitation`, `accesses`, `invitations`, `access_for`, `revoke`, `me` | [#532](https://github.com/alaorneto/skeleton/issues/532) |
 | `AccessService` | `skeleton.service_api.access` | `can`, `require`, `capabilities`, `granted_record_ids`, `my_groups`, `grant_member_table_access`, `grant_record_access`, `revoke_record_access`, `record_grants` | [#104](https://github.com/alaorneto/skeleton/issues/104) |
 | `ApplicationService`, `ApplicationAdministrationService` | `skeleton.service_api.applications` | `is_enabled`, `require_enabled`, `my_configuration`; administração: `applications`, `application`, `configure` | [#105](https://github.com/alaorneto/skeleton/issues/105) |
@@ -256,6 +257,7 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | `SequenceService` | `skeleton.service_api.sequences` | `next_number` | [#155](https://github.com/alaorneto/skeleton/issues/155) |
 | `RecordSealService` | `skeleton.service_api.records` | `seal`, `status`, `verify` | [#527](https://github.com/alaorneto/skeleton/issues/527) |
 | `FeedTokenService` | `skeleton.service_api.tokens` | `issue`, `issue_for_record` | [#76](https://github.com/alaorneto/skeleton/issues/76) |
+| `RemoteInstanceService` | `skeleton.service_api.remote_instances` | `connections`, `instance`, `organizations`, `organization`, `invoices`, `payments`, `metrics` (só em jobs da organização liberada; [API de gestão](platform-api.md#instância-central-conexões-remotas)) | [#712](https://github.com/alaorneto/skeleton/issues/712) |
 | `BillingService` | `skeleton.service_api.billing` | `access_state`, `entitlement`, `storage_allowance`, `check_quota`, `record_usage`, `void_usage`, `check_usage`, `usage`, `subscription`, `list_invoices`, `offers`, `contract`, `remove_item`, `cancel`, `resume`, `redeem_voucher`, `update_account`, `checkout` | [#404](https://github.com/alaorneto/skeleton/issues/404) |
 | `FlowService` | `skeleton.service_api.flows` | `start`, `signal`, `instance`, `instances`, `history`, `tasks`, `open_task_count`, `task`, `claim_task`, `release_task`, `reassign_task`, `complete_task`, `decide_task`, `cancel`, `suspend`, `resume`, `retry` | [#205](https://github.com/alaorneto/skeleton/issues/205) |
 
@@ -294,6 +296,12 @@ IdentityService().update_my_preferences(actor=request.user, expected_revision=me
 | `member_refs(*, actor, user_ids, include_service_accounts=False) -> tuple[MemberRef, ...]` | Vínculos ativos da organização entre `user_ids` (`user_id`, `membership_id`, ordenados por `user_id`), só pessoas por padrão; sem nome nem email. Vínculo ativo do ator, ou `actor=None` em `system_context` (jobs) (#343) | `InvalidInput` (identificador inválido, mais de 500) |
 | `settings(*, actor) -> OrganizationSettingsInfo` | vínculo ativo | `ContextRequired` sem organização |
 | `update_settings(*, actor, display_name, default_language, default_timezone, brand_color, expected_revision) -> OrganizationSettingsInfo` | administrador da organização | `Forbidden`; `InvalidInput` (idioma fora de `LANGUAGES`, fuso inválido, cor fora de `#RRGGBB`, nome acima de 200 caracteres); `Conflict("stale_revision")` |
+
+| `limits(*, actor) -> tuple[LimitInfo, ...]` (desde 0.6.0) | vínculo ativo com `members.view` ou `members.manage` | `Forbidden` sem a capacidade |
+
+`LimitInfo` tem `metric`, `used`, `limit`, `reserved` (convites pendentes, só em `members`) e `over_limit`; só aparecem as métricas com limite ([limites da organização](organization-limits.md)).
+
+`OrganizationSettingsInfo.locked_fields` (desde 0.6.0) traz os campos que a plataforma travou, e `update_settings` responde `Conflict("setting_locked")` a uma mudança deles; `ApplicationState.locked_fields` traz a ativação e os campos da app travados ou geridos pela plataforma, e `ApplicationAdministrationService.configure` responde `Conflict("setting_locked")` a uma mudança deles; `ApplicationService.my_configuration` devolve também os campos geridos pela plataforma ([configurações geridas pela plataforma](managed-settings.md)).
 
 As configurações começam em branco com `revision=0` e passam a existir na primeira gravação; valores em branco significam "use o padrão da instância", e `has_logo` diz se há logo sem revelar a chave do storage.
 

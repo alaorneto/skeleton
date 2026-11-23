@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     "skeleton.flows.apps.FlowsConfig",
     "skeleton.comments.apps.CommentsConfig",
     "skeleton.billing.apps.BillingConfig",
+    "skeleton.insights.apps.InsightsConfig",
     "skeleton.appearance.apps.AppearanceConfig",
     "skeleton.instance.apps.InstanceConfig",
     "skeleton.observability.apps.ObservabilityConfig",
@@ -238,6 +239,11 @@ FILE_UPLOAD_HANDLERS = [
 # SKELETON_FILES_ROOT is a volume shared by every node (NFS, EFS, CephFS); checked in cluster mode (#673).
 SKELETON_FILES_SHARED = env.bool("SKELETON_FILES_SHARED", default=False)
 SKELETON_FILES_ORG_QUOTA_BYTES = env.int("SKELETON_FILES_ORG_QUOTA_BYTES", default=0) or None
+# Secrets of the platform's storage locations (#704): Fernet keys, the first encrypts.
+FILES_STORAGE_ENCRYPTION_KEYS = env.list("FILES_STORAGE_ENCRYPTION_KEYS", default=[])
+# Root of the ``filesystem`` storage locations; only the development and test profiles allow them (#704).
+SKELETON_FILES_DIRECTORY_LOCATIONS = False
+SKELETON_FILES_LOCATIONS_ROOT = env("SKELETON_FILES_LOCATIONS_ROOT", default=str(BASE_DIR / "var" / "file-locations"))
 # Default member limit of every organization (empty or 0: no default, unlimited); apps, the plan and
 # the platform add to it (#695, docs/organization-limits.md).
 SKELETON_ORGANIZATION_MEMBER_LIMIT = env.int("SKELETON_ORGANIZATION_MEMBER_LIMIT", default=0) or None
@@ -325,6 +331,9 @@ from skeleton.api.proxy import proxy_settings
 
 globals().update(proxy_settings(env))
 SKELETON_PUBLIC_SIGNUP = env.bool("SKELETON_PUBLIC_SIGNUP", default=False)
+# A person creates her own organization at /organizations/new/ and picks a bundle (#715).
+SKELETON_ORGANIZATION_SIGNUP_ENABLED = env.bool("SKELETON_ORGANIZATION_SIGNUP_ENABLED", default=False)
+SKELETON_ORGANIZATION_SIGNUP_MAX_PER_PERSON = env.int("SKELETON_ORGANIZATION_SIGNUP_MAX_PER_PERSON", default=1)
 SKELETON_EVENT_RETENTION_DAYS = env.int("SKELETON_EVENT_RETENTION_DAYS", default=30)
 # CSV export and import (#182, #183).
 SKELETON_EXPORT_MAX_ROWS = env.int("SKELETON_EXPORT_MAX_ROWS", default=100_000)
@@ -394,6 +403,11 @@ IDENTITY_PROVIDER_ENCRYPTION_KEYS = env.list("IDENTITY_PROVIDER_ENCRYPTION_KEYS"
 INTEGRATION_ENCRYPTION_KEYS = env.list("INTEGRATION_ENCRYPTION_KEYS", default=[])
 # Separate keyring for payment provider secrets (#394, #400); never derived from SECRET_KEY.
 BILLING_ENCRYPTION_KEYS = env.list("BILLING_ENCRYPTION_KEYS", default=[])
+# The management figures of the instance (#710): hourly snapshots and daily metrics. Opt-in, for an
+# instance that reports to a central one; read at start.
+SKELETON_INSIGHTS_ENABLED = env.bool("SKELETON_INSIGHTS_ENABLED", default=False)
+# Tokens of the connections of a central instance to remote ones (#712): Fernet keys, the first encrypts.
+REMOTE_INSTANCE_ENCRYPTION_KEYS = env.list("REMOTE_INSTANCE_ENCRYPTION_KEYS", default=[])
 MFA_ADAPTER = "skeleton.accounts.adapters.EncryptedMFAAdapter"
 MFA_SUPPORTED_TYPES = ["totp", "recovery_codes"]
 MFA_ALLOW_UNVERIFIED_EMAIL = False

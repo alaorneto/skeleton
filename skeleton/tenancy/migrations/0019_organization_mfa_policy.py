@@ -48,7 +48,7 @@ SETTINGS = {
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("sk_tenancy", "0015_organization_pages"),
+        ("sk_tenancy", "0018_organization_signups"),
     ]
 
     operations = [

@@ -1,0 +1,14 @@
+{% extends 'skeleton/web/base.html' %}{% load i18n %}{% block title %}{% translate "Criar organização" %} · {{ site_name }}{% endblock %}
+{% block content %}
+<div class="max-w-3xl">
+<div class="page-header"><div class="min-w-0"><h1>{% translate "Criar organização" %}</h1>
+<p class="page-description">{% translate "Você vira a administradora da organização criada e pode convidar a sua equipe depois." %}</p></div></div>
+{% if unavailable %}<p class="alert alert-warning mb-5" role="status">{% translate "O cadastro de organizações está indisponível no momento." %}</p>
+{% elif not remaining %}<p class="alert alert-warning mb-5" role="status">{% translate "Você já criou o número máximo de organizações." %}</p>
+{% else %}
+<div class="grid gap-4 sm:grid-cols-2 mb-5">{% for item in bundles %}<section class="card"><h2 class="text-base">{{ item.bundle.label }}</h2>{% if item.bundle.description %}<p class="mt-1 text-sm/6 text-body">{{ item.bundle.description }}</p>{% endif %}<p class="mt-2 text-sm/6 text-body-subtle">{{ item.members }}</p></section>{% empty %}<p class="text-body-subtle">{% translate "Nenhum pacote oferecido." %}</p>{% endfor %}</div>
+<section class="card"><form method="post">{% csrf_token %}{% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" %}
+<div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Criar organização" %}</button><a class="btn btn-secondary" href="{% url 'web:home' %}">{% translate "Cancelar" %}</a></div></form></section>
+{% endif %}
+</div>
+{% endblock %}
