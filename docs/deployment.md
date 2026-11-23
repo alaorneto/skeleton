@@ -184,6 +184,20 @@ SECURE_CSP = {**SKELETON_CSP, "img-src": [*SKELETON_CSP["img-src"], "https://cdn
 
 Para uma view só, use `django.views.decorators.csp.csp_override` (ou `csp_report_only_override` para observar antes). Ao introduzir uma origem nova, publique primeiro em `SECURE_CSP_REPORT_ONLY` e confira o console do navegador nas telas afetadas.
 
+Um proxy ou CDN na frente da instância pode injetar script no HTML no caminho até o navegador, e a CSP bloqueia esse script porque ele não vem do próprio site. O caso comum é a Cloudflare: o Web Analytics em modo automático acrescenta `https://static.cloudflareinsights.com/beacon.min.js` a toda página, e o console mostra a violação de `script-src 'self'`; Rocket Loader e a ofuscação de email fazem o mesmo com scripts próprios. Desligue essas injeções no painel do proxy (no Web Analytics, a injeção automática do site). Se quiser mesmo a métrica do proxy, a decisão é do operador: libere a origem no overlay de settings, sabendo que todo script de terceiro roda com o acesso da página, inclusive nas telas autenticadas; a política distribuída com o núcleo continua só `'self'`. Para o Web Analytics da Cloudflare:
+
+```python
+from skeleton.conf.base import SKELETON_CSP
+
+SECURE_CSP = {
+    **SKELETON_CSP,
+    "script-src": [*SKELETON_CSP["script-src"], "https://static.cloudflareinsights.com"],
+    "connect-src": [*SKELETON_CSP["connect-src"], "https://cloudflareinsights.com"],
+}
+```
+
+`script-src` deixa o beacon carregar; `connect-src` cobre o envio direto à Cloudflare (num site que passa pelo proxy dela, o envio costuma ir a `/cdn-cgi/rum` do próprio site, já coberto por `'self'`). A tag injetada aponta para um arquivo externo, sem código inline, por isso não precisa de nonce nem de `'unsafe-inline'`. O overlay exige um `config/` próprio: uma instância que roda o pacote de release oficial sem settings próprias não tem onde estender a política e deve desligar a injeção.
+
 
 ## Provisionamento PostgreSQL
 
