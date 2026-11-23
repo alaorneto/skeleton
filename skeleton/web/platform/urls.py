@@ -3,13 +3,18 @@ from django.urls import path
 from skeleton.web.page_editor import editor_urls
 
 from . import (
+    api_clients_views,
     appearance_views,
     billing_views,
+    bundles_views,
     identity_views,
+    insights_views,
     instance_views,
     jobs_views,
     native_clients_views,
     privacy_views,
+    remote_instances_views,
+    storage_views,
     updates,
     views,
 )
@@ -18,8 +23,30 @@ app_name = "platform"
 urlpatterns = [
     path("", views.overview, name="overview"),
     path("instance/", instance_views.instance, name="instance"),
+    path("insights/", insights_views.insights, name="insights"),
+    path("api-clients/", api_clients_views.api_clients, name="api-clients"),
+    path("bundles/", bundles_views.bundle_list, name="bundles"),
+    path("bundles/<uuid:sysid>/", bundles_views.bundle_detail, name="bundle"),
+    path("organizations/<uuid:sysid>/bundle/", bundles_views.organization_bundle, name="organization-bundle"),
+    path("storage/", storage_views.storage_locations, name="storage"),
+    path("storage/new/", storage_views.storage_location_create, name="storage-create"),
+    path("storage/<uuid:sysid>/", storage_views.storage_location, name="storage-location"),
+    path("storage/<uuid:sysid>/test/", storage_views.storage_location_test, name="storage-location-test"),
+    path(
+        "organizations/<uuid:sysid>/storage/location/",
+        storage_views.organization_storage_location,
+        name="organization-storage-location",
+    ),
+    path("remote-instances/", remote_instances_views.remote_instances, name="remote-instances"),
+    path("remote-instances/<uuid:sysid>/", remote_instances_views.remote_instance, name="remote-instance"),
+    path(
+        "remote-instances/<uuid:sysid>/test/", remote_instances_views.remote_instance_test, name="remote-instance-test"
+    ),
+    path("api-clients/<uuid:sysid>/", api_clients_views.api_client, name="api-client"),
+    path("api-clients/<uuid:sysid>/deactivate/", api_clients_views.api_client_deactivate, name="api-client-deactivate"),
     path("instance/setting/", instance_views.instance_setting, name="instance-setting"),
     path("instance/restart/", instance_views.instance_restart, name="instance-restart"),
+    path("instance/identity/", instance_views.instance_identity_update, name="instance-identity"),
     path("appearance/", appearance_views.appearance, name="appearance"),
     path("appearance/brand/", appearance_views.appearance_brand, name="appearance-brand"),
     # The public home page of the instance (#622): the shared block editor (#619).
@@ -106,8 +133,26 @@ urlpatterns = [
     path("users/<uuid:sysid>/roles/<uuid:assignment>/revoke/", views.user_role_revoke, name="user-role-revoke"),
     path("organizations/", views.organizations, name="organizations"),
     path("organizations/new/", views.organization_create, name="organization-create"),
+    path("organizations/policy/", views.organization_policy, name="organization-policy"),
     path("organizations/<uuid:sysid>/", views.organization_detail, name="organization"),
     path("organizations/<uuid:sysid>/storage/", views.organization_storage, name="organization-storage"),
+    path("organizations/<uuid:sysid>/settings/", views.organization_setting_locks, name="organization-settings"),
+    path(
+        "organizations/<uuid:sysid>/apps/<str:app_label>/configuration/",
+        views.organization_app_configuration,
+        name="organization-app-configuration",
+    ),
+    path("organizations/<uuid:sysid>/limits/", views.organization_limits, name="organization-limits"),
+    path(
+        "organizations/<uuid:sysid>/apps/<str:app_label>/assign/",
+        views.organization_app_assign,
+        name="organization-app-assign",
+    ),
+    path(
+        "organizations/<uuid:sysid>/apps/<str:app_label>/unassign/",
+        views.organization_app_unassign,
+        name="organization-app-unassign",
+    ),
     path(
         "organizations/<uuid:sysid>/administrators/",
         views.organization_administrators,
@@ -151,6 +196,7 @@ urlpatterns = [
     path("apps/<str:app_label>/availability/", views.app_availability, name="app-availability"),
     path("apps/<str:app_label>/availability/grant/", views.app_grant, name="app-grant"),
     path("apps/<str:app_label>/availability/revoke/", views.app_revoke, name="app-revoke"),
+    path("apps/<str:app_label>/availability/limits/", views.app_limits, name="app-limits"),
     path("apps/<str:app_label>/documentation/", views.app_documentation, name="app-documentation"),
     path("apps/<str:app_label>/screens/<str:screen_id>/", views.app_screen, name="app-screen"),
     path("native-clients/", native_clients_views.native_clients, name="native-clients"),

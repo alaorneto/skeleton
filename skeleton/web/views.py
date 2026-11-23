@@ -261,7 +261,12 @@ def form_error(form, error):
                 form.add_error(field if field in form.fields else None, errors)
         else:
             form.add_error(None, error.messages)
-        return 409 if code == "integrity_conflict" else 400
+        limited = code == "quota_exceeded" or any(
+            item.code == "quota_exceeded"
+            for items in (error.error_dict.values() if hasattr(error, "error_dict") else [error.error_list])
+            for item in items
+        )
+        return 409 if code == "integrity_conflict" or limited else 400
     if code == "stale_revision":
         form.add_error(None, gettext("O registro foi alterado. Atualize a página antes de tentar novamente."))
     elif code == "live_references":
@@ -319,8 +324,16 @@ def home(request):
                 for item in suggestions(request.user)
             ],
             "join_directory": bool(directory(request.user)),
+            # The self-service signup (#715): only when on and below the person's ceiling.
+            "can_signup": _can_signup(request.user),
         },
     )
+
+
+def _can_signup(user):
+    from skeleton.tenancy import signup
+
+    return signup.eligible(user)
 
 
 @never_cache
@@ -513,6 +526,34 @@ def dashboard(request, organization_id):
     return render_home(request, organization_id, document, organization=organization)
 
 
+def member_limit_meter(organization_id):
+    """Usage of ``members`` in the current organization for the pages that admit people (#698).
+
+    ``None`` when the organization has no member limit. ``taken`` counts the seats invitations
+    reserve; ``full`` is no seat left for a new invitation or entry.
+    """
+    from django.urls import reverse
+
+    from skeleton.system.limits import MEMBERS, limit_status
+    from skeleton.tenancy.invitations import pending_invitations
+
+    status = limit_status(MEMBERS)
+    if status.limit is None:
+        return None
+    reserved = pending_invitations()
+    taken = status.used + reserved
+    return {
+        "used": status.used,
+        "limit": status.limit,
+        "reserved": reserved,
+        "taken": min(taken, status.limit),
+        "percent": min(100, round(100 * taken / status.limit)) if status.limit else 100,
+        "full": taken >= status.limit,
+        "over_limit": status.over_limit,
+        "apps_url": reverse("application-list", kwargs={"organization_id": organization_id}),
+    }
+
+
 @tenant_page(capability=access_capability)
 def access_list(request, organization_id, resource):
     model, fields = dedicated_model(resource)
@@ -541,6 +582,7 @@ def access_list(request, organization_id, resource):
             "organization_id": organization_id,
             "resource": resource,
             "is_link": resource in LINKS,
+            "meter": member_limit_meter(organization_id) if resource in ("memberships", "invitations") else None,
         },
     )
 

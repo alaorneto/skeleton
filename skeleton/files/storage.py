@@ -62,7 +62,25 @@ class _LimitedReader:
 
 
 def private_storage():
+    """The instance's own storage: ``platform/`` keys, the setup and organizations without a location."""
     return storages[ALIAS]
+
+
+ORGANIZATION_KEY = re.compile(rf"^org/({_UUID})/")
+
+
+def storage_for_organization(organization_id: UUID | str) -> Any:
+    """The storage of the organization's files: its assigned location (#705) or the instance's."""
+    from .locations import location_for, storage_of
+
+    location = location_for(UUID(str(organization_id)))
+    return private_storage() if location is None else storage_of(location)
+
+
+def storage_for_key(key: str) -> Any:
+    """The storage that holds ``key``: ``org/<uuid>/...`` by its organization, ``platform/...`` the instance's."""
+    match = ORGANIZATION_KEY.match(key)
+    return storage_for_organization(match.group(1)) if match else private_storage()
 
 
 def object_key(organization_id: UUID | str, attachment_id: UUID | str) -> str:
@@ -77,8 +95,8 @@ def _checked(key: str) -> str:
 
 def put_stream(key: str, stream: IO[bytes], *, max_bytes: int) -> int:
     """Store the stream under ``key`` exactly (never renamed); refuse more than ``max_bytes``."""
-    storage = private_storage()
     key = _checked(key)
+    storage = storage_for_key(key)
     if storage.exists(key):
         raise StorageError("Object already exists.")
     reader = _LimitedReader(stream, max_bytes)
@@ -94,20 +112,21 @@ def put_stream(key: str, stream: IO[bytes], *, max_bytes: int) -> int:
 
 
 def open_object(key: str) -> IO[bytes]:
-    return private_storage().open(_checked(key), "rb")
+    key = _checked(key)
+    return storage_for_key(key).open(key, "rb")
 
 
 def delete(key: str) -> None:
-    storage = private_storage()
     key = _checked(key)
+    storage = storage_for_key(key)
     if storage.exists(key):
         storage.delete(key)
 
 
 def presigned_url(key: str, *, filename: str, expires: int = 60) -> str | None:
     """A short-lived S3 URL with a forced download disposition, or None for local storage."""
-    storage = private_storage()
     key = _checked(key)
+    storage = storage_for_key(key)
     if not hasattr(storage, "bucket"):
         return None
     if expires > 60:
@@ -125,8 +144,8 @@ def list_prefix(prefix: str) -> list[str]:
     """Keys under ``org/<organization>/``, its ``branding/`` or ``transfers/``, or ``platform/branding/`` (orphans)."""
     if not re.fullmatch(r"(?:org/[0-9a-f-]{36}(?:/branding|/transfers)?|platform/branding)/?", prefix):
         raise StorageError("Invalid prefix.")
-    storage = private_storage()
     prefix = prefix.rstrip("/")
+    storage = storage_for_key(prefix + "/")
     try:
         _, files = storage.listdir(prefix)
     except FileNotFoundError:

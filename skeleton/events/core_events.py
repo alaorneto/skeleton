@@ -46,6 +46,10 @@ def membership_changed(membership: Any, *, was_active: bool) -> None:
         return
     code = MEMBERSHIP_CREATED if active else MEMBERSHIP_DEACTIVATED
     publish_event(code, record=membership, data={"user": membership.user_id})
+    if active:
+        from skeleton.tenancy.limit_notices import member_admitted
+
+        member_admitted(membership.organization_id)  # The last seat taken notifies who manages members (#698).
 
 
 def application_changed(installation: Any, *, was_enabled: bool) -> None:

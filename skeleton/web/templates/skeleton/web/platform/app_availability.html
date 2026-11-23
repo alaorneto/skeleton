@@ -35,6 +35,18 @@
     <ul class="mt-2">{% for app in required_by %}<li class="text-sm"><a href="{% url 'platform:app-availability' app.app_label %}">{{ app.label }}</a></li>{% endfor %}</ul>
     {% endif %}
   </section>
+  <section class="card lg:col-span-2" aria-labelledby="availability-limits">
+    <h2 id="availability-limits">Acréscimos por organização</h2>
+    <p class="mt-1 text-sm/6 text-body-subtle">Quanto {{ application.label }} soma aos limites de cada organização em que estiver em uso (disponível, contratada, ativa e com as dependências). Vazio ou 0: não soma nada.</p>
+    {% if limits_without_base %}<p class="alert alert-warning mt-4" role="status">Sem limite padrão de membros na instância, este acréscimo vira o limite inteiro.</p>{% endif %}
+    {% if availability.mode %}
+    <form method="post" action="{% url 'platform:app-limits' application.app_label %}" class="mt-5">
+      {% csrf_token %}
+      {% with form=limits_form %}{% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" %}{% endwith %}
+      <div class="form-actions"><button type="submit" class="btn btn-primary">Salvar acréscimos</button></div>
+    </form>
+    {% else %}<p class="mt-4 text-sm/6 text-body-subtle">Defina a disponibilidade da app antes.</p>{% endif %}
+  </section>
   <section class="card lg:col-span-2" aria-labelledby="availability-grants">
     <h2 id="availability-grants">Organizações concedidas</h2>
     <p class="mt-1 text-sm/6 text-body-subtle">Revogar só fecha o portão: a ativação e os parâmetros que a organização escolheu ficam preservados e voltam se a concessão for refeita.</p>

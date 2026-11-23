@@ -207,6 +207,11 @@ def activate_for_entitlement(app_label):
     kept (defaults for a first activation) and the same ``app.enabled`` event. Already enabled
     is a no-op; a refusal raises ``ValidationError``.
     """
+    return _activate_by_infrastructure(app_label)
+
+
+def _activate_by_infrastructure(app_label):
+    """The activation shared by billing (#396) and the platform (#699), in the current organization."""
     from skeleton.access.services import organization_lock
     from skeleton.events.core_events import application_changed
 
@@ -235,6 +240,167 @@ def activate_for_entitlement(app_label):
         return record
 
 
+def _deactivate_by_infrastructure(app_label):
+    """Turn ``app_label`` off in the current organization, keeping its configuration (#699)."""
+    from skeleton.access.services import organization_lock
+    from skeleton.events.core_events import application_changed
+
+    from .models import AppInstallation
+
+    get_app(app_label)
+    with organization_lock():
+        record = AppInstallation.objects.filter(app_label=app_label).first()
+        if record is None or not record.enabled:
+            return record
+        require_activation_allowed(app_label, enabled=False)
+        record.enabled = False
+        record.save(update_fields={"enabled"})
+        forget_application_states(everywhere=True)
+        application_changed(record, was_enabled=True)
+        return record
+
+
+PLATFORM_APPS_REASON = "platform:apps"
+
+
+@transaction.atomic
+def assign_app(app_label, *, user, organization_id):
+    """The platform gives one organization an app (#699): offers it and activates it with its dependencies.
+
+    In ``selected`` mode the app (and each dependency not yet offered) is granted to the
+    organization; then, in the system context of that organization only, the dependencies and
+    the app are activated with the same checks as an activation by the organization (availability,
+    billing entitlement, dependencies). An app already effective changes nothing.
+    """
+    from django.utils.translation import gettext
+
+    from skeleton.accounts.platform import require_platform_context
+    from skeleton.common.exceptions import ApplicationNotEntitled
+    from skeleton.tenancy.context import system_context
+
+    from .availability import grant_app, platform_availability_map
+    from .models import AppAvailability
+
+    require_platform_context(user)
+    labels = [*required_labels(app_label), app_label]  # Dependencies first.
+    for label in labels:
+        get_app(label)
+        if not AppAvailability.objects.filter(app_label=label).exists():
+            raise ValidationError(
+                {
+                    "app_label": ValidationError(
+                        gettext("Defina a disponibilidade da app antes."), code="no_availability"
+                    )
+                }
+            )
+    for label in labels:
+        if not platform_availability_map([label], organization_id=organization_id)[label]:
+            grant_app(label, user=user, organization_id=organization_id)
+    with system_context(reason=PLATFORM_APPS_REASON, organization_id=organization_id):
+        try:
+            for label in labels:
+                _activate_by_infrastructure(label)
+        except ApplicationNotEntitled as refused:
+            message = gettext("App paga: use a cobrança da organização.")
+            raise ApplicationNotEntitled({"app_label": ValidationError(message, code="app_not_entitled")}) from refused
+
+
+@transaction.atomic
+def unassign_app(app_label, *, user, organization_id, revoke_grant=True):
+    """The platform takes an app back from one organization (#699).
+
+    Deactivates it (refused while a dependent app is active there; the message lists them),
+    keeps its configuration and data and, in ``selected`` mode with ``revoke_grant``, also
+    revokes the grant. Nothing of the app's data is deleted.
+    """
+    from skeleton.accounts.platform import require_platform_context
+    from skeleton.tenancy.context import system_context
+
+    from .availability import revoke_app
+    from .models import AppAvailability
+
+    require_platform_context(user)
+    get_app(app_label)
+    with system_context(reason=PLATFORM_APPS_REASON, organization_id=organization_id):
+        _deactivate_by_infrastructure(app_label)
+    mode = AppAvailability.objects.filter(app_label=app_label).values_list("mode", flat=True).first()
+    if revoke_grant and mode == AppAvailability.Mode.SELECTED:
+        revoke_app(app_label, user=user, organization_id=organization_id)
+
+
+def platform_fields(manifest):
+    """The configuration fields only the platform writes (``managed_by: "platform"``, #702)."""
+    return tuple(field for field in manifest.configuration_fields if field.managed_by == "platform")
+
+
+def _keep_platform_fields(manifest, configuration):
+    """The organization's configuration with the platform's fields as they are stored (#702).
+
+    An absent platform field keeps the stored value; a different one is refused with
+    ``setting_locked``, before anything is written. Infrastructure is not restricted.
+    """
+    from .models import AppInstallation
+
+    managed = platform_fields(manifest)
+    if not managed or not isinstance(configuration, dict) or current_context().system:
+        return configuration
+    record = AppInstallation.objects.filter(app_label=manifest.app_label).first()
+    stored = validate_configuration(manifest, record.configuration if record else {})
+    result = dict(configuration)
+    for field in managed:
+        if field.name not in result:
+            result[field.name] = stored[field.name]
+        elif result[field.name] != stored[field.name]:
+            message = gettext("Definido pela plataforma: %(name)s.") % {"name": field.label or field.name}
+            raise ValidationError({"configuration": ValidationError(message, code="setting_locked")})
+    return result
+
+
+@transaction.atomic
+def configure_application_by_platform(app_label, *, user, organization_id, values, revision):
+    """The platform administrator writes the platform's fields of one organization (#702).
+
+    Only fields with ``managed_by: "platform"`` are accepted, validated by the manifest; CAS by
+    the revision of the organization's ``AppInstallation`` (0 before it exists: the row is
+    created disabled with the defaults). Opens the system context of that organization only.
+    """
+    from skeleton.accounts.platform import require_platform_context
+    from skeleton.tenancy.context import system_context
+
+    from .models import AppInstallation
+
+    require_platform_context(user)
+    manifest = get_app(app_label)
+    allowed = {field.name for field in platform_fields(manifest)}
+    if not isinstance(values, dict) or set(values) - allowed:
+        raise ValidationError(
+            {"configuration": gettext("Só os campos geridos pela plataforma podem ser gravados aqui.")}
+        )
+    if type(revision) is not int:
+        raise ConcurrentUpdate("Application configuration changed.")
+    from skeleton.access.services import organization_lock
+
+    with system_context(reason=PLATFORM_FIELDS_REASON, organization_id=organization_id), organization_lock():
+        record = AppInstallation.objects.select_for_update().filter(app_label=app_label).first()
+        if (record.revision if record else 0) != revision:
+            raise ConcurrentUpdate("Application configuration changed.")
+        stored = validate_configuration(manifest, record.configuration if record else {})
+        merged = validate_configuration(manifest, {**stored, **values})
+        if record is None:
+            record = AppInstallation(
+                organization_id=organization_id, app_label=app_label, enabled=False, configuration=merged
+            )
+            record.save()
+        elif record.configuration != merged:
+            record.configuration = merged
+            record.save(update_fields={"configuration"})
+        forget_application_states(everywhere=True)
+        return record
+
+
+PLATFORM_FIELDS_REASON = "platform:setting-lock"
+
+
 @transaction.atomic
 def configure_application(app_label, *, user, enabled, configuration, revision):
     from skeleton.access.capabilities import APPS_MANAGE, require_capability
@@ -248,7 +414,18 @@ def configure_application(app_label, *, user, enabled, configuration, revision):
     validate_dependencies()
     if type(enabled) is not bool:
         raise ValidationError({"enabled": gettext("Use true or false.")})
+    configuration = _keep_platform_fields(manifest, configuration)
     values = validate_configuration(manifest, configuration)
+    from skeleton.tenancy.setting_locks import require_unlocked
+
+    # Activation and fields the platform locked (#701) keep their values.
+    require_unlocked(
+        {f"apps.{app_label}.enabled": enabled, **{f"apps.{app_label}.{name}": value for name, value in values.items()}},
+        field_of={
+            f"apps.{app_label}.enabled": "enabled",
+            **{f"apps.{app_label}.{name}": "configuration" for name in values},
+        },
+    )
     # Serialize even the first virtual revision=0 transition and dependency changes. The lock
     # re-validates the organization and the actor's capability once it is held (#253).
     with organization_lock(user, capability=APPS_MANAGE):

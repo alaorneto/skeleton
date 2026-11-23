@@ -51,16 +51,28 @@
     <p class="mt-4 text-sm/6 text-body-subtle">{% translate "Reative a organização para designar administradores." %}</p>
     {% endif %}
   </section>
+  {% if bundle.choices %}<section class="card lg:col-span-2" aria-labelledby="organization-bundle">
+    <h2 id="organization-bundle">{% translate "Pacote de apps" %}</h2>
+    <p class="mt-1 text-sm/6 text-body-subtle">{% translate "Atual:" %} <strong>{% if bundle.current %}{{ bundle.current.label }}{% else %}{% translate "nenhum" %}{% endif %}</strong>. {% translate "Trocar ativa as apps do pacote novo e desativa as do anterior que ele não mantém; a pré-visualização mostra o efeito no limite de membros." %}</p>
+    <form method="get" action="{% url 'platform:organization-bundle' subject.pk %}" class="mt-4 toolbar"><label class="sr-only" for="bundle-choice">{% translate "Pacote" %}</label><select id="bundle-choice" name="bundle">{% for choice in bundle.choices %}<option value="{{ choice.code }}"{% if bundle.current.pk == choice.pk %} selected{% endif %}>{{ choice.label }}</option>{% endfor %}</select><button type="submit" class="btn btn-secondary btn-sm">{% translate "Pré-visualizar" %}</button></form>
+  </section>{% endif %}
   <section class="card lg:col-span-2" aria-labelledby="organization-applications">
     <h2 id="organization-applications">Aplicativos</h2>
-    <p class="mt-1 text-sm/6 text-body-subtle">A disponibilidade é decidida pela plataforma; a ativação, pela própria organização. Esta leitura não mostra parâmetros nem dados de negócio.</p>
-    <div class="table-scroll mt-4"><table><thead><tr><th scope="col">Aplicativo</th><th scope="col">Disponível</th><th scope="col">Ativada pela organização</th><th scope="col">Em uso</th></tr></thead><tbody>
-    {% for app in overview.applications %}<tr>
-      <td><a class="cell-primary" href="{% url 'platform:app-availability' app.app_label %}">{{ app.label }}</a></td>
+    <p class="mt-1 text-sm/6 text-body-subtle">A disponibilidade é decidida pela plataforma; a ativação, pela própria organização ou pela plataforma ao atribuir. Esta leitura não mostra parâmetros nem dados de negócio. Limite de membros atual: <strong>{% if member_limit is None %}ilimitado{% else %}{{ member_limit }}{% endif %}</strong>.</p>
+    {% if apps_error %}<p class="errorlist nonfield mt-4" role="alert">{{ apps_error }}</p>{% endif %}
+    <div class="table-scroll mt-4"><table><thead><tr><th scope="col">Aplicativo</th><th scope="col">Disponível</th><th scope="col">Ativada pela organização</th><th scope="col">Em uso</th><th scope="col" class="col-num">Membros</th><th scope="col" class="col-actions"><span class="sr-only">Ações</span></th></tr></thead><tbody>
+    {% for row in apps %}{% with app=row.app %}<tr>
+      <td><a class="cell-primary" href="{% url 'platform:app-availability' app.app_label %}">{{ app.label }}</a>{% if app.app_label in platform_configurable %}<span class="cell-secondary"><a href="{% url 'platform:organization-app-configuration' subject.pk app.app_label %}">Campos da plataforma</a></span>{% endif %}</td>
       <td>{% if app.available %}{{ "active"|status_badge:"Sim" }}{% else %}{{ "inactive"|status_badge:"Não" }}{% endif %}</td>
       <td>{% if app.enabled %}{{ "active"|status_badge:"Sim" }}{% else %}{{ "inactive"|status_badge:"Não" }}{% endif %}</td>
       <td>{% if app.effective %}{{ "active"|status_badge:"Sim" }}{% elif app.enabled %}{{ "past_due"|status_badge:"Bloqueada" }}{% else %}{{ "inactive"|status_badge:"Não" }}{% endif %}</td>
-    </tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message="Nenhum aplicativo instalado." icon="cube" %}{% endfor %}
+      <td class="col-num">{% if row.members %}+{{ row.members }}{% else %}—{% endif %}</td>
+      <td class="col-actions">{% if subject.is_active and row.offered %}<div class="row-actions">{% if app.effective %}
+        <form method="post" action="{% url 'platform:organization-app-unassign' subject.pk app.app_label %}">{% csrf_token %}<button type="submit" class="btn btn-danger-outline btn-sm">Retirar<span class="sr-only"> {{ app.label }}</span></button></form>
+      {% else %}
+        <form method="post" action="{% url 'platform:organization-app-assign' subject.pk app.app_label %}">{% csrf_token %}<button type="submit" class="btn btn-secondary btn-sm">Atribuir<span class="sr-only"> {{ app.label }}</span></button></form>
+      {% endif %}</div>{% elif not row.offered %}<span class="text-sm text-body-subtle">Sem disponibilidade</span>{% endif %}</td>
+    </tr>{% endwith %}{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=6 message="Nenhum aplicativo instalado." icon="cube" %}{% endfor %}
     </tbody></table></div>
   </section>
   <section class="card lg:col-span-2" aria-labelledby="organization-identity">
@@ -74,10 +86,22 @@
     <p class="mt-1 text-sm/6 text-body-subtle">{% translate "Assinatura, faturas, pagamentos, baixa manual, prorrogação e cortesia." %}</p>
     <p class="mt-4"><a class="btn btn-secondary" href="{% url 'platform:organization-billing' subject.pk %}">{% translate "Abrir a cobrança" %}</a></p>
   </section>
+  <section class="card" aria-labelledby="organization-limits">
+    <h2 id="organization-limits">{% translate "Limites" %}</h2>
+    <p class="mt-1 text-sm/6 text-body-subtle">{% translate "De onde vem cada limite (padrão da instância, apps, cobrança) e o ajuste da plataforma para esta organização." %}</p>
+    <p class="mt-4"><a class="btn btn-secondary" href="{% url 'platform:organization-limits' subject.pk %}">{% translate "Abrir os limites" %}</a></p>
+  </section>
+  <section class="card" aria-labelledby="organization-locks">
+    <h2 id="organization-locks">{% translate "Configurações travadas" %}</h2>
+    <p class="mt-1 text-sm/6 text-body-subtle">{% translate "Valores que a plataforma fixa nesta organização: ela vê o campo desabilitado e não consegue mudá-lo." %}</p>
+    <p class="mt-4"><a class="btn btn-secondary" href="{% url 'platform:organization-settings' subject.pk %}">{% translate "Abrir as travas" %}</a></p>
+  </section>
   <section class="card lg:col-span-2" aria-labelledby="organization-storage">
     <h2 id="organization-storage">{% translate "Armazenamento" %}</h2>
     <p class="mt-1 text-sm/6 text-body-subtle">{% translate "Soma dos anexos vivos da organização. Um upload ou restauração acima da cota é recusado; a recontagem diária corrige o contador." %}</p>
     <dl class="meta-list mt-4">
+      <div><dt>{% translate "Local de armazenamento" %}</dt><dd>{% if storage_location.current %}{{ storage_location.current.label }}{% else %}{% translate "Armazenamento da instância" %}{% endif %}{% if storage_location.choices %}
+        <form method="post" action="{% url 'platform:organization-storage-location' subject.pk %}" class="mt-2 toolbar">{% csrf_token %}<label class="sr-only" for="storage-location">{% translate "Local" %}</label><select id="storage-location" name="location"><option value="">{% translate "Armazenamento da instância" %}</option>{% for choice in storage_location.choices %}<option value="{{ choice.pk }}"{% if storage_location.current.pk == choice.pk %} selected{% endif %}>{{ choice.label }}</option>{% endfor %}</select><button type="submit" class="btn btn-secondary btn-sm">{% translate "Trocar" %}</button></form>{% endif %}</dd></div>
       <div><dt>{% translate "Em uso" %}</dt><dd>{{ storage.bytes_used|filesizeformat }}</dd></div>
       <div><dt>{% translate "Cota" %}</dt><dd>{% if storage.quota_bytes is None %}{% translate "Ilimitada" %}{% else %}{{ storage.quota_bytes|filesizeformat }}{% endif %}{% if not storage.overridden %} <span class="badge">{% translate "padrão da instância" %}</span>{% endif %}</dd></div>
       <div><dt>{% translate "Última recontagem" %}</dt><dd>{% if storage.recounted_at %}{{ storage.recounted_at|moment }}{% else %}{% translate "Ainda não recontado" %}{% endif %}</dd></div>

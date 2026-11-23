@@ -10,6 +10,7 @@ from skeleton.web import (
     portal_views,
     privacy_views,
     settings_views,
+    signup_views,
     site_domain_views,
     views,
 )
@@ -43,6 +44,7 @@ urlpatterns = [
     # Internal certificate-issuance question of the proxy, only on the health host (#489).
     path("health/site-host/", site_domain_views.site_host_check, name="health-site-host"),
     path("join/", admission_views.join_directory, name="join"),
+    path("organizations/new/", signup_views.organization_signup, name="organization-signup"),
     path("join/requests/<uuid:sysid>/withdraw/", admission_views.join_withdraw, name="join-withdraw"),
     # Public brand of the organization host (#484, #485): 404 on the main domain.
     path("site/logo/", site_logo, name="site-logo"),
