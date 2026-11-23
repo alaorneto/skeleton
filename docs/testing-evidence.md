@@ -4,6 +4,48 @@ Registro do que rodou em cada rodada, com os comandos da época. As rodadas ante
 
 As rodadas anteriores à primeira release publicada (`v0.1.0`, #569) citam números de versão do desenvolvimento ("core/agente 0.3.0", "0.4.0", "0.5.0"), que nunca foram publicados e não correspondem às releases de mesmo número: são marcos internos daquela época, conservados como foram registrados. As versões publicadas e o que cada uma trouxe estão no [CHANGELOG](../CHANGELOG.md).
 
+## Suíte de testes abaixo de 10 minutos de novo (epic #758: #756, #757)
+
+Rodada de 2026-11-23 na branch `test/758-suite-abaixo-de-10-minutos`, a partir da `main`. Windows 11, 8 núcleos e 16 threads, NTFS com antivírus em tempo real, Python do `.venv`, PostgreSQL 16.2 de `tools/dev_postgres.py` num servidor só desta rodada, role runtime, `SKELETON_ENABLE_EXAMPLE_APP=true`. Outras execuções da suíte rodavam na mesma máquina durante a rodada: os tempos abaixo são de fatias e de bancadas de restauração, não de uma execução inteira e isolada.
+
+**Por que a suíte voltou a levar de 30 minutos a 1 hora**
+
+- **Tamanho:** 4.648 testes no núcleo no CI (4.209 coletados no Windows, 1.981 deles com `skeleton_db`) e 365 nas apps first-party (267 + 98), contra 1.368 na rodada do epic #199. O schema tem 107 tabelas, 518 índices, 214 FKs, 63 tabelas TOAST, 170 funções, 168 triggers e 70 policies; o template tem 3,2 MB. Cada restauração cria cerca de 760 arquivos e remove outros 760.
+- **Custo por teste com banco:** com `-n 8`, 4,1 s de worker (3,7 s de preparo, 2,8 s só de `restore_schema`, 0,4 s de chamada) em 282 testes; 5,5 s (5,1 s e 4,2 s) em 1.005 testes medidos com outra suíte na máquina. O preparo é 93% do tempo, e a restauração, de 76% a 83%.
+- **Restauração isolada:** 1,3 a 1,4 s: 0,075 s no `DROP SCHEMA`, 0,82 s recriando os objetos e 0,41 s no `COMMIT`, que remove os arquivos do schema anterior.
+- **O servidor satura no disco:** só `restore_schema`, em N processos: 0,75 restaurações por segundo com 1; 2,6 com 6; 2,5 a 2,6 com 8; 2,5 com 16. Uma bancada que só cria e remove 760 arquivos satura em 5,6 rodadas por segundo no mesmo volume. Durante 8 restaurações simultâneas, o antivírus em tempo real usou 2,81 núcleos, contra 2,55 de todos os processos do PostgreSQL.
+- **Suítes simultâneas:** havia 9 servidores de `tools/dev_postgres.py` vivos na máquina, de checkouts e worktrees diferentes, e mais de uma suíte inteira rodando com `-n auto` (16 workers cada). Elas dividem a mesma taxa de restaurações.
+- **Cache frio:** uma edição fora de `tests/` fazia cada um dos 16 workers migrar o seu banco antes do primeiro teste (cerca de 20 s cada, ao mesmo tempo).
+- **CI (run 45226698654):** fatias divididas por número de arquivos, não por custo, e uma migração por worker em cada invocação.
+
+| Job (antes) | Testes | Tempo do pytest (3.12 / 3.14) | Job inteiro |
+|---|---|---|---|
+| núcleo 1/2 | 2.323 | 9 min 46 s / 12 min 53 s | 11 min 26 s / 14 min 40 s |
+| núcleo 2/2 | 2.325 | 17 min 47 s / 9 min 01 s | 18 min 45 s / 10 min 21 s |
+| agenda e livro contábil | 267 + 98 | 5 min 12 s + 3 min 09 s / 5 min 02 s + 3 min 10 s | 9 min 50 s / 9 min 34 s |
+
+**Experimentos no servidor de teste** (restaurações por segundo com 8 processos; linha de base 2,6): `shared_buffers=512MB`, 3,0 em três rodadas alternadas (adotado); `max_wal_size`, `checkpoint_timeout` e `autovacuum=off`, sem efeito; `wal_level=minimal`, pior (`COMMIT` de 0,41 s para 0,76 s); conexão persistente do owner, sem ganho sob concorrência; `DROP` adiado para outra transação, mesmo trabalho total. Descartados sem medir, por contrato ou por custo igual: `TRUNCATE` e transação revertida no lugar do schema recriado (proibidos), `CREATE DATABASE ... TEMPLATE` (mesma ordem de operações de arquivo e exigiria `CREATEDB` no owner).
+
+**O que mudou**
+
+- **#756:** `template_build_lock` (trava de arquivo por chave no diretório do cache): com `-n 8` e cache frio, um worker migrou (11,2 s) e os outros sete leram o template; com `SKELETON_TEST_TEMPLATE_CACHE=0` e `-n 4`, os quatro migraram, como antes. A trava é exclusiva entre processos, é solta quando o dono termina ou é morto, não é tomada sem cache nem sem chave e não bloqueia quando o diretório não pode ser usado; o cache remove os arquivos de trava das entradas que não guarda mais. `tools/dev_postgres.py start` aplicou `shared_buffers=512MB` num servidor que estava em 128MB, com um reinício e a mesma porta; com `SKELETON_TEST_POSTGRES_DATA`, dois checkouts de mesmo nome ficam em subpastas diferentes da mesma pasta.
+- **#757:** `--shard I/N` equilibrado pelo custo. Na coleta real do núcleo (4.209 testes, 418 arquivos, maior arquivo com peso 1.075), a carga das seis fatias ficou em 8.626, 8.626, 8.626, 8.625, 8.625 e 8.625, com 327 a 333 testes com banco em cada uma; com duas fatias, 25.877 e 25.876. O workflow passou a seis fatias do núcleo e duas das apps por Python, as duas suítes das apps numa só invocação, e o template uma vez por job.
+
+**Não executado nem medido**
+
+- A suíte inteira, isolada, depois da mudança: a máquina estava em uso por outras execuções. Os 17 minutos de `docs/testing.md` para o núcleo são uma estimativa (1.981 testes com banco, 4,1 s de worker cada, 8 workers).
+- O workflow novo no GitHub: nada foi enviado nesta rodada. Os tempos por job precisam ser lidos no primeiro run do PR.
+- `tests/contrib` localmente: o ambiente desta máquina recusa as apps first-party por divergência entre a versão instalada e a do checkout; o CI roda as duas suítes.
+- O ganho de tirar o diretório de dados da verificação em tempo real do antivírus (exclusão, volume de desenvolvimento ou sistema de arquivos Linux): depende de configuração da máquina, que esta rodada não alterou.
+
+| Execução observada | Resultado |
+|---|---|
+| `python -m pytest tests/integration_postgres tests/accounts -q -n 8`, cache frio | 331 passed, 5 subtests passed em 151 s; uma migração |
+| `python -m pytest tests -q -n 8 --shard 3/6`, cache frio, com outras suítes na máquina | 724 passed, 31 skipped, 220 subtests passed em 202 s; uma migração (11,8 s). A única falha foi o link de `docs/testing.md` para esta seção, ainda não escrita |
+| `python -m pytest tests/unit -q -n 8` | 1922 passed, 187 skipped (POSIX), 578 subtests passed em 21 s |
+| `python -m pytest tests --collect-only -q` com a carga de cada fatia para N = 2, 4, 5 e 6 | diferença máxima de 1 entre as fatias |
+| `ruff check` e `ruff format --check` (0.17.4) nos arquivos alterados; `mypy tools/dev_postgres.py` | sem problemas |
+
 ## Setup: cada etapa confere valores e conexões antes de gravar (#732, #731)
 
 Rodada de 2026-11-23 na branch `feat/732-setup-cada-etapa-confere-valores-e`, a partir da `main` em `v0.5.0`. Windows 11, Python do `.venv`, PostgreSQL de `tools/dev_postgres.py` com a role runtime. Sem Redis nem S3 reais nesta máquina: o `PING` foi provado contra um servidor RESP falso numa porta efêmera e contra portas fechadas e hosts inexistentes de verdade; o S3, só por dublês (o extra `[s3]` não está instalado aqui).
