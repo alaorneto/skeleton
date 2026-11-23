@@ -67,7 +67,16 @@ DEFAULT_CSS = "theme.css"
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 RASTER_LOGO = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 RADII = ("sharp", "default", "round")
-FONTS = ("inter", "system", "serif")
+FONTS = ("default", "system", "serif")
+# The name of the core font before #690: packages made for older cores keep it, read as "default".
+FONT_ALIASES = {"inter": "default"}
+
+
+def canonical_font(value: Any) -> Any:
+    """``default`` for the legacy alias of the core font; anything else unchanged (validated by the caller)."""
+    return FONT_ALIASES.get(value, value) if isinstance(value, str) else value
+
+
 STYLES = ("normal", "italic")
 GENERIC_FAMILIES = frozenset(
     {
@@ -90,7 +99,7 @@ GENERIC_FAMILIES = frozenset(
         "revert",
         "revert-layer",
         "default",
-        "inter variable",
+        "ibm plex sans variable",
     }
 )
 ERROR_CODES = (
@@ -379,7 +388,7 @@ def _tokens(manifest: dict[str, Any]) -> dict[str, str]:
     return {
         "brand_color": color.lower(),
         "radius": _choice(tokens.get("radius"), RADII, "default", "radius"),
-        "font": _choice(tokens.get("font"), FONTS, "inter", "font"),
+        "font": _choice(canonical_font(tokens.get("font")), FONTS, "default", "font"),
         "font_family": family,
     }
 

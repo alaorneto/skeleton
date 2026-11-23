@@ -38,7 +38,7 @@ O `theme.json` de exemplo, campo a campo:
   "description": "Tema da marca Aurora.",
   "publisher": "org.example",
   "compatibility": {"skeleton": ">=0.3.0,<0.4.0"},
-  "tokens": {"brand_color": "#1d4ed8", "radius": "default", "font": "inter", "font_family": "Aurora Sans"},
+  "tokens": {"brand_color": "#1d4ed8", "radius": "default", "font_family": "Aurora Sans"},
   "brand": {"product_name": "Aurora", "footer_text": "Aurora · atendimento ao cliente"},
   "images": {"logo": "images/logo.svg", "logo_dark": "images/logo-dark.svg", "icon": "images/icon.png"},
   "fonts": [{"family": "Aurora Sans", "file": "fonts/aurora-sans.woff2", "weight": "100 900", "style": "normal"}],
@@ -98,7 +98,7 @@ O CSS do tema passa pela [barreira do CSS personalizado](appearance.md#css-perso
 
 ## Fontes
 
-Só `.woff2`, até 8 por pacote, cada uma até 512 KiB, todas direto em `fonts/`. Converta `.ttf`/`.otf` para `.woff2` com uma ferramenta de sua escolha e confira que a licença permite auto-hospedagem (guarde-a em `LICENSES/`). Uma fonte variável declara a faixa de pesos (`"weight": "100 900"`); fontes estáticas declaram um peso cada (`"400"`, `"600"`). O núcleo gera o `@font-face` (com `font-display: swap`) apontando para `/brand/fonts/<arquivo>`; a Inter do núcleo continua como reserva na pilha.
+Só `.woff2`, até 8 por pacote, cada uma até 512 KiB, todas direto em `fonts/`. Converta `.ttf`/`.otf` para `.woff2` com uma ferramenta de sua escolha e confira que a licença permite auto-hospedagem (guarde-a em `LICENSES/`). Uma fonte variável declara a faixa de pesos (`"weight": "100 900"`); fontes estáticas declaram um peso cada (`"400"`, `"600"`). O núcleo gera o `@font-face` (com `font-display: swap`) apontando para `/brand/fonts/<arquivo>`; a IBM Plex Sans do núcleo continua como reserva na pilha.
 
 ## Logos e ícone
 

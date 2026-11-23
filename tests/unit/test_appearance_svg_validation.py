@@ -20,7 +20,7 @@ OPTIMIZED = f"""<?xml version="1.0" encoding="UTF-8"?>
   <g fill="url(#g1)" style="fill-opacity:.9;stroke:url(#g1)">
     <use href="#mark"/>
     <path d="M40 10h70v20H40z" clip-path="url( #g1 )"/>
-    <text x="45" y="26" font-family="Inter">Aurora<tspan dx="2">.</tspan> texto</text>
+    <text x="45" y="26" font-family="IBM Plex Sans">Aurora<tspan dx="2">.</tspan> texto</text>
   </g>
 </svg>""".encode()
 

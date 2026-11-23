@@ -140,7 +140,7 @@ def scaffold_theme_files(scaffold, manifest):
         "version": manifest["version"],
         "name": scaffold.verbose_name[:80],
         "compatibility": {"skeleton": manifest["compatibility"]["skeleton"]},
-        "tokens": {"brand_color": "", "radius": "default", "font": "inter"},
+        "tokens": {"brand_color": "", "radius": "default"},  # No font: the core default, on any core.
         "css": "theme.css",
     }
     return {

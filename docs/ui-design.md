@@ -72,7 +72,7 @@ Cada pessoa escolhe **Claro**, **Escuro** ou **Seguir o sistema** (o padrão), s
 
 ### Tipografia
 
-- **Inter Variable** (OFL 1.1), auto-hospedada em `static/skeleton/web/vendor/inter-5.3.0/` (subsets latin e latin-ext), `font-display: swap`, recursos `cv05`/`cv08` para distinguir l/I.
+- **IBM Plex Sans Variable** (OFL 1.1, #690), auto-hospedada em `static/skeleton/web/vendor/ibm-plex-sans-5.3.0/` (subsets latin e latin-ext, normal e itálico verdadeiro), pesos de 100 a 700, `font-display: swap`; nenhum pedido a domínio externo de fontes. O desenho já distingue l, I e 1. Um tema que não escolhe fonte (`font: default`) a herda; `system` e `serif` usam as fontes do sistema.
 - Monoespaçada do sistema (`ui-monospace`, Cascadia Mono, SF Mono…) para UUID, digest e código.
 - Escala: H1 28/36 semibold (24/32 no celular), H2 18/28, H3 16/24, corpo 16/24, tabelas e metadados 14/20, rótulos de seção 12–14 em maiúsculas com tracking. Números tabulares nas tabelas.
 - Campos usam 16 px no celular (evita zoom do iOS) e 14 px a partir de 640 px.
@@ -279,14 +279,14 @@ Não há tela do Django admin: toda a administração da plataforma usa views pr
 
 ```text
 frontend/
-  package.json, package-lock.json   versões fixas (Tailwind 4.3.3, Flowbite 4.0.2, Inter 5.2.8)
+  package.json, package-lock.json   versões fixas (Tailwind 4.3.5, Flowbite 4.0.2, IBM Plex Sans 5.3.0)
   src/tokens.css                    tokens compartilhados
   src/site.css                      interface SSR (base, componentes, grade do renderer)
   scripts/build.mjs                 build e verificação
 skeleton/web/static/skeleton/web/
   site.css                          saída compilada e minificada (versionada)
   vendor/flowbite-4.0.2/            flowbite.min.js + LICENSE.md
-  vendor/inter-5.3.0/               woff2 + LICENSE
+  vendor/ibm-plex-sans-5.3.0/       woff2 (normal e itálico) + LICENSE
   vendor/VENDOR.json                versões, licenças e SHA-256 dos arquivos vendorizados
 ```
 
@@ -303,6 +303,6 @@ Templates de apps derivadas em `applications/` não são varridos, porque o CSS 
 
 - O mapa de fonte do Flowbite não é distribuído; o build remove a referência `sourceMappingURL` para que `ManifestStaticFilesStorage` não falhe no `collectstatic`.
 - `overrides` em `package.json` impedem que dependências transitivas do Flowbite tragam outra versão do Tailwind.
-- Para atualizar Flowbite, Tailwind ou Inter: altere a versão em `package.json`, rode `npm install --ignore-scripts`, ajuste o caminho versionado em `skeleton/web/templates/skeleton/web/base.html`, `components/admin-theme.html` e `tokens.css` (o build recusa referências a outra versão), rode `npm run build` e confira as telas.
+- Para atualizar Flowbite, Tailwind ou a IBM Plex Sans: altere a versão em `package.json`, rode `npm install --ignore-scripts`, ajuste o caminho versionado em `skeleton/web/templates/skeleton/web/base.html`, `skeleton/web/templates/skeleton/portal/base.html` e `tokens.css` (o build recusa referências a outra versão), rode `npm run build` e confira as telas.
 
 O job `assets` do CI executa `npm ci --ignore-scripts` e `npm run check`; ver [testes](testing.md#integração-contínua).

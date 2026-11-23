@@ -10,8 +10,7 @@
   },
   "tokens": {
     "brand_color": "#0f766e",
-    "radius": "round",
-    "font": "inter"
+    "radius": "round"
   },
   "brand": {
     "product_name": "Caderno",

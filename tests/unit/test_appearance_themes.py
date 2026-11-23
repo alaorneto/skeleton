@@ -41,7 +41,7 @@ def test_the_generated_part_holds_only_hex_values_and_fixed_literals(subtests):
     fixed = sorted({*RADIUS_TOKENS.values(), *FONT_TOKENS.values()}, key=len, reverse=True)
     for color in COLORS:
         for radius in ("sharp", "default", "round"):
-            for font in ("inter", "system", "serif"):
+            for font in ("default", "inter", "system", "serif"):  # "inter": the legacy name (#690).
                 values = ThemeValues("Nome <secreto>", brand_color=color, radius=radius, font=font)
                 with subtests.test(color=color, radius=radius, font=font):
                     css = theme_css_tokens(values)
@@ -105,7 +105,9 @@ def test_fonts_become_font_faces_and_the_family_leads_the_stack():
     css = theme_css_tokens(ThemeValues("T", font_family="Aurora Sans", font="serif", fonts=(font,)))
     assert css.startswith('@font-face{font-family:"Aurora Sans";src:url("/brand/fonts/aurora.woff2?v=0123456789ab")')
     assert "font-weight:100 900;font-style:normal;font-display:swap}" in css
-    assert ':root{--font-sans:"Aurora Sans","Inter Variable",' in css and "ui-serif" not in css  # The family wins.
+    assert (
+        ':root{--font-sans:"Aurora Sans","IBM Plex Sans Variable",' in css and "ui-serif" not in css
+    )  # The family wins.
 
 
 def test_invalid_fonts_are_never_written(subtests):

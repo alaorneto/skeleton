@@ -164,14 +164,14 @@ def test_negatives(admin_client, subtests):
         )
         assert response.status_code == 400 and brand() is None
         assert (
-            post(client, create, {"name": "T", "radius": "default", "font": "inter", "sysid": "x"}).status_code == 400
+            post(client, create, {"name": "T", "radius": "default", "font": "default", "sysid": "x"}).status_code == 400
         )
     cases = [
-        ({"name": "Cor", "brand_color": "#ffff00", "radius": "default", "font": "inter"}, "Contraste"),
-        ({"name": "Css", "radius": "default", "font": "inter", "custom_css": "@import 'x';"}, "@import"),
-        ({"name": "Url", "radius": "default", "font": "inter", "custom_css": ".a{background:url(//x)}"}, "url("),
+        ({"name": "Cor", "brand_color": "#ffff00", "radius": "default", "font": "default"}, "Contraste"),
+        ({"name": "Css", "radius": "default", "font": "default", "custom_css": "@import 'x';"}, "@import"),
+        ({"name": "Url", "radius": "default", "font": "default", "custom_css": ".a{background:url(//x)}"}, "url("),
         # #631: the message names the line, also for a < inside a comment.
-        ({"name": "Lt", "radius": "default", "font": "inter", "custom_css": "a{}\n/* <style> */"}, "Linha 2:"),
+        ({"name": "Lt", "radius": "default", "font": "default", "custom_css": "a{}\n/* <style> */"}, "Linha 2:"),
     ]
     for data, message in cases:
         with subtests.test(case=message):
@@ -200,7 +200,7 @@ def test_cas_and_the_active_theme(admin_client, subtests):
     with subtests.test(case="old revision"):
         response = post(client, reverse("platform:appearance-brand"), {"product_name": "Dois", "revision": 0})
         assert response.status_code == 409 and brand().product_name == "Um"
-    post(client, reverse("platform:appearance-theme-create"), {"name": "Ativo", "radius": "default", "font": "inter"})
+    post(client, reverse("platform:appearance-theme-create"), {"name": "Ativo", "radius": "default", "font": "default"})
     theme = theme_named("Ativo")
     post(client, reverse("platform:appearance-activate"), {"theme": str(theme.pk), "revision": revision()})
     with subtests.test(case="delete active"):
@@ -211,7 +211,7 @@ def test_cas_and_the_active_theme(admin_client, subtests):
         assert theme_named("Ativo") is not None
     with subtests.test(case="old theme revision"):
         edit = reverse("platform:appearance-theme", args=[theme.pk])
-        data = {"name": "Novo", "radius": "default", "font": "inter", "revision": theme.revision + 5}
+        data = {"name": "Novo", "radius": "default", "font": "default", "revision": theme.revision + 5}
         assert post(client, edit, data).status_code == 409
 
 
@@ -232,3 +232,16 @@ def test_works_without_javascript_and_sidebar_item(admin_client):
     assert f'href="{reverse("platform:appearance")}" aria-current="page"' in html
     assert "<script>" not in html.split("</head>", 1)[1]
     assert 'enctype="multipart/form-data"' in html
+
+
+def test_the_legacy_font_name_reads_and_saves_as_the_default(admin_client):
+    """#690: "inter" (the core font's name before) is accepted and stored as "default"."""
+    from skeleton.appearance.services import create_theme
+
+    admin, client = admin_client
+    with acting(admin):
+        theme = create_theme(actor=admin, data={"name": "Antigo", "radius": "default", "font": "inter"})
+    assert theme.font == "default"
+    page = client.get(reverse("platform:appearance-theme", args=[theme.pk])).content.decode()
+    assert 'value="default" selected' in page or 'value="default" checked' in page
+    assert "IBM Plex Sans (padrão)" in page

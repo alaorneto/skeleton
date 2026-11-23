@@ -41,7 +41,7 @@ ALWAYS_ALLOWED = {
     "Skeleton",
     "Flowbite",
     "Tailwind",
-    "Inter",
+    "IBM Plex Sans",
     "MFA",
     "API",
     "URL",

@@ -43,7 +43,6 @@
   }
   body {
     @apply flex min-h-dvh flex-col bg-canvas font-sans text-base/6 text-body antialiased;
-    font-feature-settings: "cv05" 1, "cv08" 1;
   }
   [hidden] {
     display: none !important;

@@ -7,7 +7,7 @@
 // Saídas (todas versionadas; o wheel não depende de Node em runtime):
 //   skeleton/web/static/skeleton/web/site.css   (interface SSR)
 //   skeleton/web/static/skeleton/web/vendor/flowbite-<versão>/flowbite.min.js
-//   skeleton/web/static/skeleton/web/vendor/inter-<versão>/*.woff2
+//   skeleton/web/static/skeleton/web/vendor/ibm-plex-sans-<versão>/*.woff2
 //   skeleton/web/static/skeleton/web/vendor/VENDOR.json
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -29,20 +29,20 @@ const sha256 = (buffer) => createHash("sha256").update(buffer).digest("hex");
 const lf = (text) => text.replace(/\r\n?/g, "\n");
 
 const flowbite = packageVersion("flowbite");
-const inter = packageVersion("@fontsource-variable/inter");
+const plex = packageVersion("@fontsource-variable/ibm-plex-sans");
 const tailwind = packageVersion("tailwindcss");
 
 // Os tokens referenciam o diretório da fonte com a versão; impede deriva silenciosa.
 const tokens = readFileSync(join(frontend, "src", "tokens.css"), "utf8");
-if (!tokens.includes(`vendor/inter-${inter}/`)) {
-  console.error(`src/tokens.css precisa referenciar vendor/inter-${inter}/ (versão instalada).`);
+if (!tokens.includes(`vendor/ibm-plex-sans-${plex}/`)) {
+  console.error(`src/tokens.css precisa referenciar vendor/ibm-plex-sans-${plex}/ (versão instalada).`);
   process.exit(1);
 }
 // Os templates referenciam os assets vendorizados pela versão instalada.
 for (const template of ["skeleton/web/templates/skeleton/web/base.html"]) {
   const text = readFileSync(join(repository, ...template.split("/")), "utf8");
-  for (const match of text.matchAll(/vendor\/(flowbite|inter)-([0-9][^/]*)\//g)) {
-    const expected = match[1] === "flowbite" ? flowbite : inter;
+  for (const match of text.matchAll(/vendor\/(flowbite|ibm-plex-sans)-([0-9][^/]*)\//g)) {
+    const expected = match[1] === "flowbite" ? flowbite : plex;
     if (match[2] !== expected) {
       console.error(`${template} referencia vendor/${match[1]}-${match[2]}/; versão instalada: ${expected}.`);
       process.exit(1);
@@ -79,19 +79,25 @@ function buildInto(outRoot) {
   );
   files.set(`vendor/flowbite-${flowbite}/LICENSE.md`, Buffer.from(lf(readFileSync(join(packageDir("flowbite"), "LICENSE.md"), "utf8"))));
 
-  const interDir = packageDir("@fontsource-variable/inter");
-  for (const subset of ["latin", "latin-ext"]) {
-    const name = `inter-${subset}-wght-normal.woff2`;
-    files.set(`vendor/inter-${inter}/${name}`, readFileSync(join(interDir, "files", name)));
+  const plexDir = packageDir("@fontsource-variable/ibm-plex-sans");
+  for (const style of ["normal", "italic"]) {
+    for (const subset of ["latin", "latin-ext"]) {
+      const name = `ibm-plex-sans-${subset}-wght-${style}.woff2`;
+      files.set(`vendor/ibm-plex-sans-${plex}/${name}`, readFileSync(join(plexDir, "files", name)));
+    }
   }
-  files.set(`vendor/inter-${inter}/LICENSE`, Buffer.from(lf(readFileSync(join(interDir, "LICENSE"), "utf8"))));
+  files.set(`vendor/ibm-plex-sans-${plex}/LICENSE`, Buffer.from(lf(readFileSync(join(plexDir, "LICENSE"), "utf8"))));
 
   const manifest = {
     generated_by: "frontend/scripts/build.mjs",
     tailwindcss: tailwind,
     packages: {
       flowbite: { version: flowbite, license: "MIT", source: "npm:flowbite" },
-      "@fontsource-variable/inter": { version: inter, license: "OFL-1.1", source: "npm:@fontsource-variable/inter" },
+      "@fontsource-variable/ibm-plex-sans": {
+        version: plex,
+        license: "OFL-1.1",
+        source: "npm:@fontsource-variable/ibm-plex-sans",
+      },
     },
     files: Object.fromEntries(
       [...files.entries()].filter(([name]) => name.startsWith("vendor/")).map(([name, data]) => [name, sha256(data)]),
@@ -148,7 +154,7 @@ try {
       console.error("Execute `npm run build` em frontend/ e versione o resultado.");
       process.exit(1);
     }
-    console.log(`Assets atualizados (Tailwind ${tailwind}, Flowbite ${flowbite}, Inter ${inter}).`);
+    console.log(`Assets atualizados (Tailwind ${tailwind}, Flowbite ${flowbite}, IBM Plex Sans ${plex}).`);
   } else {
     for (const name of orphans) rmSync(join(staticRoot, name));
     console.log(`${stale.length} arquivo(s) gravado(s), ${orphans.length} órfão(s) removido(s).`);

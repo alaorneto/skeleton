@@ -19,7 +19,7 @@ Por campo, vale o primeiro valor não vazio da esquerda para a direita, a partir
 
 O pacote `skeleton/appearance` (label `sk_appearance`) tem só dados, regras puras e serviços; as páginas ficam em `skeleton/web`. As duas tabelas são `SystemRecord` globais, com revisão/CAS, auditoria por trigger e infraestrutura congelada em `sk_appearance.0001_initial`:
 
-- `sk_appearance.instancetheme`: um tema do catálogo (`name` único entre os vivos, `brand_color` vazio ou `#rrggbb`, `radius` em `sharp|default|round`, `font` em `inter|system|serif`, `custom_css` até 32 KiB). O CSS personalizado **não** é sensível: a auditoria mostra quem mudou o quê. A origem fica em `source`: `form` (criado na tela) ou `package` (instalado de um [pacote de tema](#pacote-de-tema), #635). Um tema de pacote guarda também `package_id` (vivo uma vez só), `package_version`, `package_digest` (o `content_digest`), `package_manifest` (o `theme.json` validado), `font_family`, `product_name`, `footer_text` e `package_files`, o mapa das chaves de armazenamento das imagens e fontes (**sensível**, redigido na auditoria). Um tema `form` não tem nenhum desses campos (constraint), e a infraestrutura foi reinstalada com eles em `sk_appearance.0003_theme_packages`.
+- `sk_appearance.instancetheme`: um tema do catálogo (`name` único entre os vivos, `brand_color` vazio ou `#rrggbb`, `radius` em `sharp|default|round`, `font` em `default|system|serif` (temas gravados antes do #690 podem guardar `inter`, lido como `default`), `custom_css` até 32 KiB). O CSS personalizado **não** é sensível: a auditoria mostra quem mudou o quê. A origem fica em `source`: `form` (criado na tela) ou `package` (instalado de um [pacote de tema](#pacote-de-tema), #635). Um tema de pacote guarda também `package_id` (vivo uma vez só), `package_version`, `package_digest` (o `content_digest`), `package_manifest` (o `theme.json` validado), `font_family`, `product_name`, `footer_text` e `package_files`, o mapa das chaves de armazenamento das imagens e fontes (**sensível**, redigido na auditoria). Um tema `form` não tem nenhum desses campos (constraint), e a infraestrutura foi reinstalada com eles em `sk_appearance.0003_theme_packages`.
 - `sk_appearance.instancebrand`: a linha única (`slot = "instance"`) com `product_name` (vazio mostra "Skeleton"), `footer_text`, as chaves `logo_key`, `logo_dark_key` e `icon_key` (sensíveis, redigidas na auditoria) e o tema ativo: `builtin_theme` (um tema pronto), `active_theme` (um tema do catálogo) **ou** `app_theme` (`<app_label>:<slug>`, um tema de app, #643; coluna e constraint em `sk_appearance.0004_app_theme`), nunca dois; todos vazios são o tema do núcleo.
 
 Marca e tema não vão para o SQLite da instância: aquilo é configuração lida antes do Django e só vale depois do reinício (E025); estes são dados editados pela interface.
@@ -112,7 +112,7 @@ Os nomes dentro de `images/` e `fonts/` são livres (os de cima são a convenç�
   "description": "Tema da marca Aurora.",
   "publisher": "org.example",
   "compatibility": {"skeleton": ">=0.3.0,<0.4.0"},
-  "tokens": {"brand_color": "#1d4ed8", "radius": "default", "font": "inter", "font_family": "Aurora Sans"},
+  "tokens": {"brand_color": "#1d4ed8", "radius": "default", "font_family": "Aurora Sans"},
   "brand": {"product_name": "Aurora", "footer_text": "Aurora · atendimento ao cliente"},
   "images": {"logo": "images/logo.svg", "logo_dark": "images/logo-dark.svg", "icon": "images/icon.png"},
   "fonts": [{"family": "Aurora Sans", "file": "fonts/aurora-sans.woff2", "weight": "100 900", "style": "normal"}],
@@ -131,12 +131,12 @@ Os nomes dentro de `images/` e `fonts/` são livres (os de cima são a convenç�
 | `compatibility.skeleton` | obrigatório; faixa de versões; na instalação, precisa conter a versão do núcleo instalado | `compatibility`, `incompatible_core` |
 | `tokens.brand_color` | `""` ou `#rrggbb`; na instalação, contraste AA com o branco | `brand_color` |
 | `tokens.radius` | `sharp`, `default` (padrão) ou `round` | `radius` |
-| `tokens.font` | `inter` (padrão), `system` ou `serif` | `font` |
+| `tokens.font` | `default` (padrão: a fonte do núcleo, IBM Plex Sans), `system` ou `serif`. `default` vale a partir do núcleo 0.5.0; para núcleos anteriores, omita o campo ou use o nome antigo `inter`, que continua aceito e é lido como `default` | `font` |
 | `tokens.font_family` | `""` ou o `family` de uma entrada de `fonts` (vence `font`) | `font_family` |
 | `brand.product_name`, `brand.footer_text` | até 60 e 160, uma linha | `text_field` |
 | `images.logo`, `images.logo_dark` | em `images/`; PNG, JPEG ou WebP (provado pelo conteúdo) até 512 KB, ou [SVG validado](#logos-em-svg) até 256 KiB; o escuro exige o logo | `image_path`, `image_type`, `image_size`, `svg`, `logo_dark_without_logo` |
 | `images.icon` | em `images/`; PNG 512 × 512 até 256 KiB | `image_path`, `image_size`, `icon` |
-| `fonts` | até 8: `family` (`[A-Za-z][A-Za-z0-9 -]{0,62}[A-Za-z0-9]`, nunca um nome genérico do CSS nem `Inter Variable`), `file` (`fonts/*.woff2`, começa com `wOF2`, até 512 KiB), `weight` (`"400"`, padrão, ou faixa `"100 900"`), `style` (`normal` ou `italic`) | `too_many_fonts`, `font_family_name`, `font_file`, `font_weight`, `font_style` |
+| `fonts` | até 8: `family` (`[A-Za-z][A-Za-z0-9 -]{0,62}[A-Za-z0-9]`, nunca um nome genérico do CSS nem `IBM Plex Sans Variable`, a família do núcleo), `file` (`fonts/*.woff2`, começa com `wOF2`, até 512 KiB), `weight` (`"400"`, padrão, ou faixa `"100 900"`), `style` (`normal` ou `italic`) | `too_many_fonts`, `font_family_name`, `font_file`, `font_weight`, `font_style` |
 | `css` | padrão `theme.css`, na raiz; declarado e ausente é erro; mesmas regras do [CSS personalizado](#css-personalizado) | `css_missing`, `css` (com a linha) |
 
 Limites do zip: até 4 MiB, 6 MiB descomprimido, 40 membros, razão de expansão até 100 por membro, `theme.json` até 16 KiB; links, arquivos especiais, criptografia, nomes duplicados (inclusive por caixa) e caminhos inseguros são `archive`. Outros códigos: `too_large`, `too_many_files`, `missing_manifest` (inclusive um zip da pasta, com `aurora/theme.json`), `manifest_json` (JSON inválido, chave repetida) e `manifest_field` (campo obrigatório ausente ou de tipo errado). A lista completa é `ERROR_CODES`.
