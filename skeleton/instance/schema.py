@@ -331,6 +331,13 @@ _SPECS = (
         _fernet_keys,
         True,
     ),
+    SettingSpec(
+        "insights_enabled",
+        "SKELETON_INSIGHTS_ENABLED",
+        "bool",
+        "Números de gestão da instância (resumo por organização e métricas diárias)",
+        _bool,
+    ),
     SettingSpec("sso_provider_config_path", "SSO_PROVIDER_CONFIG_PATH", "path", "Arquivo de provedores SSO", _text),
     SettingSpec("public_signup", "SKELETON_PUBLIC_SIGNUP", "bool", "Cadastro público aberto", _bool),
     SettingSpec("require_admin_mfa", "SKELETON_REQUIRE_ADMIN_MFA", "bool", "MFA obrigatório para administração", _bool),

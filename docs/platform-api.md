@@ -49,6 +49,8 @@ O pacote `skeleton/insights` (label `sk_insights`) mantém duas tabelas operacio
 - `OrganizationSnapshot`, uma linha por organização: nome, identificador, situação, criação, membros (pessoas), limite de membros, pessoas externas, contas de serviço, apps em uso, armazenamento (uso, cota, código do local), o resumo da cobrança (situação de acesso, assinatura, moeda, plano, MRR, em aberto, vencido, vencimento mais antigo, último pagamento, fim do trial e do período), os totais do dia (faturado, pago, estornado por moeda) e as métricas de app. `updated_at` só muda quando algum valor muda: é o cursor da API.
 - `InstanceMetric`, valor por dia (UTC), código e moeda: `organizations.total`, `organizations.active`, `organizations.created`, `members.total`, `apps.<label>.organizations`, `storage.bytes`, e com a cobrança ligada `billing.mrr`, `billing.invoiced`, `billing.paid`, `billing.refunded`, `billing.open`, `billing.overdue`, `billing.subscriptions.<situação>` e `billing.access.<estado>`, por moeda.
 
+Os agendamentos e os consumidores só existem com `SKELETON_INSIGHTS_ENABLED` (desligado por padrão, lido na partida): uma instância que não reporta a uma central não agenda nada. Sem ele, o resumo fica vazio e `organizations/` e `metrics/` não trazem nada.
+
 | Job | Quando | O que faz |
 |---|---|---|
 | `insights.refresh_organization` | De hora em hora (periódico por organização) e depois de `membership.*`, `app.*` e dos eventos de cobrança (no máximo uma vez a cada 5 minutos por organização) | Lê a organização no contexto de sistema dela e regrava a linha só se algo mudou |
