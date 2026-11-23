@@ -421,6 +421,33 @@ def test_storage_step_stores_the_redis_url_with_the_separate_password(setup_mode
     assert password not in client.get("/setup/storage/").content.decode()
 
 
+def test_storage_step_offers_the_configured_files_folder(setup_mode, tmp_path, monkeypatch):
+    """The regression of #737: under the agent, BASE_DIR is the read-only release."""
+    import environ
+    from django.conf import settings
+
+    from skeleton.conf.base import private_files_storage
+    from skeleton.instance.writer import write_setting
+
+    def offered(files=None):
+        files = files or private_files_storage(environ.Env(), settings.BASE_DIR)
+        with override_settings(STORAGES={**settings.STORAGES, "skeleton_files": files}):
+            return client.get("/setup/storage/").context["form"].initial["files_root"]
+
+    client = enter(setup_mode)
+    checkout = str(settings.BASE_DIR / "var" / "files")
+    monkeypatch.delenv("SKELETON_FILES_BACKEND", raising=False)
+    monkeypatch.setenv("SKELETON_FILES_ROOT", "/files")
+    assert offered() == "/files"
+    monkeypatch.delenv("SKELETON_FILES_ROOT")
+    assert offered() == checkout
+    assert offered({"BACKEND": "storages.backends.s3.S3Storage", "OPTIONS": {}}) == checkout
+    # A folder already saved by the setup still comes back to be corrected (#466).
+    write_setting(settings.BASE_DIR, "files_root", str(tmp_path / "saved"), source="test")
+    monkeypatch.setenv("SKELETON_FILES_ROOT", "/files")
+    assert offered() == str(tmp_path / "saved")
+
+
 def test_instance_step_suggests_the_host_and_fills_the_csrf_origin(setup_mode):
     client = enter(setup_mode)
     html = client.get("/setup/instance/", HTTP_HOST="testserver:8000").content.decode()
