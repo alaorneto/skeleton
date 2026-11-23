@@ -1,0 +1,6 @@
+{% load i18n %}{% autoescape off %}{% translate "A administração da plataforma redefiniu o MFA (autenticação multifator) da sua conta, porque foi informado que você perdeu o aplicativo autenticador e os códigos de recuperação." %}
+
+{% translate "Todos os métodos de MFA foram removidos e todas as sessões da sua conta foram encerradas. No próximo acesso, entre com a sua senha ou o seu provedor de login e cadastre o MFA de novo." %}
+
+{% translate "Se você não pediu esta redefinição, procure a administração da plataforma imediatamente." %}
+{% endautoescape %}

@@ -18,7 +18,7 @@ from django.db.models import Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
-from django.utils.translation import gettext
+from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.http import require_http_methods, require_safe
 
 from skeleton.access.administration import designate_organization_admin, organization_overview
@@ -27,8 +27,11 @@ from skeleton.accounts.platform import LastPlatformAdministrator
 from skeleton.accounts.reauthentication import recent_authentication_required
 from skeleton.accounts.services import (
     PLATFORM_USER_FIELDS,
+    MFAResetRefused,
     create_identity,
     deactivate_user,
+    mfa_methods,
+    reset_mfa,
     update_platform_user,
 )
 from skeleton.common.exceptions import ConcurrentUpdate
@@ -76,6 +79,7 @@ __all__ = [
     "user_role_revoke",
     "user_roles",
     "user_detail",
+    "user_mfa_reset",
     "users",
 ]
 
@@ -222,7 +226,78 @@ def user_detail(request, sysid):
     return render(
         request,
         "skeleton/web/platform/user.html",
-        {"platform_section": "users", "subject": user, "profile": profile, "form": form, "platform_roles": roles},
+        {
+            "platform_section": "users",
+            "subject": user,
+            "profile": profile,
+            "form": form,
+            "platform_roles": roles,
+            "mfa_methods": mfa_methods(user),
+            "is_self": user.pk == request.user.pk,
+        },
+        status=status,
+    )
+
+
+MFA_METHOD_LABELS = {
+    "totp": gettext_lazy("Aplicativo autenticador"),
+    "recovery_codes": gettext_lazy("Códigos de recuperação"),
+}
+
+
+@platform_page
+@require_http_methods(["GET", "POST"])
+@recent_authentication_required(allow_get=True)
+@transaction.atomic
+def user_mfa_reset(request, sysid):
+    """Reset the MFA of a person who lost the authenticator and the recovery codes (#736)."""
+    user = get_object_or_404(_model("sk_accounts.User").objects, pk=sysid, account_type="human")
+    form = RevisionForm(
+        request.POST if request.method == "POST" else None, initial={"expected_revision": user.revision}
+    )
+    status = 200
+    error = None
+    if request.method == "POST":
+        if not form.is_valid():
+            error = gettext("Formulário inválido. Atualize a página e tente novamente.")
+            status = 400
+        else:
+            try:
+                with transaction.atomic():
+                    reset_mfa(user, actor=request.user, expected_revision=form.cleaned_data["expected_revision"])
+            except ConcurrentUpdate:
+                error = gettext("A identidade mudou. Atualize a página antes de tentar novamente.")
+                status = 409
+            except MFAResetRefused as exc:
+                error = " ".join(exc.messages)
+                status = 409
+            else:
+                messages.success(
+                    request,
+                    gettext("MFA de %(email)s redefinido. A pessoa cadastra o MFA de novo no próximo login.")
+                    % {"email": user.email},
+                )
+                return redirect("platform:user", sysid=user.pk)
+    methods = [str(MFA_METHOD_LABELS.get(method, method)) for method in mfa_methods(user)]
+    return render(
+        request,
+        "skeleton/web/platform/confirm.html",
+        {
+            "platform_section": "users",
+            "title": gettext("Redefinir MFA"),
+            "eyebrow": gettext("Usuários"),
+            "subject_label": user.email,
+            "message": gettext(
+                "Remove todos os métodos de MFA da pessoa (%(methods)s) e encerra todas as sessões dela. "
+                "Ela entra de novo só com a senha ou o SSO e cadastra o MFA outra vez; um email a avisa da "
+                "redefinição. Confira a identidade de quem pediu por outro canal antes de continuar."
+            )
+            % {"methods": ", ".join(methods) or gettext("nenhum")},
+            "error": error,
+            "submit_label": gettext("Redefinir MFA"),
+            "cancel_url": reverse("platform:user", kwargs={"sysid": user.pk}),
+            "form": form,
+        },
         status=status,
     )
 

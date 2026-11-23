@@ -34,6 +34,8 @@ class User(SystemRecord, AbstractBaseUser, PermissionsMixin):
     is_staff = models.BooleanField(default=False)
     auth_version = models.PositiveBigIntegerField(default=1)
     local_password_allowed = models.BooleanField(default=True)
+    # When the platform last removed the person's MFA authenticators (#736); audited, never edited by forms.
+    mfa_reset_at = models.DateTimeField(null=True, blank=True, editable=False)
     # A service account acts as a member of exactly one organization and never logs in (#44).
     account_type = models.CharField(max_length=16, choices=AccountType.choices, default=AccountType.HUMAN)
     # Not named ``organization``: that name turns on tenant semantics for SystemRecord models (E017).
