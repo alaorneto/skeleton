@@ -43,6 +43,8 @@ PUBLIC_CORE_NAMES: dict[str, frozenset[str] | None] = {
     # command_context (#576): only in the app's management commands (COMMAND_ONLY_NAMES).
     "skeleton.tenancy.context": frozenset({"current_context", "command_context"}),
     "skeleton.web.views": frozenset({"tenant_page"}),
+    # Metrics of an app in the management figures of the instance (#710).
+    "skeleton.service_api.insights": frozenset({"register_instance_metric"}),
     "skeleton.api.views": frozenset({"TenantAPI", "request_fields"}),
     # Operation and schema builders for the ``openapi`` attribute of an app's API views (#178).
     "skeleton.api.openapi": None,

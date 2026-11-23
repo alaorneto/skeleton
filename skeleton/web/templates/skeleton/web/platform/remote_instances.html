@@ -1,0 +1,24 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% load i18n skeleton_format %}{% block page_title %}{% translate "Instâncias remotas" %}{% endblock %}
+{% block content %}
+<div class="max-w-4xl">
+<div class="page-header"><div class="min-w-0">
+  <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'platform:remote-instances' %}">{% translate "Instâncias remotas" %}</a></li>{% if connection %}<li><span aria-current="page">{{ connection.label }}</span></li>{% endif %}</ol></nav>
+  <h1>{% if connection %}{{ connection.label }}{% else %}{% translate "Instâncias remotas" %}{% endif %}</h1>
+  <p class="page-description">{% translate "Uma instância central lê a API de gestão das outras instâncias. O token de plataforma de cada uma é cifrado e nunca exibido; só a organização liberada lê a conexão, por jobs das apps dela." %}</p>
+</div></div>
+{% if result %}<p class="alert mb-4" role="status">{{ result }}</p>{% endif %}
+{% if not connection %}<div class="table-scroll mb-5"><table><thead><tr><th scope="col">{% translate "Conexão" %}</th><th scope="col">{% translate "Situação" %}</th><th scope="col">{% translate "Último teste" %}</th></tr></thead><tbody>
+{% for row in connections %}<tr><td><a class="cell-primary" href="{% url 'platform:remote-instance' row.pk %}">{{ row.label }}</a><span class="cell-secondary"><code>{{ row.base_url }}</code></span></td><td>{% if row.is_active %}<span class="badge badge-success">{% translate "Ativa" %}</span>{% else %}<span class="badge">{% translate "Desativada" %}</span>{% endif %}</td><td>{% if row.last_checked_at %}{{ row.last_checked_at|moment }}{% if row.last_error_code %} · <code>{{ row.last_error_code }}</code>{% endif %}{% else %}—{% endif %}</td></tr>
+{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=3 message=_("Nenhuma conexão.") %}{% endfor %}
+</tbody></table></div>{% else %}
+<dl class="meta-list mb-5"><div><dt>{% translate "Identidade remota" %}</dt><dd>{% if connection.expected_instance_id %}<code class="uuid">{{ connection.expected_instance_id }}</code>{% else %}{% translate "ainda não fixada" %}{% endif %}</dd></div>
+<div><dt>{% translate "Último teste" %}</dt><dd>{% if connection.last_checked_at %}{{ connection.last_checked_at|moment }}{% if connection.last_error_code %} · <code>{{ connection.last_error_code }}</code>{% endif %}{% else %}—{% endif %}</dd></div></dl>
+<div class="toolbar mb-5"><form method="post" action="{% url 'platform:remote-instance-test' connection.pk %}">{% csrf_token %}<button type="submit" class="btn btn-secondary">{% translate "Testar" %}</button></form>
+{% if connection.is_active %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="deactivate"><input type="hidden" name="revision" value="{{ connection.revision }}"><button type="submit" class="btn btn-danger-outline">{% translate "Desativar" %}</button></form>{% endif %}</div>{% endif %}
+<section class="card"><h2>{% if connection %}{% translate "Editar conexão" %}{% else %}{% translate "Nova conexão" %}{% endif %}</h2>
+  <form method="post" class="mt-4" autocomplete="off">{% csrf_token %}{% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" %}
+    <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Salvar" %}</button></div></form>
+</section>
+</div>
+{% endblock %}

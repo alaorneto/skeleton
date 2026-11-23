@@ -12,6 +12,7 @@ from skeleton.api.discovery import ServerView
 from skeleton.api.identity import OrganizationIdentityProviderAdmissionAPI, OrganizationIdentityProvidersAPI
 from skeleton.api.invitation_views import ResendInvitationView
 from skeleton.api.native_clients import NativeClientPolicyView
+from skeleton.api.platform_urls import urlpatterns as platform_urlpatterns
 from skeleton.comments.api_views import CommentDetailView, CommentRestoreView, CommentsView, MentionableView
 from skeleton.files.api_views import AttachmentDetailView, AttachmentRestoreView, AttachmentsView
 from skeleton.tenancy.aggregate import aggregate_route
@@ -24,6 +25,8 @@ urlpatterns = [
     path("server/", ServerView.as_view(), name="server"),
     # Anonymous: the update policy of a native client (#606).
     path("clients/<str:client_id>/policy", NativeClientPolicyView.as_view(), name="native-client-policy"),
+    # The platform API (#709, #711): before the organization routes.
+    *platform_urlpatterns,
     path("me/", views.MeView.as_view(), name="me"),
     path("organizations/", views.OrganizationsView.as_view(), name="organizations"),
     path("me/join-requests/", MyJoinRequestsAPI.as_view(), name="me-join-requests"),

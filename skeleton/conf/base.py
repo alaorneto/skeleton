@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     "skeleton.flows.apps.FlowsConfig",
     "skeleton.comments.apps.CommentsConfig",
     "skeleton.billing.apps.BillingConfig",
+    "skeleton.insights.apps.InsightsConfig",
     "skeleton.appearance.apps.AppearanceConfig",
     "skeleton.instance.apps.InstanceConfig",
     "skeleton.observability.apps.ObservabilityConfig",
@@ -387,6 +388,11 @@ IDENTITY_PROVIDER_ENCRYPTION_KEYS = env.list("IDENTITY_PROVIDER_ENCRYPTION_KEYS"
 INTEGRATION_ENCRYPTION_KEYS = env.list("INTEGRATION_ENCRYPTION_KEYS", default=[])
 # Separate keyring for payment provider secrets (#394, #400); never derived from SECRET_KEY.
 BILLING_ENCRYPTION_KEYS = env.list("BILLING_ENCRYPTION_KEYS", default=[])
+# The management figures of the instance (#710): hourly snapshots and daily metrics. Opt-in, for an
+# instance that reports to a central one; read at start.
+SKELETON_INSIGHTS_ENABLED = env.bool("SKELETON_INSIGHTS_ENABLED", default=False)
+# Tokens of the connections of a central instance to remote ones (#712): Fernet keys, the first encrypts.
+REMOTE_INSTANCE_ENCRYPTION_KEYS = env.list("REMOTE_INSTANCE_ENCRYPTION_KEYS", default=[])
 MFA_ADAPTER = "skeleton.accounts.adapters.EncryptedMFAAdapter"
 MFA_SUPPORTED_TYPES = ["totp", "recovery_codes"]
 MFA_ALLOW_UNVERIFIED_EMAIL = False

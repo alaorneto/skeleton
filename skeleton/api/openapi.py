@@ -146,6 +146,8 @@ class Audience:
     applications: frozenset[str] = frozenset()
     token_scopes: frozenset[str] | None = None
     everything: bool = False
+    # The platform API (#711): the platform administrator's session or a ``platform`` token.
+    platform: bool = False
 
     def table_actions(self, key: str) -> frozenset[str]:
         if self.everything:
@@ -260,7 +262,16 @@ def audience_for(request: Any) -> Audience:
         organization_admin=organization_admin,
         applications=frozenset(applications),
         token_scopes=scopes,
+        platform=_reaches_platform(request.user, token),
     )
+
+
+def _reaches_platform(user: Any, token: Any) -> bool:
+    from skeleton.accounts.platform import is_platform_admin
+
+    if token is not None:
+        return token.kind == "platform"
+    return is_platform_admin(user)
 
 
 # --- Field types from _meta ----------------------------------------------------------------
@@ -950,6 +961,8 @@ def _error_response() -> Schema:
 
 
 def _tag(route: Route) -> str:
+    if getattr(route.view, "platform_scope", ""):
+        return "Plataforma"
     if route.application:
         return f"apps.{route.application}"
     module = route.view.__module__.split(".")
@@ -965,6 +978,11 @@ def build_schema(audience: Audience, *, urlconf: str | None = None, oidc_discove
         if not audience.allows_application(route.application):
             continue
         undocumented = getattr(route.view, "openapi", None) is None
+        platform_scope = getattr(route.view, "platform_scope", "")
+        if platform_scope and not (
+            audience.everything or (audience.platform and audience.allows_scope(platform_scope))
+        ):
+            continue  # The platform API exists only for who reaches it (#711).
         for path, method, operation in _view_operations(route, audience):
             if not audience.allows_method(route.view, method):
                 continue

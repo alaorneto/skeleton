@@ -17,6 +17,8 @@
       <li><a class="sidebar-link" href="{% url 'platform:users' %}"{% if platform_section == "users" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="users" %}{% translate "Usuários" %}</a></li>
       <li><a class="sidebar-link" href="{% url 'platform:organizations' %}"{% if platform_section == "organizations" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="building" %}{% translate "Organizações" %}</a></li>
       <li><a class="sidebar-link" href="{% url 'platform:domains' %}"{% if platform_section == "domains" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="key" %}{% translate "Domínios verificados" %}</a></li>
+      <li><a class="sidebar-link" href="{% url 'platform:api-clients' %}"{% if platform_section == "api-clients" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="key" %}{% translate "Clientes da API" %}</a></li>
+      <li><a class="sidebar-link" href="{% url 'platform:remote-instances' %}"{% if platform_section == "remote-instances" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="building" %}{% translate "Instâncias remotas" %}</a></li>
       <li><a class="sidebar-link" href="{% url 'platform:identity-providers' %}"{% if platform_section == "identity-providers" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="key" %}{% translate "Provedores de identidade" %}</a></li>
     </ul>
 {% endif %}    <p class="sidebar-heading" id="platform-apps">{% translate "Aplicativos" %}</p>
@@ -29,6 +31,7 @@
     <ul class="sidebar-list" aria-labelledby="platform-data">
       {% if "inventory.read" in platform_capabilities %}<li><a class="sidebar-link" href="{% url 'platform:catalog' %}"{% if platform_section == "catalog" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="table" %}{% translate "Catálogo de tabelas" %}</a></li>{% endif %}
       {% if platform_admin %}<li><a class="sidebar-link" href="{% url 'platform:instance' %}"{% if platform_section == "instance" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="settings" %}{% translate "Configuração da instância" %}</a></li>{% endif %}
+      {% if "inventory.read" in platform_capabilities %}<li><a class="sidebar-link" href="{% url 'platform:insights' %}"{% if platform_section == "insights" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="clock" %}{% translate "Indicadores" %}</a></li>{% endif %}
       {% if "audit.read" in platform_capabilities %}<li><a class="sidebar-link" href="{% url 'platform:audit' %}"{% if platform_section == "audit" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="clock" %}{% translate "Auditoria global" %}</a></li>{% endif %}
     </ul>
 {% if platform_admin %}    <p class="sidebar-heading" id="platform-operations">{% translate "Operação" %}</p>

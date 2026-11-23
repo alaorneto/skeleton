@@ -126,6 +126,30 @@ class ApiTokenMiddleware:
             **{"WWW-Authenticate": 'Bearer realm="api", error="invalid_token"'},
         )
 
+    def _platform(self, request: ApiRequest, token: Any, match: ResolverMatch) -> JsonResponse | None:
+        """A ``platform`` token opens only the platform views, from its networks, with its scope (#709)."""
+        scope = getattr(_view_class(match), "platform_scope", "")
+        if token.kind != "platform":
+            if scope:
+                return self._not_allowed(request)
+            return None
+        if not scope:
+            return self._not_allowed(request)
+        from .platform import address_allowed
+
+        if not address_allowed(client_ip(request), list(token.allowed_networks or ())):
+            return self._reject(request, "network")
+        if scope not in set(token.scopes):
+            security_event("api_token.rejected", reason_code="scope", source="http", request_id=request.request_id)
+            return _error(403, "insufficient_scope", gettext("O token não tem o escopo deste recurso."))
+        return None
+
+    def _not_allowed(self, request: ApiRequest) -> JsonResponse:
+        security_event(
+            "api_token.rejected", reason_code="token_not_allowed", source="http", request_id=request.request_id
+        )
+        return _error(403, "token_not_allowed", gettext("Este recurso não aceita token de API."))
+
     def _authenticate(self, request: ApiRequest, text: str) -> JsonResponse | None:
         from .oidc import verify_oidc_token
         from .services import verify_token
@@ -152,6 +176,9 @@ class ApiTokenMiddleware:
                 "api_token.rejected", reason_code="token_not_allowed", source="http", request_id=request.request_id
             )
             return _error(403, "token_not_allowed", gettext("Este recurso não aceita token de API."))
+        refusal = self._platform(request, token, match)
+        if refusal is not None:
+            return refusal
         organization_id = match.kwargs.get("organization_id")
         if token.bound_organization_id is not None and organization_id not in (None, token.bound_organization_id):
             return _error(404, "not_found", "Not found.")
