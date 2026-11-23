@@ -48,7 +48,7 @@ def user(*, with_mfa_reset: bool) -> dict:
 
 
 class Migration(migrations.Migration):
-    dependencies = [("sk_accounts", "0011_profile_color_scheme"), ("sk_audit", "0003_investigation_indexes")]
+    dependencies = [("sk_accounts", "0012_platform_clients"), ("sk_audit", "0003_investigation_indexes")]
 
     operations = [
         migrations.AddField(
