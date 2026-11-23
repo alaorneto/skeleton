@@ -102,6 +102,7 @@ urlpatterns = [
     path("users/new/", views.user_create, name="user-create"),
     path("users/<uuid:sysid>/", views.user_detail, name="user"),
     path("users/<uuid:sysid>/delete/", views.user_delete, name="user-delete"),
+    path("users/<uuid:sysid>/mfa/reset/", views.user_mfa_reset, name="user-mfa-reset"),
     path("users/<uuid:sysid>/roles/", views.user_roles, name="user-roles"),
     path("users/<uuid:sysid>/roles/<uuid:assignment>/revoke/", views.user_role_revoke, name="user-role-revoke"),
     path("organizations/", views.organizations, name="organizations"),

@@ -1,0 +1,1 @@
+{% load i18n %}{% autoescape off %}{% translate "O MFA da sua conta foi redefinido" %}{% endautoescape %}

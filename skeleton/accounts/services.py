@@ -224,6 +224,81 @@ def update_platform_user(
         return previous
 
 
+class MFAResetRefused(ValidationError):
+    """The identity cannot have its MFA reset (own identity, service account, deleted, no MFA)."""
+
+
+def mfa_methods(user: User, *, using: str = "default") -> list[str]:
+    """The MFA types the identity has, for display only: never the authenticator data."""
+    from allauth.mfa.models import Authenticator
+
+    types = Authenticator.objects.using(using).filter(user_id=user.pk).values_list("type", flat=True)
+    return sorted(set(types))
+
+
+def _mail_mfa_reset(user: User) -> None:
+    """Tell the person after the commit; the emergency command has no request for allauth's mail."""
+    from allauth.account.adapter import get_adapter
+    from allauth.core import context as allauth_context
+    from django.core.mail import EmailMessage
+    from django.template.loader import render_to_string
+
+    from skeleton.common.mail import schedule_mail
+
+    prefix, context = "mfa/email/mfa_reset", {"user": user, "email": user.email}
+    if allauth_context.request is not None:
+        get_adapter().send_mail(prefix, user.email, context)
+        return
+    subject = " ".join(render_to_string(f"{prefix}_subject.txt", context).split())
+    body = render_to_string(f"{prefix}_message.txt", context)
+    schedule_mail(EmailMessage(subject, body, to=[user.email]), target_sysid=user.pk)
+
+
+def reset_mfa(user: User, *, actor: Any, expected_revision: int | None, using: str = "default") -> int:
+    """Remove every MFA authenticator of an identity that lost them (#736); returns how many.
+
+    Only the platform administrator, acting as the request actor, resets another identity;
+    ``actor=None`` is the emergency command inside a system context. ``mfa_reset_at`` and
+    ``auth_version`` change in one save, so the audit triggers record a single event and every
+    session of the person ends, including those that already passed the second factor. The
+    person is told by email after the commit; nothing of the authenticators is logged or mailed.
+    """
+    from allauth.mfa.models import Authenticator
+    from django.utils import timezone
+
+    from skeleton.accounts.models import AccountType, User
+    from skeleton.accounts.platform import require_platform_actor
+    from skeleton.common.logging import security_event
+    from skeleton.tenancy.context import current_context
+
+    require_platform_actor(actor)
+    with transaction.atomic(using=using):
+        locked = User.all_objects.using(using).select_for_update().get(pk=user.pk)
+        if expected_revision is not None and locked.revision != expected_revision:
+            raise ConcurrentUpdate("The identity changed since the confirmation was displayed.")
+        if actor is not None and locked.pk == actor.pk:
+            raise MFAResetRefused(gettext("Use a página de MFA da sua conta para trocar o seu próprio MFA."))
+        if locked.account_type != AccountType.HUMAN:
+            raise MFAResetRefused(gettext("Contas de serviço não têm MFA."))
+        if locked.deleted_at is not None:
+            raise MFAResetRefused(gettext("A identidade foi removida."))
+        authenticators = Authenticator.objects.using(using).filter(user_id=locked.pk)
+        count = authenticators.count()
+        if not count:
+            raise MFAResetRefused(gettext("Esta identidade não tem MFA cadastrado."))
+        authenticators.delete()
+        locked.mfa_reset_at = timezone.now()
+        locked.auth_version += 1
+        locked.save(using=using, update_fields=["mfa_reset_at", "auth_version"])
+        user.auth_version, user.revision = locked.auth_version, locked.revision
+        _mail_mfa_reset(locked)
+        context, target = current_context(), str(locked.pk)
+        transaction.on_commit(
+            lambda: security_event("mfa_reset", context_snapshot=context, target_sysid=target), using=using
+        )
+        return count
+
+
 def restore_user(user: User, *, actor: Any, using: str = "default") -> User:
     """Restore a deleted identity for a platform administrator; ``restore()`` applies the CAS."""
     from skeleton.accounts.platform import require_platform_actor

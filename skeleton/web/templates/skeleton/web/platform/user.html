@@ -9,7 +9,7 @@
     <h1 class="break-all">{{ subject.email }}</h1>
     <p class="mt-2 flex flex-wrap gap-1.5">{% if subject.is_active %}<span class="badge badge-success badge-dot">{% translate "Ativa" %}</span>{% else %}<span class="badge badge-dot">{% translate "Inativa" %}</span>{% endif %}{% if subject|is_platform_admin %}<span class="badge badge-brand">{% translate "Administrador da plataforma" %}</span>{% endif %}</p>
   </div>
-  <nav class="toolbar" aria-label="{% translate "Ações" %}"><a class="btn btn-secondary text-fg-danger" href="{% url 'platform:user-delete' subject.pk %}">{% include "skeleton/web/components/icon.html" with name="trash" %}{% translate "Remover identidade" %}</a></nav>
+  <nav class="toolbar" aria-label="{% translate "Ações" %}">{% if mfa_methods and not is_self %}<a class="btn btn-secondary" href="{% url 'platform:user-mfa-reset' subject.pk %}">{% translate "Redefinir MFA" %}</a>{% endif %}<a class="btn btn-secondary text-fg-danger" href="{% url 'platform:user-delete' subject.pk %}">{% include "skeleton/web/components/icon.html" with name="trash" %}{% translate "Remover identidade" %}</a></nav>
 </div>
 <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
   <section class="card" aria-labelledby="user-edit">
@@ -29,6 +29,7 @@
       <div><dt>{% translate "Nome de exibição" %}</dt><dd>{{ profile.display_name|default:"—" }}</dd></div>
       <div><dt>{% translate "Fuso horário / idioma" %}</dt><dd>{{ profile.timezone|default:"—" }} · {{ profile.language|default:"—" }}</dd></div>
       <div><dt>{% translate "Senha local" %}</dt><dd>{% if subject.local_password_allowed %}{% translate "Permitida" %}{% else %}{% translate "Somente SSO" %}{% endif %}</dd></div>
+      <div><dt>{% translate "MFA" %}</dt><dd>{% if mfa_methods %}{% for method in mfa_methods %}{% if method == "totp" %}{% translate "Aplicativo autenticador" %}{% elif method == "recovery_codes" %}{% translate "Códigos de recuperação" %}{% else %}{{ method }}{% endif %}{% if not forloop.last %} · {% endif %}{% endfor %}{% else %}{% translate "Não cadastrado" %}{% endif %}{% if subject.mfa_reset_at %}<br><span class="text-body-subtle">{% translate "Redefinido em" %} {{ subject.mfa_reset_at|moment }}</span>{% endif %}</dd></div>
       <div><dt>{% translate "Último acesso" %}</dt><dd>{{ subject.last_login|moment }}</dd></div>
       <div><dt>{% translate "Criada em" %}</dt><dd>{{ subject.created_at|moment }}</dd></div>
       <div><dt>{% translate "Revisão" %}</dt><dd>{{ subject.revision }}</dd></div>

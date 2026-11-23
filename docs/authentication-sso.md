@@ -255,6 +255,27 @@ Após provisionar, reinicie os processos e rode `validate_provider_bindings` com
 
 MFA (autenticação multifator) exige uma prova adicional além do método de login. São suportados TOTP, códigos temporários gerados por um aplicativo autenticador, e `recovery_codes`, códigos de recuperação para perda desse aplicativo. Email verificado é obrigatório; códigos de recuperação são mostrados uma única vez e o recurso de navegador confiável fica desligado. Em produção, administradores da plataforma e `organization_admin` precisam cadastrar MFA antes de usar superfícies privilegiadas. HTML redireciona para `mfa_index`; a API retorna 403 `mfa_required`. MFA, perfil e logout continuam acessíveis para permitir concluir o cadastro. A claim `amr` do IdP não dispensa essa política. Em desenvolvimento, o padrão False permite a configuração inicial; cadastrar MFA ainda requer chaves de cifragem.
 
+### Redefinir o MFA de quem perdeu o autenticador (#736)
+
+Quem perde o aplicativo autenticador **e** os códigos de recuperação não consegue mais passar pela etapa do MFA. Não há autoatendimento: um link por email reduziria o MFA a senha + email. O caminho é o administrador da plataforma, em `/platform/users/<id>/`, que mostra os métodos de MFA da pessoa (só os tipos, nunca os segredos) e o botão **Redefinir MFA**. A confirmação em `/platform/users/<id>/mfa/reset/` pede reautenticação recente; o POST, com CSRF e a revisão da identidade, chama `skeleton.accounts.services.reset_mfa`:
+
+- apaga todos os autenticadores da pessoa (TOTP, códigos de recuperação e qualquer outro tipo);
+- grava `User.mfa_reset_at` e incrementa `auth_version` no mesmo `save`: um evento de auditoria com o administrador como ator, e todas as sessões da pessoa terminam, inclusive as que já tinham passado pelo MFA;
+- depois do commit, avisa a pessoa por email (`mfa/email/mfa_reset_*.txt`, sem link de ação) e registra o evento de segurança `mfa_reset`, só com o sysid.
+
+São recusadas, sem escrever nada: a própria identidade do administrador (ele usa a página de MFA da conta), conta de serviço, identidade removida, identidade sem MFA e revisão desatualizada (409). Papéis limitados da plataforma e administradores de organização não redefinem: a identidade é global e vale em outras organizações. No próximo login a pessoa entra só com a senha ou o SSO e cadastra o MFA de novo em `/accounts/2fa/`; com `SKELETON_REQUIRE_ADMIN_MFA`, um administrador é levado a esse cadastro antes das superfícies privilegiadas. Antes de redefinir, confira por outro canal que quem pediu é mesmo a pessoa: a redefinição é o alvo natural de engenharia social.
+
+Quando não há outro administrador da plataforma para redefinir (o único perdeu o MFA), o operador roda no servidor:
+
+```sh
+.venv/bin/python manage.py reset_mfa --email pessoa@example.com --reason "chamado 123"
+.venv/bin/python manage.py reset_mfa --email pessoa@example.com --reason "chamado 123" --confirm
+```
+
+Sem `--confirm`, o comando só diz quais tipos de MFA a identidade tem. Com ele, faz o mesmo que a tela, num `command_context` cujo motivo vai para a origem do evento de auditoria (`system:command:mfa:reset <motivo>`). A saída mostra só o sysid e a contagem de autenticadores apagados.
+
+### Chaves de cifragem
+
 Gere chave Fernet privadamente:
 
 ```sh
