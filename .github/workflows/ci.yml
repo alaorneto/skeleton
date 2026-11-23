@@ -524,6 +524,8 @@ jobs:
           healthy node-a agent
           healthy node-a web
           curl -fsS -H 'Host: localhost' http://127.0.0.1:8000/health/ready/
+          # The job approves its rehearsal key, but the image must still ship the official one (#720).
+          node node-a exec -T agent cat /opt/agent/publishers/skeleton.pub.pem | cmp - deploy/release/publishers/skeleton.pub.pem
       - name: Segundo nó (seguidor) entra pelo canal entre agentes
         run: |
           node() { docker compose -p "$1" --env-file "$RUNNER_TEMP/$1.env" -f compose.yaml -f "$RUNNER_TEMP/compose.ci.yaml" "${@:2}"; }
