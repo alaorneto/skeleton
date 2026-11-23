@@ -336,6 +336,7 @@ def test_system_reasons_open_to_http_are_a_closed_list():
         "platform:organization-inspect",
         "platform:billing",
         "platform:setting-lock",
+        "platform:apps",
     }
     assert JOIN_REASONS == {"join:request", "join:link", "join:domain"}
     # Without an authenticated actor only a link (whose token digest is the proof) may be validated.

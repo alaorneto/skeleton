@@ -116,6 +116,17 @@ urlpatterns = [
         views.organization_app_configuration,
         name="organization-app-configuration",
     ),
+    path("organizations/<uuid:sysid>/limits/", views.organization_limits, name="organization-limits"),
+    path(
+        "organizations/<uuid:sysid>/apps/<str:app_label>/assign/",
+        views.organization_app_assign,
+        name="organization-app-assign",
+    ),
+    path(
+        "organizations/<uuid:sysid>/apps/<str:app_label>/unassign/",
+        views.organization_app_unassign,
+        name="organization-app-unassign",
+    ),
     path(
         "organizations/<uuid:sysid>/administrators/",
         views.organization_administrators,
@@ -168,6 +179,7 @@ urlpatterns = [
     path("apps/<str:app_label>/availability/", views.app_availability, name="app-availability"),
     path("apps/<str:app_label>/availability/grant/", views.app_grant, name="app-grant"),
     path("apps/<str:app_label>/availability/revoke/", views.app_revoke, name="app-revoke"),
+    path("apps/<str:app_label>/availability/limits/", views.app_limits, name="app-limits"),
     path("apps/<str:app_label>/documentation/", views.app_documentation, name="app-documentation"),
     path("apps/<str:app_label>/screens/<str:screen_id>/", views.app_screen, name="app-screen"),
     path("native-clients/", native_clients_views.native_clients, name="native-clients"),

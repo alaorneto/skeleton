@@ -11,7 +11,7 @@ from django.utils.translation import gettext
 
 from .base import ServiceAPI, service_method
 from .dto import DEFAULT_PAGE_SIZE, Page, as_uuid, paginate
-from .errors import Conflict, InvalidInput, NotFound
+from .errors import Conflict, Forbidden, InvalidInput, NotFound
 from .identity import PersonSummary, _display_name, _kind, _user
 
 
@@ -79,6 +79,20 @@ def _settings_info(record: Any) -> OrganizationSettingsInfo:
 
 
 @dataclass(frozen=True, slots=True)
+class LimitInfo:
+    """Usage and limit of one limited metric of the organization (#698).
+
+    ``reserved`` is the pending invitations (only ``members``; 0 for the other metrics).
+    """
+
+    metric: str
+    used: int
+    limit: int
+    reserved: int
+    over_limit: bool
+
+
+@dataclass(frozen=True, slots=True)
 class GroupSummary:
     sysid: UUID
     code: str
@@ -102,6 +116,22 @@ def _active_members(*, include_service_accounts: bool = False) -> Any:
     # The directory lists people: service accounts (#44) are left out by default.
     members = Membership.objects.filter(is_active=True, user__is_active=True, user__deleted_at__isnull=True)
     return members if include_service_accounts else members.filter(user__account_type="human")
+
+
+def organization_limits() -> tuple[LimitInfo, ...]:
+    """The limited metrics of the current organization, for an already authorized caller."""
+    from skeleton.common.limits import registered_limit_metrics
+    from skeleton.system.limits import MEMBERS, limit_status
+    from skeleton.tenancy.invitations import pending_invitations
+
+    result = []
+    for metric in sorted(registered_limit_metrics()):
+        status = limit_status(metric)
+        if status.limit is None:
+            continue
+        reserved = pending_invitations() if metric == MEMBERS else 0
+        result.append(LimitInfo(metric, status.used, status.limit, reserved, status.over_limit))
+    return tuple(result)
 
 
 class OrganizationService(ServiceAPI):
@@ -191,6 +221,23 @@ class OrganizationService(ServiceAPI):
             )
 
         return paginate(rows, convert=convert, page_size=page_size, cursor=cursor, key=("user__sysid",))
+
+    @service_method(read_only=True, since="0.6.0")
+    def limits(self, *, actor: AbstractBaseUser) -> tuple[LimitInfo, ...]:
+        """Return usage and limit of every limited metric of the organization (#698).
+
+        Autorização: vínculo ativo do ator com ``members.view`` ou ``members.manage``.
+        Erros: Forbidden sem a capacidade.
+        Efeitos: nenhum. Métricas sem limite (ilimitadas) não aparecem.
+        """
+        from skeleton.access.capabilities import MEMBERS_MANAGE, MEMBERS_VIEW, has_capability
+        from skeleton.access.policies import active_membership
+
+        user = _user(actor)
+        active_membership(user)
+        if not (has_capability(user, MEMBERS_VIEW) or has_capability(user, MEMBERS_MANAGE)):
+            raise Forbidden()
+        return organization_limits()
 
     @service_method(read_only=True, since="0.1.0")
     def groups(

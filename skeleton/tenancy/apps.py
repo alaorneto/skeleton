@@ -16,3 +16,6 @@ class TenancyConfig(AppConfig):
         from .provisioning import register_provisioning_jobs
 
         register_provisioning_jobs()  # Provisioning rules applied to existing organizations (#703).
+        from .limit_notices import register_limit_notices
+
+        register_limit_notices()

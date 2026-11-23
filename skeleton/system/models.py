@@ -149,6 +149,9 @@ class AppAvailability(SystemRecord):
     # "" marks a row written before #22 that upgrade_app_activation has not processed yet;
     # "pending" is mid-upgrade and "done" is final. New code always writes "done".
     upgrade_state = models.CharField(max_length=24, blank=True, default="")
+    # What the app adds to each organization limit where it is effective (#696): {"members": 2}.
+    # A commercial decision of this instance, never of the manifest; written by set_app_limits.
+    limits = models.JSONField(default=dict, blank=True)
     immutable_fields = ("app_label",)
     UPGRADE_PENDING = "pending"
     UPGRADE_DONE = "done"
@@ -182,6 +185,49 @@ class AppOrganizationGrant(SystemRecord):
                 violation_error_code="unique",
             ),
         ]
+
+
+class OrganizationLimitOverride(SystemRecord):
+    """The platform's adjustment of one organization limit (#697): a bonus or a fixed limit.
+
+    A bonus adds ``value`` to the calculated limit; a fixed limit replaces it (``value`` NULL:
+    unlimited). One row per organization and metric: removing is a soft delete and setting it
+    again restores the same row. An expired row is ignored without any job.
+    """
+
+    class Mode(models.TextChoices):
+        BONUS = "bonus", gettext_lazy("Bônus")
+        FIXED = "fixed", gettext_lazy("Limite fixo")
+
+    # Not named ``organization``: that name turns on tenant semantics for SystemRecord models (E017).
+    limited_organization = models.ForeignKey(
+        "sk_tenancy.Organization", on_delete=models.PROTECT, related_name="limit_overrides"
+    )
+    metric = models.CharField(max_length=100)
+    mode = models.CharField(max_length=8, choices=Mode.choices)
+    value = models.PositiveIntegerField(null=True, blank=True)  # NULL only for FIXED: unlimited.
+    reason = models.CharField(max_length=500)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    immutable_fields = ("limited_organization_id", "metric")
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("limited_organization", "metric"),
+                name="sk_system_organizationlimitoverride_unique",
+                violation_error_code="unique",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(mode__in=("bonus", "fixed")), name="sk_system_organizationlimitoverride_mode"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(mode="fixed") | models.Q(value__gte=1),
+                name="sk_system_organizationlimitoverride_bonus_value",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.limited_organization_id} {self.metric}: {self.mode} {self.value}"
 
 
 # Native client distribution (#606): defined next to their services, registered in this app.

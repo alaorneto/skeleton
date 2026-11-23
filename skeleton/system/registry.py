@@ -358,6 +358,12 @@ def register_core_specs():
             "global",
             (),
         ),
+        "sk_system.organizationlimitoverride": (
+            gettext_lazy("Ajustes de limites"),
+            gettext_lazy("Bônus ou limite fixo de uma métrica numa organização, definido pela plataforma com motivo."),
+            "global",
+            (),
+        ),
         "sk_system.componentinstallation": (
             gettext_lazy("Componentes instalados"),
             gettext_lazy("Versão e procedência global do release confirmado."),

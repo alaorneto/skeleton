@@ -1,0 +1,43 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% load i18n skeleton_format %}{% block page_title %}{% translate "Limites" %} · {{ subject.name }}{% endblock %}
+{% block content %}
+<div class="max-w-5xl">
+<div class="page-header">
+  <div class="min-w-0">
+    <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'platform:organizations' %}">{% translate "Organizações" %}</a></li><li><a href="{% url 'platform:organization' subject.pk %}">{{ subject.name }}</a></li><li><span aria-current="page">{% translate "Limites" %}</span></li></ol></nav>
+    <h1>{% translate "Limites" %}</h1>
+    <p class="page-description">{% translate "O limite de cada métrica é o padrão da instância somado ao que as apps em uso, a cobrança e o bônus da plataforma acrescentam. Um limite fixo substitui o cálculo. Reduzir o limite não remove ninguém: só bloqueia novas entradas." %}</p>
+  </div>
+</div>
+{% if error %}<p class="errorlist nonfield mb-4" role="alert">{{ error }}</p>{% endif %}
+<section class="card" aria-labelledby="limits-breakdown">
+  <h2 id="limits-breakdown">{% translate "Detalhamento" %}</h2>
+  <div class="table-scroll mt-4"><table><thead><tr>
+    <th scope="col">{% translate "Métrica" %}</th><th scope="col">{% translate "Padrão" %}</th><th scope="col">{% translate "Acréscimos" %}</th><th scope="col">{% translate "Ajuste" %}</th><th scope="col">{% translate "Limite" %}</th><th scope="col">{% translate "Em uso" %}</th><th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th>
+  </tr></thead><tbody>
+  {% for item in rows %}{% with row=item.row status=item.row.status %}<tr>
+    <td><span class="cell-primary">{{ row.label }}</span><span class="cell-secondary"><code>{{ status.metric }}</code></span></td>
+    <td>{% if status.base is None %}—{% else %}{{ status.base }}{% endif %}</td>
+    <td>{% for name, amount in item.sources %}<span class="block text-sm">{{ name }}: +{{ amount }}</span>{% empty %}—{% endfor %}</td>
+    <td>{% if row.override %}{% if row.override.mode == "fixed" %}{% translate "Fixo" %}: {% if row.override.value is None %}{% translate "ilimitado" %}{% else %}{{ row.override.value }}{% endif %}{% else %}{% translate "Bônus" %}: +{{ row.override.value }}{% endif %}
+      <span class="cell-secondary">{{ row.override.reason }}{% if row.override.expires_at %} · {% if row.expired %}{% translate "vencido em" %}{% else %}{% translate "até" %}{% endif %} {{ row.override.expires_at|moment }}{% endif %}</span>{% else %}—{% endif %}</td>
+    <td>{% if status.limit is None %}{% translate "Ilimitado" %}{% else %}{{ status.limit }}{% endif %}{% if status.fixed %} <span class="badge">{% translate "fixo" %}</span>{% endif %}</td>
+    <td>{{ status.used }}{% if status.over_limit %} <span class="badge badge-warning">{% translate "acima do limite" %}</span>{% endif %}</td>
+    <td class="col-actions"><a class="btn btn-secondary btn-sm" href="?metric={{ status.metric|urlencode }}#limits-adjust">{% translate "Ajustar" %}<span class="sr-only"> {{ row.label }}</span></a>{% if row.override %}
+      <form method="post" class="row-actions">{% csrf_token %}<input type="hidden" name="action" value="remove"><input type="hidden" name="metric" value="{{ status.metric }}"><input type="hidden" name="expected_revision" value="{{ row.override.revision }}">
+        <button type="submit" class="btn btn-danger-outline btn-sm">{% translate "Remover ajuste" %}<span class="sr-only"> {{ row.label }}</span></button></form>{% endif %}</td>
+  </tr>{% endwith %}{% endfor %}
+  </tbody></table></div>
+</section>
+<section class="card mt-5" aria-labelledby="limits-adjust">
+  <h2 id="limits-adjust">{% translate "Ajustar um limite" %}</h2>
+  <p class="mt-1 text-sm/6 text-body-subtle">{% translate "Use \"Ajustar\" numa linha para editar o ajuste dela. A mudança é auditada e exige autenticação recente." %}</p>
+  <form method="post" class="mt-5">
+    {% csrf_token %}
+    {% include "skeleton/web/components/form-errors.html" %}
+    {% include "skeleton/web/components/form-fields.html" %}
+    <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Salvar ajuste" %}</button><a class="btn btn-secondary" href="{% url 'platform:organization' subject.pk %}">{% translate "Voltar" %}</a></div>
+  </form>
+</section>
+</div>
+{% endblock %}

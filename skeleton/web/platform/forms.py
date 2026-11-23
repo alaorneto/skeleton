@@ -8,9 +8,12 @@ from skeleton.accounts.models import User
 __all__ = [
     "AppAvailabilityForm",
     "AppGrantForm",
+    "AppLimitsForm",
     "AppRevokeForm",
     "SettingLockForm",
     "SettingUnlockForm",
+    "LimitOverrideForm",
+    "LimitOverrideRemoveForm",
     "CatalogLabelForm",
     "OrganizationAdministratorForm",
     "OrganizationCreateForm",
@@ -251,6 +254,88 @@ class AppGrantForm(forms.Form):
         field.queryset = _grantable_organizations(granted_ids)
         field.label_from_instance = lambda organization: f"{organization.name} ({organization.slug})"
         field.error_messages["invalid_choice"] = "Escolha uma organização ativa que ainda não tenha a app."
+
+
+class AppLimitsForm(forms.Form):
+    """What one app adds to each organization limit (#696): one field per registered metric.
+
+    Empty or 0 is no contribution. The field names never carry the metric code itself (an app
+    metric has a dot): ``limit_<n>`` in the order of the sorted codes.
+    """
+
+    expected_revision = forms.IntegerField(min_value=0, widget=forms.HiddenInput)
+
+    def __init__(self, *args, **kwargs):
+        from skeleton.common.limits import limit_metric, registered_limit_metrics
+        from skeleton.system.limits import MAX_APP_LIMIT
+
+        super().__init__(*args, **kwargs)
+        self.metrics: dict[str, str] = {}
+        for index, code in enumerate(sorted(registered_limit_metrics())):
+            name = f"limit_{index}"
+            self.metrics[name] = code
+            self.fields[name] = forms.IntegerField(
+                label=limit_metric(code).label or code,
+                required=False,
+                min_value=0,
+                max_value=MAX_APP_LIMIT,
+                help_text=code,
+            )
+
+    @classmethod
+    def for_limits(cls, limits, *, revision):
+        form = cls(initial={"expected_revision": revision})
+        for name, code in form.metrics.items():
+            form.initial[name] = limits.get(code) or None
+        return form
+
+    def limits(self) -> dict[str, int]:
+        return {code: self.cleaned_data[name] for name, code in self.metrics.items() if self.cleaned_data.get(name)}
+
+
+class LimitOverrideForm(forms.Form):
+    """The platform's adjustment of one organization limit (#697): bonus or fixed, with a reason."""
+
+    metric = forms.ChoiceField(label=gettext_lazy("Métrica"), choices=())
+    mode = forms.ChoiceField(
+        label=gettext_lazy("Ajuste"),
+        choices=(("bonus", gettext_lazy("Bônus: soma ao limite calculado")), ("fixed", gettext_lazy("Limite fixo"))),
+    )
+    value = forms.IntegerField(
+        label=gettext_lazy("Valor"),
+        required=False,
+        min_value=1,
+        max_value=2_147_483_647,
+        help_text=gettext_lazy("No limite fixo, vazio é ilimitado."),
+    )
+    reason = forms.CharField(label=gettext_lazy("Motivo"), max_length=500)
+    expires_at = forms.DateTimeField(
+        label=gettext_lazy("Válido até"),
+        required=False,
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"),
+        input_formats=["%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d"],
+        help_text=gettext_lazy("Vazio: sem prazo. Vencido, o ajuste deixa de valer sozinho."),
+    )
+    expected_revision = forms.IntegerField(min_value=0, widget=forms.HiddenInput)
+
+    def __init__(self, *args, **kwargs):
+        from skeleton.common.limits import limit_metric, registered_limit_metrics
+
+        super().__init__(*args, **kwargs)
+        self.fields["metric"].choices = [
+            (code, limit_metric(code).label or code) for code in sorted(registered_limit_metrics())
+        ]
+
+    def clean(self):
+        data = super().clean()
+        if data.get("mode") == "bonus" and data.get("value") is None:
+            self.add_error("value", gettext("Informe quanto o bônus soma ao limite."))
+        return data
+
+
+class LimitOverrideRemoveForm(forms.Form):
+    metric = forms.CharField(max_length=100, widget=forms.HiddenInput)
+    expected_revision = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
 
 
 class SettingLockForm(forms.Form):

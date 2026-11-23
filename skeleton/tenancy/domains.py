@@ -311,7 +311,18 @@ def apply_verified_email_admission(user: Any, email: str) -> str:
             open_request.save(update_fields={"status"})
         returning = Membership.all_objects.filter(user=user).exists()
         if record.admission == record.Admission.AUTO and not returning:
-            admit_member(organization=organization, user=user, role=record.role)
+            from skeleton.common.exceptions import QuotaLimitExceeded
+            from skeleton.common.logging import security_event
+
+            try:
+                with transaction.atomic():
+                    admit_member(organization=organization, user=user, role=record.role)
+            except QuotaLimitExceeded:
+                # A neutral refusal (#698): no membership, no request, a log without personal data.
+                security_event(
+                    "membership.limit_reached", reason_code="domain", record_sysid=str(organization.pk), status=409
+                )
+                return "full"
             return "admitted"
         # A former member is never readmitted by a domain: a person decides.
         models.JoinRequest(
