@@ -16,10 +16,16 @@ env:
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
   # Bibliotecas nativas exigidas pelos wheels SAML travados (mesmas do Dockerfile).
   SYSTEM_PACKAGES: libxml2 libxmlsec1 libxmlsec1-openssl xmlsec1
+  # #721: an apt mirror that stalls fails the request instead of hanging the runner. Every apt
+  # step also has its own timeout and every job one above its usual duration (docs/testing.md).
+  APT_OPTIONS: >-
+    -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30
+    -o DPkg::Lock::Timeout=120
 
 jobs:
   lint:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # The local hooks again, for commits made without pre-commit installed (#329). The Ruff
@@ -44,6 +50,7 @@ jobs:
   assets:
     name: CSS compilado e assets vendorizados
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -62,6 +69,7 @@ jobs:
   locks:
     name: Locks correspondem aos requirements .in
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
@@ -83,6 +91,7 @@ jobs:
   tests:
     name: Testes em PostgreSQL (Python ${{ matrix.python }}, ${{ matrix.suite }}, role runtime)
     runs-on: ubuntu-24.04
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -144,7 +153,10 @@ jobs:
       - name: Instalar dependências do sistema
         # redis-server alimenta o teste do healthcheck renderizado pelo Compose; o cliente
         # PostgreSQL provisiona o banco e gera o template de schema (pg_dump).
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES redis-server postgresql-client
+        timeout-minutes: 10
+        run: |
+          apt_install() { sudo apt-get $APT_OPTIONS update && sudo apt-get $APT_OPTIONS install -y --no-install-recommends $SYSTEM_PACKAGES redis-server postgresql-client; }
+          apt_install || { echo "::warning::apt-get falhou; nova tentativa em 15 s"; sleep 15; apt_install; }
       - name: Provisionar bancos descartáveis e roles
         run: |
           for database in ci_skeleton_test $(seq -f 'ci_gw%g_skeleton_test' 0 $((TEST_WORKERS - 1))); do
@@ -207,6 +219,7 @@ jobs:
     name: Cobertura da suíte (Python ${{ matrix.python }})
     needs: tests
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -239,12 +252,18 @@ jobs:
 
   typecheck:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.14"
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES
+      - name: Instalar dependências do sistema
+        # gettext: makemessages e msgfmt do passo de tradução.
+        timeout-minutes: 10
+        run: |
+          apt_install() { sudo apt-get $APT_OPTIONS update && sudo apt-get $APT_OPTIONS install -y --no-install-recommends $SYSTEM_PACKAGES gettext; }
+          apt_install || { echo "::warning::apt-get falhou; nova tentativa em 15 s"; sleep 15; apt_install; }
       - run: python -m pip install --require-hashes -r requirements-dev.txt
       - name: mypy (módulos listados em pyproject.toml)
         # The first-party apps are checked strictly (#348): the Django plugin must load their models.
@@ -252,19 +271,22 @@ jobs:
           SKELETON_BUNDLED_APPS: calendar,ledger
         run: python -m mypy
       - name: Catálogo de tradução válido (makemessages e msgfmt --check-format)
-        run: |
-          sudo apt-get install -y --no-install-recommends gettext
-          python tools/i18n_check.py
+        run: python tools/i18n_check.py
 
   deploy-check:
     name: Settings de produção (check --deploy)
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.14"
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES
+      - name: Instalar dependências do sistema
+        timeout-minutes: 10
+        run: |
+          apt_install() { sudo apt-get $APT_OPTIONS update && sudo apt-get $APT_OPTIONS install -y --no-install-recommends $SYSTEM_PACKAGES; }
+          apt_install || { echo "::warning::apt-get falhou; nova tentativa em 15 s"; sleep 15; apt_install; }
       - run: python -m pip install --require-hashes -r requirements.txt
       - name: manage.py check --deploy
         # Valores descartáveis: o check não conecta ao banco, cache ou SMTP.
@@ -285,12 +307,17 @@ jobs:
   build:
     name: Wheel, auditoria e imagem
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.14"
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES
+      - name: Instalar dependências do sistema
+        timeout-minutes: 10
+        run: |
+          apt_install() { sudo apt-get $APT_OPTIONS update && sudo apt-get $APT_OPTIONS install -y --no-install-recommends $SYSTEM_PACKAGES; }
+          apt_install || { echo "::warning::apt-get falhou; nova tentativa em 15 s"; sleep 15; apt_install; }
       - name: Construir wheel do núcleo
         run: |
           python -m pip install --require-hashes -r requirements-dev.txt
@@ -389,7 +416,7 @@ jobs:
     # contra ele, a primeira partida pelo primário, o seguidor entrando pelo canal entre agentes e as
     # fronteiras da credencial owner.
     runs-on: ubuntu-24.04
-    timeout-minutes: 50
+    timeout-minutes: 30
     env:
       POSTGRES_PASSWORD: cipostgres
       SKELETON_OWNER_DB_PASSWORD: ciowner
@@ -402,7 +429,11 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.14"
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES
+      - name: Instalar dependências do sistema
+        timeout-minutes: 10
+        run: |
+          apt_install() { sudo apt-get $APT_OPTIONS update && sudo apt-get $APT_OPTIONS install -y --no-install-recommends $SYSTEM_PACKAGES; }
+          apt_install || { echo "::warning::apt-get falhou; nova tentativa em 15 s"; sleep 15; apt_install; }
       - name: Pacote de release de ensaio
         run: |
           python -m pip install --require-hashes -r requirements-dev.txt
@@ -656,6 +687,7 @@ jobs:
     if: always()
     needs: [lint, assets, locks, tests, coverage, typecheck, deploy-check, build, compose-stack]
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - name: Todos os jobs passaram
         env:
