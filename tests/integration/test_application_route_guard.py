@@ -66,14 +66,25 @@ def test_plain_member_is_not_gated_by_mfa(scenario, settings):
     assert client.get(api(scenario.a)).status_code == 200
 
 
-def test_disabled_app_keeps_its_answer_before_the_mfa_gate(scenario, settings):
-    """A disabled app keeps its answer (403 HTML, 404 API), never the MFA redirect, for everyone."""
+def test_disabled_app_reveals_nothing_through_the_mfa_gate(scenario, settings):
+    """A disabled app keeps its answer (403 HTML, 404 API) for whoever MFA does not hold back.
+
+    Whoever must still enrol MFA in the organization gets the gate's answer (#740) whether the
+    app is enabled or not, so the gate never tells a disabled app from an enabled one.
+    """
     settings.SKELETON_REQUIRE_ADMIN_MFA = True
+    member = login(scenario, scenario.member)
+    admin = login(scenario, scenario.admin_a)
+
+    def admin_answers():
+        html, json = admin.get(page(scenario.a)), admin.get(api(scenario.a))
+        return (html.status_code, html["Location"], json.status_code, json.json()["code"])
+
+    enabled = admin_answers()
     with scenario.application_disabled():
-        for user in (scenario.admin_a, scenario.member):
-            client = login(scenario, user)
-            assert client.get(page(scenario.a)).status_code == 403
-            assert client.get(api(scenario.a)).status_code == 404
+        assert member.get(page(scenario.a)).status_code == 403
+        assert member.get(api(scenario.a)).status_code == 404
+        assert admin_answers() == enabled == (302, reverse("mfa_index"), 403, "mfa_required")
 
 
 def _guarded(view, *, api_route=False):

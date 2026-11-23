@@ -186,7 +186,9 @@ def test_platform_has_no_parallel_login_or_mfa_bypass(skeleton_db):
     with override_settings(SKELETON_REQUIRE_ADMIN_MFA=True):
         response = client.get(f"/api/v1/o/{organization.pk}/roles/")
         assert response.status_code == 403 and response.json()["code"] == "mfa_required"
-        assert client.get("/profile/").status_code == 200
+        # Until the enrolment ends, only the MFA pages answer (#740).
+        response = client.get("/profile/")
+        assert response.status_code == 302 and "/accounts/2fa/" in response["Location"]
         assert client.get("/accounts/2fa/").status_code == 200
         response = client.get("/platform/")
         assert response.status_code == 302 and "/accounts/2fa/" in response["Location"]

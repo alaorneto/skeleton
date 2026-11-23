@@ -18,7 +18,8 @@ pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_
 UNAVAILABLE = "Este quadro não está disponível agora."
 # Queries of the internal home with the default document for a member, recorded on 2026-11-21:
 # the shell, the home page row, the person's tasks and unread notifications of this organization.
-DEFAULT_HOME_QUERIES = 32
+# 31 since #740: the organization settings row is read once per request (the MFA gate reuses it).
+DEFAULT_HOME_QUERIES = 31
 
 
 @pytest.fixture

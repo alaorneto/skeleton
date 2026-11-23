@@ -113,7 +113,7 @@ O GET de detalhe retorna um ETag forte `"<revision>"`, o marcador exato da vers�
 | Revisão stale | 412 `revision_conflict` |
 | Inexistente/invisível/outro tenant | 404 |
 | Tabela/ação negada | 403 |
-| Admin sem enrollment obrigatório | 403 `mfa_required` |
+| Pessoa sem o MFA que alguma regra exige ([quem cadastra o MFA](authentication-sso.md#mfa-cifrado-e-obrigatório)), em qualquer rota, também com token pessoal (#740) | 403 `mfa_required` |
 | Validação/mass assignment | 400 |
 | Unicidade/referência viva/conflito de último admin | 409 |
 | Coluna congelada, exclusão ou restauração de registro selado (#527) | 409 `record_sealed` |

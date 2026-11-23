@@ -413,6 +413,15 @@ class IdentityProviderAdmission(OrganizationRecord):
 BRAND_COLOR_PATTERN = r"^#[0-9a-fA-F]{6}$"
 
 
+# The organization's MFA policy (#740): "" follows the platform, "admins" adds whoever holds an
+# administrative capability here, "all" every member. Never loosens the platform's rules.
+MFA_POLICY_CHOICES = (
+    ("", gettext_lazy("Segue a plataforma")),
+    ("admins", gettext_lazy("Quem administra a organização")),
+    ("all", gettext_lazy("Todos os membros")),
+)
+
+
 class OrganizationSettings(OrganizationRecord):
     """Defaults and brand of one organization (#167), edited by its administrator.
 
@@ -433,6 +442,8 @@ class OrganizationSettings(OrganizationRecord):
     holidays = models.JSONField(default=list, blank=True)
     # The organization's own address <slug>.<base domain> (#480); off until the administrator turns it on.
     site_enabled = models.BooleanField(default=False)
+    # Who must enrol MFA here (#740): only tightens the platform's rules, written only by update_mfa_policy.
+    mfa_policy = models.CharField(max_length=16, blank=True, default="", choices=MFA_POLICY_CHOICES)
 
     class Meta(OrganizationRecord.Meta):
         constraints = OrganizationRecord.Meta.constraints + [
@@ -440,10 +451,22 @@ class OrganizationSettings(OrganizationRecord):
                 fields=("organization",), name="sk_tenancy_settings_one_per_org", violation_error_code="unique"
             ),
             models.CheckConstraint(
+                condition=Q(mfa_policy__in=("", "admins", "all")), name="sk_tenancy_settings_mfa_policy"
+            ),
+            models.CheckConstraint(
                 condition=Q(brand_color="") | Q(brand_color__regex=BRAND_COLOR_PATTERN),
                 name="sk_tenancy_settings_brand_color",
             ),
         ]
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        from .context import request_cache
+        from .organization_settings import settings_cache_key
+
+        cache = request_cache()
+        if cache is not None:
+            cache.pop(settings_cache_key(self.organization_id), None)
 
     def clean(self):
         super().clean()

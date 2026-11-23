@@ -445,3 +445,85 @@ def organization_icon_update(request, organization_id):
         return _page(request, organization_id, form, status=400, icon_errors=errors)
     messages.success(request, gettext("Ícone removido.") if action == "remove" else gettext("Ícone atualizado."))
     return redirect("web:organization-settings", organization_id=organization_id)
+
+
+class MFAPolicyForm(forms.Form):
+    """Who must enrol MFA in the organization (#740); only tightens the platform's rules."""
+
+    mfa_policy = forms.ChoiceField(
+        label=gettext_lazy("Autenticação em dois fatores obrigatória para"),
+        required=False,
+        help_text=gettext_lazy(
+            "Quem estiver obrigado e ainda não configurou só vê a página de configuração do MFA ao entrar "
+            "nesta organização. A regra da plataforma continua valendo por cima desta."
+        ),
+    )
+    revision = forms.IntegerField(min_value=0, widget=forms.HiddenInput)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from skeleton.tenancy.models import MFA_POLICY_CHOICES
+
+        self.fields["mfa_policy"].choices = MFA_POLICY_CHOICES
+
+
+def _platform_mfa_rules() -> list[str]:
+    """What the platform already demands, shown so the administrator knows the floor."""
+    rules = []
+    if getattr(settings, "SKELETON_REQUIRE_PLATFORM_ADMIN_MFA", False):
+        rules.append(gettext("O administrador da plataforma sempre configura o MFA."))
+    if getattr(settings, "SKELETON_REQUIRE_MFA", False):
+        rules.append(gettext("A plataforma exige o MFA de todas as pessoas."))
+    elif getattr(settings, "SKELETON_REQUIRE_ADMIN_MFA", False):
+        rules.append(gettext("A plataforma exige o MFA de quem administra uma organização."))
+    return rules
+
+
+@tenant_page(admin=True)
+@never_cache
+@require_http_methods(["GET", "POST"])
+def organization_security(request, organization_id):
+    from skeleton.accounts.mfa import has_totp
+    from skeleton.tenancy.organization_settings import update_mfa_policy
+
+    record = current_settings()
+    initial = {"mfa_policy": getattr(record, "mfa_policy", ""), "revision": revision_of(record)}
+    form = MFAPolicyForm(request.POST if request.method == "POST" else None, initial=initial)
+    status = 200
+    if request.method == "POST":
+        if set(request.POST) - {"mfa_policy", "revision", "csrfmiddlewaretoken"}:
+            form.add_error(None, gettext("Campo não permitido."))
+            status = 400
+        elif form.is_valid():
+            try:
+                with transaction.atomic():
+                    update_mfa_policy(
+                        actor=request.user,
+                        policy=form.cleaned_data["mfa_policy"],
+                        expected_revision=form.cleaned_data["revision"],
+                    )
+            except ConcurrentUpdate:
+                form.add_error(None, gettext("As configurações mudaram. Atualize a página antes de tentar novamente."))
+                status = 409
+            except ValidationError as exc:
+                _apply_error(form, exc)
+                status = 400
+            else:
+                messages.success(request, gettext("Configurações salvas."))
+                return redirect("web:organization-security", organization_id=organization_id)
+        else:
+            status = 400
+    dashboard = reverse("web:dashboard", kwargs={"organization_id": organization_id})
+    return render(
+        request,
+        "skeleton/web/organization_security.html",
+        {
+            "form": form,
+            "organization_id": organization_id,
+            "platform_rules": _platform_mfa_rules(),
+            "actor_has_totp": has_totp(request.user),
+            "cancel_url": dashboard,
+            "breadcrumbs": [{"label": gettext("Início"), "url": dashboard}, {"label": gettext("Segurança")}],
+        },
+        status=status,
+    )

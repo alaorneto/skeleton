@@ -65,6 +65,8 @@ def production_settings(base):
     # Required as soon as an identity provider stores a secret (check skeleton.E027 on the database).
     IDENTITY_PROVIDER_ENCRYPTION_KEYS = env.list("IDENTITY_PROVIDER_ENCRYPTION_KEYS", default=[])
     SKELETON_REQUIRE_ADMIN_MFA = env.bool("SKELETON_REQUIRE_ADMIN_MFA", default=True)
+    # Pinned, never read from the environment or the instance store (#740).
+    SKELETON_REQUIRE_PLATFORM_ADMIN_MFA = True
     SECURE_SSL_REDIRECT = True
     SECURE_REDIRECT_EXEMPT = [r"^health/(live|ready|release|site-host)/$"]
     SESSION_COOKIE_SECURE = True

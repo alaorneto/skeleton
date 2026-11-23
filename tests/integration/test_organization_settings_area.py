@@ -80,6 +80,7 @@ def test_administrator_reaches_every_group_through_the_gear(org, settings, subte
     html = hub.content.decode()
     for name in (
         "web:organization-settings",
+        "web:organization-security",
         "web:site-domains",
         "web:external",
         "web:join-requests",

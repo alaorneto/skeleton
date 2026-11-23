@@ -123,6 +123,8 @@ SETTINGS_GROUPS: tuple[tuple[str, Any, tuple[SettingsItem, ...]], ...] = (
             SettingsItem("web:access-list", gettext_lazy("Pessoas"), "users", "access:people"),
             SettingsItem("web:access-list", gettext_lazy("Grupos"), "user-group", "access:groups"),
             SettingsItem("web:access-list", gettext_lazy("Papéis e permissões"), "key", "access:roles"),
+            # Who must enrol MFA here (#740).
+            SettingsItem("web:organization-security", gettext_lazy("Segurança"), "shield", "organization_admin"),
             SettingsItem(
                 "web:external",
                 gettext_lazy("Pessoas externas"),

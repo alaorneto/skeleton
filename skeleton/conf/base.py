@@ -87,6 +87,8 @@ MIDDLEWARE = [
     "skeleton.common.locale.LocaleMiddleware",
     # Light, dark or the system's: request.color_scheme and the mirror cookie (#665, #666).
     "skeleton.web.color_scheme.ColorSchemeMiddleware",
+    # Inside the tenant context: while MFA is demanded and missing, only the MFA pages answer (#740).
+    "skeleton.accounts.mfa_middleware.MFAEnrollmentMiddleware",
 ]
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
@@ -388,6 +390,11 @@ WEBPUSH_ALLOWED_HOSTS = env.list(
     ],
 )
 SKELETON_REQUIRE_ADMIN_MFA = env.bool("SKELETON_REQUIRE_ADMIN_MFA", default=False)
+# Every person must enrol MFA (#740); organizations may also demand it of their members.
+SKELETON_REQUIRE_MFA = env.bool("SKELETON_REQUIRE_MFA", default=False)
+# The platform administrator always enrols MFA in production (#740): the production profile pins it
+# to True. Off here only because development and tests may run without MFA keys.
+SKELETON_REQUIRE_PLATFORM_ADMIN_MFA = env.bool("SKELETON_REQUIRE_PLATFORM_ADMIN_MFA", default=False)
 MFA_ENCRYPTION_KEYS = env.list("MFA_ENCRYPTION_KEYS", default=[])
 # Separate keyring for identity provider secrets (client secrets, SAML keys, LDAP passwords):
 # the first key encrypts, all decrypt; never derived from SECRET_KEY.
