@@ -4,6 +4,23 @@ Registro do que rodou em cada rodada, com os comandos da época. As rodadas ante
 
 As rodadas anteriores à primeira release publicada (`v0.1.0`, #569) citam números de versão do desenvolvimento ("core/agente 0.3.0", "0.4.0", "0.5.0"), que nunca foram publicados e não correspondem às releases de mesmo número: são marcos internos daquela época, conservados como foram registrados. As versões publicadas e o que cada uma trouxe estão no [CHANGELOG](../CHANGELOG.md).
 
+## Setup: cada etapa confere valores e conexões antes de gravar (#732, #731)
+
+Rodada de 2026-11-23 na branch `feat/732-setup-cada-etapa-confere-valores-e`, a partir da `main` em `v0.5.0`. Windows 11, Python do `.venv`, PostgreSQL de `tools/dev_postgres.py` com a role runtime. Sem Redis nem S3 reais nesta máquina: o `PING` foi provado contra um servidor RESP falso numa porta efêmera e contra portas fechadas e hosts inexistentes de verdade; o S3, só por dublês (o extra `[s3]` não está instalado aqui).
+
+- **Instância:** hosts com esquema, caminho, porta, item vazio ou espaço recusados no campo; `.dominio`, IPv6 entre colchetes e maiúsculas aceitos (gravados em minúsculas); `*` recusado só no perfil estrito; origem CSRF sem esquema ou com caminho recusada; endereço público sem esquema ou com host fora dos hosts aceitos recusado; nada gravado em nenhuma recusa.
+- **Gravação atômica:** um valor recusado pelo catálogo no meio da etapa não grava nenhum dos anteriores (`_cleaned`/`_write_all`).
+- **Redis:** senha certa responde; senha errada e senha ausente num servidor com senha caem no campo da senha; host inexistente, porta fechada e endereço sem resposta (5 s) caem no campo do endereço, medidos de verdade; o POST com Redis inacessível, que antes gravava (#731), responde 400 sem gravar cache nem arquivos, com a senha fora da página e do log; sem endereço fora de produção nenhuma conexão é tentada.
+- **S3:** sem o pacote instalado aponta a escolha do armazenamento; bucket inexistente aponta o bucket; sucesso grava `files_backend` e o bucket com as opções privadas; classificação de credenciais ausentes ou recusadas, acesso negado, região, endpoint e erro genérico sem ecoar a resposta.
+- **Não executado:** smoke no navegador e `tools/i18n_check.py` (sem GNU gettext nesta máquina; o CI roda).
+
+| Execução observada | Resultado |
+|---|---|
+| `python -m pytest tests/integration/test_setup.py tests/unit/test_setup_forms.py tests/unit/test_setup_preflight.py tests/unit/test_setup_mode.py tests/unit/test_setup_database.py tests/unit/test_setup_proxy.py tests/unit/test_setup_restart.py -n 4` | 111 passed, 2 skipped (POSIX), 120 subtests passed |
+| `python -m pytest tests/integration/test_security_headers.py tests/unit/test_database_failover_pooler.py tests/unit/test_dev_apps.py tests/unit/test_error_templates.py tests/unit/test_hostnames.py tests/unit/test_instance_cluster_mode.py tests/integration/test_i18n_coverage.py tests/unit/test_core_layering.py -n 4` | 85 passed, 3 skipped, 4 subtests passed |
+| `python -m pytest tests/unit/test_documentation_references.py` | 6 passed |
+| `ruff check` e `ruff format --check` (0.17.4) nos arquivos alterados | sem problemas |
+
 ## Tema claro, escuro ou do sistema (epic #667: #665, #666)
 
 Rodada de 2026-11-22 na branch `feat/665-renderizar-o-modo-claro-ou-escuro`, a partir da `main` em `v0.3.0`. Windows 11, Python do `.venv`, PostgreSQL de `tools/dev_postgres.py` com a role runtime, `SKELETON_ENABLE_EXAMPLE_APP=true`.

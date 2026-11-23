@@ -14,7 +14,9 @@ from django.urls import reverse
 
 from skeleton.conf.profiles import setup_settings
 from skeleton.instance.store import InstanceStore
-from skeleton.setup import tokens
+from skeleton.setup import tokens, views
+
+REAL_REDIS_PING = views._redis_ping
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 PASSWORD = "Setup-admin-Password-2026!"
@@ -48,6 +50,9 @@ def setup_mode(tmp_path, monkeypatch, settings):
     # The flow sends the test email to the locmem outbox and keeps the local cache, as the
     # runserver's development target allows; the production rules are in test_setup_forms (#457).
     overrides["SKELETON_SETUP_PRODUCTION"] = False
+    # No Redis in this suite: the storage step's PING succeeds unless a test says otherwise; the
+    # probe itself is proven against a fake server in tests/unit/test_setup_forms.py (#732).
+    monkeypatch.setattr(views, "_redis_ping", lambda url: None)
     with override_settings(**overrides):
         yield InstanceStore(tmp_path / "instance" / "instance.sqlite3")
 
@@ -814,3 +819,103 @@ def test_storage_step_stores_the_cache_prefix_and_suggests_one_from_the_host(set
     assert refused.status_code == 400 and "cache_key_prefix" in refused.context["form"].errors
     assert post(client, "/setup/storage/", {**data, "cache_key_prefix": "inst-a"}).status_code == 302
     assert _stored("cache_key_prefix") == "inst-a"
+
+
+def _storage(tmp_path, **values):
+    return {"files_backend": "local", "files_root": str(tmp_path / "files"), **values}
+
+
+def test_storage_step_refuses_a_redis_it_cannot_reach(setup_mode, tmp_path, monkeypatch, caplog):
+    """The regression of #731: an unreachable Redis used to be saved and broke the first login."""
+    monkeypatch.setattr(views, "_redis_ping", REAL_REDIS_PING)
+    client = enter(setup_mode)
+    data = _storage(tmp_path, cache_location="redis://127.0.0.1:1/0", cache_password="redis-secret-732")
+    with override_settings(SKELETON_SETUP_PRODUCTION=True), caplog.at_level(logging.DEBUG):
+        refused = post(client, "/setup/storage/", data)
+    assert refused.status_code == 400
+    assert "Conexão recusada" in refused.context["form"].errors["cache_location"][0]
+    # Nothing of the step is written, not even the files that passed their own proof.
+    assert not {"cache_url", "files_backend", "files_root"} & set(setup_mode.settings())
+    assert setup_mode.setup_state().get("step:storage") is None
+    # The address comes back in its own field to be corrected; the password never does.
+    assert "redis-secret-732" not in refused.content.decode() and "redis-secret-732" not in caplog.text
+    assert "127.0.0.1:1" not in caplog.text and "127.0.0.1:1" not in str(refused.context["form"].errors)
+    assert "setup.probe_failed probe=cache error_class=ConnectionError" in caplog.text
+
+
+def test_storage_step_points_at_the_field_the_redis_refused(setup_mode, tmp_path, monkeypatch):
+    import redis
+
+    def refuse(url):
+        raise redis.AuthenticationError("WRONGPASS invalid username-password pair")
+
+    monkeypatch.setattr(views, "_redis_ping", refuse)
+    client = enter(setup_mode)
+    refused = post(client, "/setup/storage/", _storage(tmp_path, cache_location="redis://redis:6379/0"))
+    assert refused.status_code == 400 and list(refused.context["form"].errors) == ["cache_password"]
+    assert "WRONGPASS" not in refused.content.decode()
+    pinged = []
+    monkeypatch.setattr(views, "_redis_ping", pinged.append)
+    accepted = post(client, "/setup/storage/", _storage(tmp_path, cache_location="redis://redis:6379/0"))
+    assert accepted.status_code == 302 and pinged == ["redis://redis:6379/0"]
+    assert views._stored("cache_url") == "redis://redis:6379/0"
+
+
+def test_storage_step_without_redis_outside_production_tries_no_connection(setup_mode, tmp_path, monkeypatch):
+    def unexpected(url):
+        raise AssertionError("no address, nothing to reach")
+
+    monkeypatch.setattr(views, "_redis_ping", unexpected)
+    client = enter(setup_mode)
+    assert post(client, "/setup/storage/", _storage(tmp_path)).status_code == 302
+    assert "cache_url" not in setup_mode.settings()
+
+
+def test_storage_step_proves_the_s3_bucket_before_saving(setup_mode, monkeypatch, subtests):
+    client = enter(setup_mode)
+    data = {
+        "files_backend": "s3",
+        "files_s3_bucket": "anexos",
+        "files_s3_region": "sa-east-1",
+        "files_s3_endpoint": "https://s3.example.test",
+    }
+
+    class NoSuchBucket(Exception):
+        response = {"Error": {"Code": "NoSuchBucket"}}
+
+    for error, field in ((ImportError("storages"), "files_backend"), (NoSuchBucket(), "files_s3_bucket")):
+        with subtests.test(error=type(error).__name__):
+
+            def fail(options, error=error):
+                raise error
+
+            monkeypatch.setattr(views, "_s3_probe", fail)
+            refused = post(client, "/setup/storage/", data)
+            assert refused.status_code == 400 and field in refused.context["form"].errors
+            assert not {"files_backend", "files_s3_bucket"} & set(setup_mode.settings())
+    probed = []
+    monkeypatch.setattr(views, "_s3_probe", probed.append)
+    assert post(client, "/setup/storage/", data).status_code == 302
+    assert probed[0]["bucket_name"] == "anexos" and probed[0]["default_acl"] == "private"
+    assert probed[0]["endpoint_url"] == "https://s3.example.test" and probed[0]["region_name"] == "sa-east-1"
+    assert views._stored("files_backend") == "s3" and views._stored("files_s3_bucket") == "anexos"
+
+
+def test_instance_step_refuses_values_the_instance_would_not_start_with(setup_mode, subtests):
+    client = enter(setup_mode)
+    cases = (
+        ({"allowed_hosts": "https://app.example.test"}, "allowed_hosts"),
+        ({"allowed_hosts": "app.example.test:8000"}, "allowed_hosts"),
+        ({"allowed_hosts": "app.example.test", "csrf_trusted_origins": "app.example.test"}, "csrf_trusted_origins"),
+        ({"allowed_hosts": "app.example.test", "public_url": "https://outro.example.test"}, "public_url"),
+    )
+    for data, field in cases:
+        with subtests.test(field=field, data=data):
+            refused = post(client, "/setup/instance/", data)
+            assert refused.status_code == 400 and list(refused.context["form"].errors) == [field]
+            assert "allowed_hosts" not in setup_mode.settings()
+    with subtests.test("* only outside production"):
+        with override_settings(SKELETON_SETUP_PRODUCTION=True):
+            refused = post(client, "/setup/instance/", {"allowed_hosts": "*"})
+        assert refused.status_code == 400 and "allowed_hosts" in refused.context["form"].errors
+        assert post(client, "/setup/instance/", {"allowed_hosts": "*"}).status_code == 302
