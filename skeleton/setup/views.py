@@ -302,6 +302,39 @@ def _initial(step: str) -> dict:
     return {}
 
 
+class _Refused(Exception):
+    """A value of the step was refused and its message is already on the form."""
+
+
+def _cleaned(form, values) -> list[tuple[str, str]] | None:
+    """Every ``(key, value, field)`` of a step through the catalog before any is written (#732).
+
+    A refusal goes next to its field and the step writes nothing, so it is never left half saved.
+    """
+    from skeleton.instance.schema import spec_for
+
+    cleaned, refused = [], False
+    for key, value, field in values:
+        try:
+            cleaned.append((key, spec_for(key).clean(value)))
+        except ValueError as error:
+            refused = True
+            form.add_error(field if field in form.fields else None, str(error))
+    return None if refused else cleaned
+
+
+def _write_all(form, cleaned) -> bool:
+    """Write the values ``_cleaned`` accepted; a store refusal (master key, cluster) stays on the form."""
+    try:
+        for key, value in cleaned:
+            write_setting(settings.BASE_DIR, key, value, source="setup")
+    except (ValueError, RuntimeError) as error:
+        logger.error("setup.write_failed error_class=%s", type(error).__name__)
+        form.add_error(None, str(error) if isinstance(error, ValueError) else type(error).__name__)
+        return False
+    return True
+
+
 def _render(request, template, context, status=200):
     base = {"steps": _progress(), "strict": _strict(), "total": len(STEPS)}
     return render(request, f"skeleton/setup/{template}", {**base, **context}, status=status)
@@ -395,23 +428,21 @@ def instance(request):
         "public_url": f"{request.scheme}://{request.get_host()}",
     }
     initial.update(_initial("instance"))  # A stored value wins over the suggestion.
-    form = forms.InstanceForm(request.POST or None, initial=initial)
+    form = forms.InstanceForm(request.POST or None, initial=initial, strict=_strict())
     if request.method == "POST" and form.is_valid():
         data = form.cleaned_data
         # Without explicit origins the public URL is the origin of the forms: the most common CSRF
         # failure after the setup is a proxy origin nobody listed (#463).
         origins = data["csrf_trusted_origins"] or data.get("public_url") or ""
-        try:
-            write_setting(settings.BASE_DIR, "allowed_hosts", data["allowed_hosts"], source="setup")
-            if origins:
-                write_setting(settings.BASE_DIR, "csrf_trusted_origins", origins, source="setup")
-            if data.get("public_url"):
-                write_setting(settings.BASE_DIR, "public_url", data["public_url"], source="setup")
-            write_setting(settings.BASE_DIR, "trust_proxy", "true" if data["trust_proxy"] else "false", source="setup")
-            write_setting(settings.BASE_DIR, "default_timezone", data["default_timezone"], source="setup")
-        except ValueError as error:
-            form.add_error(None, str(error))
-        else:
+        values = [("allowed_hosts", data["allowed_hosts"], "allowed_hosts")]
+        if origins:
+            values.append(("csrf_trusted_origins", origins, "csrf_trusted_origins"))
+        if data.get("public_url"):
+            values.append(("public_url", data["public_url"], "public_url"))
+        values.append(("trust_proxy", "true" if data["trust_proxy"] else "false", "trust_proxy"))
+        values.append(("default_timezone", data["default_timezone"], "default_timezone"))
+        cleaned = _cleaned(form, values)
+        if cleaned is not None and _write_all(form, cleaned):
             # Secrets generated here are written once and never shown.
             if _stored("secret_key") is None:
                 write_setting(settings.BASE_DIR, "secret_key", secrets.token_urlsafe(50), source="setup:generated")
@@ -638,9 +669,13 @@ def email(request):
             )
             return redirect("setup:storage")
         url = data["url"]
+        # Both values pass the catalog before the test email, so a sent test is always saved (#732).
+        sender = _cleaned(form, [("default_from_email", data["default_from_email"], "default_from_email")])
         try:
             from skeleton.instance.schema import spec_for
 
+            if sender is None:
+                raise _Refused
             spec_for("email_url").clean(url)
             message = EmailMessage(
                 subject=gettext("Teste do Skeleton"),
@@ -651,6 +686,8 @@ def email(request):
             # The URL is not in MAILERS yet: send through its own backend instance (#127).
             if _email_connection(url).send_messages([message]) != 1:
                 raise RuntimeError("not accepted")
+        except _Refused:
+            pass  # Already next to its field.
         except (ValueError, ImproperlyConfigured) as error:
             # Scheme or parameter names only, never the password.
             form.add_error("email_url" if data.get("email_url") else None, str(error))
@@ -665,15 +702,14 @@ def email(request):
                 field = None  # The separate fields were ignored: the message belongs to the whole form.
             form.add_error(field, text)
         else:
-            write_setting(settings.BASE_DIR, "email_url", url, source="setup")
-            write_setting(settings.BASE_DIR, "default_from_email", data["default_from_email"], source="setup")
-            _mark("email")
-            messages.success(
-                request,
-                gettext("Mensagem de teste enviada para %(email)s. Confira a caixa de entrada (e o spam).")
-                % {"email": data["test_recipient"]},
-            )
-            return redirect("setup:storage")
+            if _write_all(form, [("email_url", url), *sender]):
+                _mark("email")
+                messages.success(
+                    request,
+                    gettext("Mensagem de teste enviada para %(email)s. Confira a caixa de entrada (e o spam).")
+                    % {"email": data["test_recipient"]},
+                )
+                return redirect("setup:storage")
     intro = (
         gettext(
             "O sistema envia convites, recuperação de senha e notificações por e-mail. Em produção o servidor SMTP é"
@@ -720,33 +756,187 @@ def storage(request):
             except OSError as error:
                 problems.append(gettext("A pasta não é gravável (%(__name__)s).") % {"__name__": type(error).__name__})
         for problem in problems:
-            form.add_error(None, problem)
-        if not problems:
-            try:
-                if data["cache_url"]:
-                    write_setting(settings.BASE_DIR, "cache_url", data["cache_url"], source="setup")
-                if data["cache_key_prefix"]:
-                    write_setting(settings.BASE_DIR, "cache_key_prefix", data["cache_key_prefix"], source="setup")
-                write_setting(settings.BASE_DIR, "files_backend", data["files_backend"], source="setup")
-                names = (
-                    ("files_root",)
-                    if data["files_backend"] == "local"
-                    else (
-                        "files_s3_bucket",
-                        "files_s3_region",
-                        "files_s3_endpoint",
-                    )
-                )
-                for name in names:
-                    if data[name]:
-                        write_setting(settings.BASE_DIR, name, data[name], source="setup")
-            except ValueError as error:
-                form.add_error(None, str(error))
-            else:
+            form.add_error("files_root" if data["files_backend"] == "local" else None, problem)
+        values = []
+        if data["cache_url"]:
+            values.append(("cache_url", data["cache_url"], "cache_location"))
+        if data["cache_key_prefix"]:
+            values.append(("cache_key_prefix", data["cache_key_prefix"], "cache_key_prefix"))
+        values.append(("files_backend", data["files_backend"], "files_backend"))
+        names = (
+            ("files_root",)
+            if data["files_backend"] == "local"
+            else ("files_s3_bucket", "files_s3_region", "files_s3_endpoint")
+        )
+        values.extend((name, data[name], name) for name in names if data[name])
+        cleaned = _cleaned(form, values)
+        # The services are only reached once every value is well formed; each proof that fails
+        # stays next to its field, and nothing of the step is written (#731, #732).
+        if cleaned is not None:
+            if data["cache_url"]:
+                _prove(form, "cache", _redis_ping, _redis_failure, data["cache_url"])
+            if data["files_backend"] == "s3":
+                _prove(form, "files", _s3_probe, _s3_failure, _s3_options(data))
+            if not form.errors and _write_all(form, cleaned):
                 _mark("storage")
                 _saved(request, "storage")
                 return redirect("setup:admin")
     return _step(request, "storage", form, status=400 if request.method == "POST" else 200)
+
+
+REDIS_TIMEOUT = 5
+S3_TIMEOUT = 10
+
+
+def _prove(form, what: str, probe, failure, target) -> None:
+    """Run ``probe(target)``; a failure becomes a message on the field ``failure`` names.
+
+    Only the class of the error reaches the log: the target carries a password or the S3 bucket.
+    """
+    try:
+        probe(target)
+    except Exception as error:  # noqa: BLE001 - every failure is a refusal of the step
+        field, text = failure(error)
+        logger.warning("setup.probe_failed probe=%s error_class=%s", what, type(error).__name__)
+        form.add_error(field if field in form.fields else None, text)
+
+
+def _redis_ping(url: str) -> None:
+    """``PING`` the Redis of the cache URL being configured, with short timeouts and no retry.
+
+    Never through ``CACHES``: in the setup it is the local memory cache, and the URL is not saved yet.
+    """
+    import environ  # type: ignore[import-untyped]
+    import redis
+    from redis.backoff import NoBackoff
+    from redis.retry import Retry
+
+    config = environ.Env.cache_url_config(url)
+    if config.get("BACKEND") != forms.REDIS_CACHE:
+        return  # A local cache outside production: there is no server to reach.
+    locations = config["LOCATION"] if isinstance(config["LOCATION"], list) else [config["LOCATION"]]
+    options = {name: value for name, value in (config.get("OPTIONS") or {}).items() if name.startswith("ssl_")}
+    for location in locations:
+        client = redis.Redis.from_url(
+            location,
+            socket_connect_timeout=REDIS_TIMEOUT,
+            socket_timeout=REDIS_TIMEOUT,
+            retry=Retry(NoBackoff(), 0),
+            **options,
+        )
+        try:
+            client.ping()
+        finally:
+            client.close()
+
+
+def _causes(error: BaseException):
+    """The error and the exceptions it was raised from: redis-py wraps the socket error."""
+    seen = set()
+    while error is not None and id(error) not in seen:
+        seen.add(id(error))
+        yield error
+        error = error.__cause__ or error.__context__
+
+
+def _redis_failure(error: BaseException) -> tuple[str | None, str]:
+    """The field and the message for a failed ``PING``; the URL and the server reply are never shown."""
+    import socket
+    import ssl
+
+    import redis
+
+    if isinstance(error, redis.AuthenticationError):
+        return "cache_password", gettext(
+            "O Redis recusou a senha, ou pede uma senha que não foi informada. Confira a senha do Redis."
+        )
+    causes = list(_causes(error))
+    if any(isinstance(cause, socket.gaierror) for cause in causes):
+        return "cache_location", gettext("O servidor do Redis não foi encontrado. Confira o nome do host no endereço.")
+    if any(isinstance(cause, ConnectionRefusedError) for cause in causes):
+        return "cache_location", gettext(
+            "Conexão recusada. Confira a porta no endereço e se o Redis aceita conexões desta rede."
+        )
+    if any(isinstance(cause, (redis.TimeoutError, TimeoutError, socket.timeout)) for cause in causes):
+        return "cache_location", gettext(
+            "O Redis não respondeu em %(seconds)s segundos. Confira o host, a porta e se há um firewall no caminho."
+        ) % {"seconds": REDIS_TIMEOUT}
+    if any(isinstance(cause, ssl.SSLError) for cause in causes):
+        return "cache_location", gettext(
+            "Falha ao negociar o TLS com o Redis. Use rediss:// só se o servidor aceita TLS nessa porta."
+        )
+    if isinstance(error, redis.ResponseError):
+        return "cache_location", gettext(
+            "O Redis respondeu com um erro (%(error_class)s). Confira o número do banco no fim do endereço."
+        ) % {"error_class": type(error).__name__}
+    return "cache_location", gettext("Não foi possível falar com o Redis (%(error_class)s).") % {
+        "error_class": type(error).__name__
+    }
+
+
+def _s3_options(data) -> dict:
+    """The options ``private_files_storage`` gives S3Storage, from the values of this step."""
+    return {
+        "bucket_name": data["files_s3_bucket"],
+        "region_name": data["files_s3_region"] or None,
+        "endpoint_url": data["files_s3_endpoint"] or None,
+        "default_acl": "private",
+        "querystring_auth": True,
+        "file_overwrite": False,
+    }
+
+
+def _s3_probe(options: dict) -> None:
+    """Write and delete a probe object with the credentials of the environment, as the attachments will."""
+    from botocore.config import Config
+    from django.core.files.base import ContentFile
+    from storages.backends.s3 import S3Storage
+
+    config = Config(connect_timeout=S3_TIMEOUT, read_timeout=S3_TIMEOUT, retries={"max_attempts": 1})
+    storage = S3Storage(**options, client_config=config)
+    name = storage.save(f".setup-write-test-{secrets.token_hex(8)}", ContentFile(b"ok"))
+    storage.delete(name)
+
+
+def _s3_failure(error: BaseException) -> tuple[str | None, str]:
+    """The field and the message for a failed S3 probe, by the class (and the S3 code) of the error.
+
+    botocore is an optional extra: its errors are told apart by class name, never by importing it.
+    """
+    if isinstance(error, ImportError):
+        return "files_backend", gettext(
+            "O suporte a S3 não está instalado nesta instância (extra s3: django-storages e boto3). Instale-o ou use"
+            " uma pasta neste servidor."
+        )
+    names = {kind.__name__ for cause in _causes(error) for kind in type(cause).__mro__}
+    code = str(getattr(error, "response", {}).get("Error", {}).get("Code", ""))
+    if names & {"NoCredentialsError", "PartialCredentialsError"}:
+        return None, gettext(
+            "Não há credenciais do S3 no ambiente. Defina AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY (ou um papel"
+            " IAM) nos serviços web e worker."
+        )
+    if code in {"NoSuchBucket", "404"}:
+        return "files_s3_bucket", gettext("O bucket não existe. Confira o nome e a região.")
+    if code in {"AccessDenied", "403", "AllAccessDisabled"}:
+        return "files_s3_bucket", gettext(
+            "Acesso negado ao bucket. As credenciais do ambiente precisam poder gravar e apagar objetos nele."
+        )
+    if code in {"InvalidAccessKeyId", "SignatureDoesNotMatch"}:
+        return None, gettext("O S3 recusou as credenciais do ambiente (%(code)s). Confira a chave e o segredo.") % {
+            "code": code
+        }
+    if code in {"AuthorizationHeaderMalformed", "PermanentRedirect", "IllegalLocationConstraintException"}:
+        return "files_s3_region", gettext("O bucket fica em outra região. Confira a região.")
+    if names & {"EndpointConnectionError", "ConnectTimeoutError", "ReadTimeoutError", "ConnectionClosedError"}:
+        return "files_s3_endpoint", gettext(
+            "O serviço S3 não respondeu. Confira o endpoint (com https://) e se esta rede o alcança."
+        )
+    if names & {"NoRegionError", "InvalidRegionError"}:
+        return "files_s3_region", gettext("Região inválida. Use o código da região, como sa-east-1.")
+    if isinstance(error, ValueError) and not code:  # botocore refuses a malformed endpoint URL
+        return "files_s3_endpoint", gettext("Endpoint inválido. Use o endereço completo, com https://.")
+    detail = code or type(error).__name__
+    return None, gettext("O teste de gravação no S3 falhou (%(detail)s).") % {"detail": detail}
 
 
 @setup_page

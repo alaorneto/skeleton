@@ -1,5 +1,7 @@
 """Setup forms; credentials use password inputs that never render their value back."""
 
+import re
+
 from django import forms
 from django.contrib.auth.password_validation import validate_password
 from django.utils.translation import gettext, gettext_lazy
@@ -10,6 +12,27 @@ class TokenForm(forms.Form):
 
 
 DEFAULT_TIMEZONE = "America/Sao_Paulo"
+# A name as ALLOWED_HOSTS takes it (``.dominio`` covers the subdomains) or a bracketed IPv6; no port.
+HOST = re.compile(r"\.?[a-z0-9-]+(?:\.[a-z0-9-]+)*\.?|\[[0-9a-f:.]+\]")
+
+
+def is_origin(value: str) -> bool:
+    """``http(s)://host[:port]`` without path, query or fragment, as CSRF_TRUSTED_ORIGINS and links need."""
+    from urllib.parse import urlsplit
+
+    try:
+        parts = urlsplit(value)
+        parts.port  # noqa: B018 - raises on a port that is not a number
+    except ValueError:
+        return False
+    return (
+        parts.scheme in {"http", "https"}
+        and bool(parts.netloc)
+        and "@" not in parts.netloc
+        and parts.path in {"", "/"}
+        and not parts.query
+        and not parts.fragment
+    )
 
 
 class InstanceForm(forms.Form):
@@ -63,12 +86,13 @@ class InstanceForm(forms.Form):
         ),
     )
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, strict: bool | None = None, **kwargs):
         import zoneinfo
 
         from skeleton.instance.schema import CATALOG
 
         super().__init__(*args, **kwargs)
+        self.strict = production_target() if strict is None else strict
         if "public_url" not in CATALOG:  # The key arrives with the notifications epic (#54).
             del self.fields["public_url"]
         zones = sorted(zoneinfo.available_timezones())
@@ -87,6 +111,68 @@ class InstanceForm(forms.Form):
 
     def clean_default_timezone(self):
         return self.cleaned_data["default_timezone"] or DEFAULT_TIMEZONE
+
+    def clean_allowed_hosts(self):
+        """Host names only (#732): a scheme, port or path here leaves every request refused after the setup."""
+        items = [item.strip().lower() for item in self.cleaned_data["allowed_hosts"].split(",")]
+        if not all(items):
+            raise forms.ValidationError(gettext("Separe os endereços com vírgula, sem itens vazios."))
+        for item in items:
+            if item == "*":
+                if self.strict:
+                    raise forms.ValidationError(
+                        gettext("Em produção, liste os endereços aceitos: * aceitaria qualquer um.")
+                    )
+                continue
+            if "://" in item or "/" in item:
+                raise forms.ValidationError(gettext("Informe só o nome, sem http:// nem caminho: app.exemplo.com.br."))
+            if not HOST.fullmatch(item):
+                raise forms.ValidationError(
+                    gettext("Informe só o nome, sem porta: app.exemplo.com.br, localhost ou 127.0.0.1.")
+                )
+        return ",".join(items)
+
+    def clean_public_url(self):
+        value = self.cleaned_data["public_url"].strip()
+        if value and not is_origin(value):
+            raise forms.ValidationError(
+                gettext("Use o endereço completo, com https:// e sem caminho: https://app.exemplo.com.br.")
+            )
+        return value.rstrip("/")
+
+    def clean_csrf_trusted_origins(self):
+        """Full origins (#732): the Django check refuses an origin without scheme when the instance starts."""
+        value = self.cleaned_data["csrf_trusted_origins"].strip()
+        if not value:
+            return value
+        origins = [item.strip() for item in value.split(",")]
+        if not all(is_origin(origin) for origin in origins):
+            raise forms.ValidationError(
+                gettext(
+                    "Cada origem precisa de https:// e não leva caminho: https://app.exemplo.com.br. Separe várias"
+                    " com vírgula."
+                )
+            )
+        return ",".join(origin.rstrip("/") for origin in origins)
+
+    def clean(self):
+        from urllib.parse import urlsplit
+
+        from django.http.request import validate_host
+
+        data = super().clean()
+        public_url, hosts = data.get("public_url"), data.get("allowed_hosts")
+        if public_url and hosts and "public_url" not in self.errors:
+            host = (urlsplit(public_url).hostname or "").lower()
+            if host and not validate_host(host, hosts.split(",")):
+                self.add_error(
+                    "public_url",
+                    gettext(
+                        "O endereço público precisa estar entre os endereços aceitos acima; senão os links enviados"
+                        " por e-mail levam a uma página recusada."
+                    ),
+                )
+        return data
 
 
 FILL_IN = gettext_lazy("Informe este campo.")
