@@ -159,6 +159,8 @@ O runtime fixa Django 6.1.3, django-allauth 65.21.1, DRF 3.18.3, django-environ 
 | `SKELETON_PUBLIC_SIGNUP` | `false` por padrão; não concede vínculo organizacional |
 | `SKELETON_ENABLE_EXAMPLE_APP` | `false` por padrão |
 | `SKELETON_REQUIRE_ADMIN_MFA` | `false` em dev; `true` por padrão em produção |
+| `SKELETON_REQUIRE_MFA` | `false` por padrão; exige MFA de todas as pessoas ([quem cadastra o MFA](docs/authentication-sso.md#mfa-cifrado-e-obrigatório)) |
+| `SKELETON_REQUIRE_PLATFORM_ADMIN_MFA` | `false` em dev e testes; fixa em `true` em produção, sem como desligar |
 | `MFA_ENCRYPTION_KEYS` | Chaves Fernet ordenadas, nova primeira, antigas para leitura |
 | `IDENTITY_PROVIDER_ENCRYPTION_KEYS` | Keyring separado, no mesmo formato, para segredos de provedores de identidade gravados no banco; obrigatório quando houver esses segredos |
 | `SSO_PROVIDER_CONFIG_PATH` | JSON privado dos provedores autorizados |

@@ -221,6 +221,7 @@ def record_contract_checks(app_configs=None, **kwargs):
     account = "allauth.account.middleware.AccountMiddleware"
     messages = "django.contrib.messages.middleware.MessageMiddleware"
     token = "skeleton.integrations.tokens.middleware.ApiTokenMiddleware"  # noqa: S105 - middleware import path, not a secret
+    mfa = "skeleton.accounts.mfa_middleware.MFAEnrollmentMiddleware"
     setup = getattr(settings, "SKELETON_SETUP_MODE", False)  # Setup mode has no tenant at all (#146).
     if not setup and (
         tenant not in middleware
@@ -228,13 +229,17 @@ def record_contract_checks(app_configs=None, **kwargs):
         or (account in middleware and middleware.index(account) < middleware.index(tenant))
         # Bearer tokens (#46) replace request.user after authentication and before the tenant context.
         or (token in middleware and not middleware.index(auth) < middleware.index(token) < middleware.index(tenant))
+        # The MFA enrolment gate (#740) reads the organization of the validated context.
+        or mfa not in middleware
+        or middleware.index(mfa) < middleware.index(tenant)
     ):
         errors.append(
             Error(
-                "Tenant middleware must follow authentication/messages and precede allauth.",
+                "Tenant middleware must follow authentication/messages and precede allauth and the MFA gate.",
                 hint="In MIDDLEWARE, keep the order: AuthenticationMiddleware, MessageMiddleware, "
                 "ApiTokenMiddleware (if present), TenantContextMiddleware, "
-                "then allauth AccountMiddleware. Use the list in skeleton/conf/base.py. See docs/checks.md.",
+                "then allauth AccountMiddleware and, after the tenant, MFAEnrollmentMiddleware. "
+                "Use the list in skeleton/conf/base.py. See docs/checks.md.",
                 id="skeleton.E009",
             )
         )

@@ -326,6 +326,7 @@ _SPECS = (
     SettingSpec("sso_provider_config_path", "SSO_PROVIDER_CONFIG_PATH", "path", "Arquivo de provedores SSO", _text),
     SettingSpec("public_signup", "SKELETON_PUBLIC_SIGNUP", "bool", "Cadastro público aberto", _bool),
     SettingSpec("require_admin_mfa", "SKELETON_REQUIRE_ADMIN_MFA", "bool", "MFA obrigatório para administração", _bool),
+    SettingSpec("require_mfa", "SKELETON_REQUIRE_MFA", "bool", "MFA obrigatório para todas as pessoas", _bool),
     SettingSpec("json_max_bytes", "SKELETON_JSON_MAX_BYTES", "int", "Tamanho máximo de JSON", _int(1)),
     SettingSpec("package_max_bytes", "SKELETON_PACKAGE_MAX_BYTES", "int", "Tamanho máximo de pacote", _int(1)),
     SettingSpec(

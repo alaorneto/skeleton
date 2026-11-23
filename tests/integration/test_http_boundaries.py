@@ -373,7 +373,8 @@ def test_html_delete_and_edit_without_read_cancel_to_records(http_identity):
     assert sorted(event["operation"] for event in events["results"]) == ["create", "soft_delete"]
 
 
-def test_mfa_enforcement_preserves_profile_escape_route(http_identity):
+def test_mfa_enforcement_leaves_only_the_enrolment(http_identity):
+    """While MFA is demanded and missing, only the enrolment and leaving answer (#740)."""
     client, user, organization = http_identity
     with override_settings(SKELETON_REQUIRE_ADMIN_MFA=True):
         denied = client.get(
@@ -381,7 +382,9 @@ def test_mfa_enforcement_preserves_profile_escape_route(http_identity):
         )
         assert denied.status_code == 403
         assert denied.json()["code"] == "mfa_required"
-        assert client.get(reverse("web:profile")).status_code == 200
+        response = client.get(reverse("web:profile"))
+        assert response.status_code == 302 and response["Location"] == reverse("mfa_index")
+        assert client.get(reverse("mfa_index")).status_code == 200
 
 
 @pytest.mark.needs_example_app

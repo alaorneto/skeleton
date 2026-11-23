@@ -3,7 +3,9 @@
 {% block main %}
 {% url 'web:profile' as profile_url %}{% url 'notifications:preferences' as notifications_url %}{% url 'account_email' as email_url %}{% url 'account_change_password' as password_url %}{% url 'mfa_index' as mfa_url %}{% url 'integrations:personal-tokens' as tokens_url %}{% url 'connected-devices' as devices_url %}
 <main id="conteudo" tabindex="-1" class="app-main mx-auto w-full max-w-7xl min-w-0 px-4 py-6 focus:outline-none sm:px-6 sm:py-8 lg:px-8">
-  <div class="grid gap-6 md:grid-cols-[14rem_minmax(0,1fr)] md:gap-10">
+  {# MFA demanded and missing (#740): only the enrolment, without the account menu. #}
+  <div class="{% if request.mfa_enrollment_pending %}mx-auto max-w-3xl{% else %}grid gap-6 md:grid-cols-[14rem_minmax(0,1fr)] md:gap-10{% endif %}">
+    {% if not request.mfa_enrollment_pending %}
     <aside class="min-w-0">
       <p class="page-eyebrow mb-3 px-3">{% translate "Minha conta" %}</p>
       <nav aria-label="{% translate "Minha conta" %}">
@@ -17,7 +19,9 @@
         </ul>
       </nav>
     </aside>
+    {% endif %}
     <div class="min-w-0 max-w-3xl">
+      {% if request.mfa_enrollment_pending %}<p class="mb-4 text-sm text-body">{% translate "Para continuar, configure a autenticação em dois fatores. As demais páginas ficam disponíveis assim que a configuração terminar." %}</p>{% endif %}
       {% include "skeleton/web/components/messages.html" %}
       <div class="card">{% block content %}{% endblock %}</div>
     </div>
