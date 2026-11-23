@@ -322,6 +322,7 @@ def test_system_reasons_open_to_http_are_a_closed_list():
         HTTP_SYSTEM_REASONS,
         JOIN_REASONS,
         PLATFORM_ADMIN_REASONS,
+        PLATFORM_CLIENT_REASONS,
         VALIDATED_IDENTITY_REASONS,
         InvalidContext,
         request_context,
@@ -347,7 +348,11 @@ def test_system_reasons_open_to_http_are_a_closed_list():
             assert anonymous.system
         with system_context(reason="join:domain") as confirmed:
             assert confirmed.system
-    assert HTTP_SYSTEM_REASONS == VALIDATED_IDENTITY_REASONS | PLATFORM_ADMIN_REASONS | JOIN_REASONS
+    # The platform API (#711): only with a platform token that has a billing scope.
+    assert PLATFORM_CLIENT_REASONS == {"platform:api"}
+    assert HTTP_SYSTEM_REASONS == (
+        VALIDATED_IDENTITY_REASONS | PLATFORM_ADMIN_REASONS | JOIN_REASONS | PLATFORM_CLIENT_REASONS
+    )
     platform, _ = bootstrap_identity(
         email="reasons-platform@example.test", organization="reasons", name="Reasons", password=PASSWORD
     )

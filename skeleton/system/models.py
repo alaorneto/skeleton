@@ -1,3 +1,5 @@
+import uuid
+
 from django.db import models
 from django.utils.translation import gettext, gettext_lazy
 
@@ -228,6 +230,29 @@ class OrganizationLimitOverride(SystemRecord):
 
     def __str__(self):
         return f"{self.limited_organization_id} {self.metric}: {self.mode} {self.value}"
+
+
+class InstanceIdentity(SystemRecord):
+    """The identity of this database (#708): one row, created by migration, never deleted.
+
+    ``instance_id`` is generated once and never changes; the platform API (#711) and the
+    connections of a central instance (#712) recognize the instance by it.
+    """
+
+    instance_id = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=200, blank=True)
+    purpose = models.CharField(max_length=500, blank=True)
+    # Always true and unique: a second row is refused by the database.
+    singleton = models.BooleanField(default=True, unique=True, editable=False)
+    immutable_fields = ("instance_id", "singleton")
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.CheckConstraint(condition=models.Q(singleton=True), name="sk_system_instanceidentity_singleton"),
+        ]
+
+    def __str__(self):
+        return str(self.instance_id)
 
 
 # Native client distribution (#606): defined next to their services, registered in this app.

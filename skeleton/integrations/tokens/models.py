@@ -24,6 +24,8 @@ class ApiToken(SystemRecord):
         PERSONAL = "personal", gettext_lazy("Pessoal")
         SERVICE = "service", gettext_lazy("Conta de serviço")
         FEED = "feed", gettext_lazy("Feed")
+        # The platform API (#709): only for platform clients, only ``platform.*`` scopes.
+        PLATFORM = "platform", gettext_lazy("Plataforma")
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="sk_api_tokens")
     kind = models.CharField(max_length=16, choices=Kind.choices)
@@ -40,6 +42,8 @@ class ApiToken(SystemRecord):
     auth_version_at_issue = models.PositiveIntegerField()
     target_table = models.CharField(max_length=100, blank=True, default="")
     target_id = models.UUIDField(null=True, blank=True)
+    # Networks a platform token may come from (#709): CIDRs; empty is any address.
+    allowed_networks = models.JSONField(default=list, blank=True)
     immutable_fields = (
         "user_id",
         "kind",
@@ -51,6 +55,7 @@ class ApiToken(SystemRecord):
         "auth_version_at_issue",
         "target_table",
         "target_id",
+        "allowed_networks",
     )
 
     class Meta(SystemRecord.Meta):
@@ -59,7 +64,12 @@ class ApiToken(SystemRecord):
                 fields=("prefix",), name="sk_integrations_apitoken_prefix", violation_error_code="unique"
             ),
             models.CheckConstraint(
-                condition=Q(kind__in=("personal", "service", "feed")), name="sk_integrations_apitoken_kind"
+                condition=Q(kind__in=("personal", "service", "feed", "platform")),
+                name="sk_integrations_apitoken_kind",
+            ),
+            models.CheckConstraint(
+                condition=~Q(kind="platform") | Q(bound_organization__isnull=True, target_table=""),
+                name="sk_integrations_apitoken_platform_global",
             ),
             models.CheckConstraint(
                 condition=~Q(kind="service") | Q(bound_organization__isnull=False),

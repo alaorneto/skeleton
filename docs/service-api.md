@@ -193,6 +193,7 @@ Uma app pode importar do núcleo apenas os nomes abaixo. A coluna "Uso" é a lis
 | Módulo | Uso |
 |---|---|
 | `skeleton.service_api` e submódulos | Base, erros, DTOs e serviços do núcleo |
+| `skeleton.service_api.insights` | `register_instance_metric`: métricas da app somadas aos números de gestão da instância ([API de gestão](platform-api.md#resumo-e-métricas-skeletoninsights), #710) |
 | `skeleton.common.models` | Bases `SystemRecord`, `OrganizationRecord`, `SecuredRecord` e o `SealableMixin` dos registros selados |
 | `skeleton.common.money` | Dinheiro em inteiros da menor unidade: `parse`, `format_amount`, `scale`, `percent`, `exponent`, `validate_currency` e a tabela `CURRENCY_EXPONENTS` (#541) |
 | `skeleton.common.sealing` | `canonical_bytes` e `digest`: o resumo SHA-256 das partes da app que entram no selo (`extra_digest`) |
@@ -256,6 +257,7 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | `SequenceService` | `skeleton.service_api.sequences` | `next_number` | [#155](https://github.com/alaorneto/skeleton/issues/155) |
 | `RecordSealService` | `skeleton.service_api.records` | `seal`, `status`, `verify` | [#527](https://github.com/alaorneto/skeleton/issues/527) |
 | `FeedTokenService` | `skeleton.service_api.tokens` | `issue`, `issue_for_record` | [#76](https://github.com/alaorneto/skeleton/issues/76) |
+| `RemoteInstanceService` | `skeleton.service_api.remote_instances` | `connections`, `instance`, `organizations`, `organization`, `invoices`, `payments`, `metrics` (só em jobs da organização liberada; [API de gestão](platform-api.md#instância-central-conexões-remotas)) | [#712](https://github.com/alaorneto/skeleton/issues/712) |
 | `BillingService` | `skeleton.service_api.billing` | `access_state`, `entitlement`, `storage_allowance`, `check_quota`, `record_usage`, `void_usage`, `check_usage`, `usage`, `subscription`, `list_invoices`, `offers`, `contract`, `remove_item`, `cancel`, `resume`, `redeem_voucher`, `update_account`, `checkout` | [#404](https://github.com/alaorneto/skeleton/issues/404) |
 | `FlowService` | `skeleton.service_api.flows` | `start`, `signal`, `instance`, `instances`, `history`, `tasks`, `open_task_count`, `task`, `claim_task`, `release_task`, `reassign_task`, `complete_task`, `decide_task`, `cancel`, `suspend`, `resume`, `retry` | [#205](https://github.com/alaorneto/skeleton/issues/205) |
 

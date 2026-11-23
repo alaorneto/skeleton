@@ -62,12 +62,36 @@ def _rows(cluster: bool):
     return rows
 
 
-def _page(request, *, form=None, status=200):
+class IdentityForm(forms.Form):
+    """Name and purpose of this instance (#708); the identifier itself never changes."""
+
+    name = forms.CharField(label=gettext_lazy("Nome"), max_length=200, required=False)
+    purpose = forms.CharField(
+        label=gettext_lazy("Finalidade"), max_length=500, required=False, widget=forms.Textarea(attrs={"rows": 2})
+    )
+    expected_revision = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
+
+
+def _page(request, *, form=None, identity_form=None, status=200):
+    from skeleton.system.instance_identity import instance_identity
+
     cluster = is_cluster()
+    identity = instance_identity()
+    identity_form = identity_form or IdentityForm(
+        initial={"name": identity.name, "purpose": identity.purpose, "expected_revision": identity.revision}
+    )
     return render(
         request,
         "skeleton/web/platform/instance.html",
-        {"platform_section": "instance", "rows": _rows(cluster), "form": form, "mask": MASK, "cluster": cluster},
+        {
+            "platform_section": "instance",
+            "rows": _rows(cluster),
+            "form": form,
+            "mask": MASK,
+            "cluster": cluster,
+            "identity": identity,
+            "identity_form": identity_form,
+        },
         status=status,
     )
 
@@ -134,6 +158,37 @@ def instance_setting(request):
         messages.success(
             request, gettext("%(key)s atualizada. A mudança vale depois do reinício da instância.") % {"key": key}
         )
+    return redirect("platform:instance")
+
+
+@platform_page
+@require_http_methods(["POST"])
+@recent_authentication_required
+def instance_identity_update(request):
+    """Rename the instance or describe its purpose, with CAS (#708)."""
+    from django.core.exceptions import ValidationError
+
+    from skeleton.common.exceptions import ConcurrentUpdate
+    from skeleton.system.instance_identity import update_instance_identity
+
+    form = IdentityForm(request.POST)
+    if not form.is_valid():
+        return _page(request, identity_form=form, status=400)
+    try:
+        update_instance_identity(
+            actor=request.user,
+            name=form.cleaned_data["name"],
+            purpose=form.cleaned_data["purpose"],
+            expected_revision=form.cleaned_data["expected_revision"],
+        )
+    except ConcurrentUpdate:
+        form.add_error(None, gettext("A identidade mudou. Atualize a página."))
+        return _page(request, identity_form=form, status=409)
+    except ValidationError as exc:
+        for field, problems in exc.message_dict.items():
+            form.add_error(field if field in form.fields else None, problems)
+        return _page(request, identity_form=form, status=400)
+    messages.success(request, gettext("Identidade da instância atualizada."))
     return redirect("platform:instance")
 
 

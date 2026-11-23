@@ -324,6 +324,21 @@ _SPECS = (
         True,
     ),
     SettingSpec(
+        "remote_instance_encryption_keys",
+        "REMOTE_INSTANCE_ENCRYPTION_KEYS",
+        "list",
+        "Chaves de cifra dos tokens das conexões com instâncias remotas",
+        _fernet_keys,
+        True,
+    ),
+    SettingSpec(
+        "insights_enabled",
+        "SKELETON_INSIGHTS_ENABLED",
+        "bool",
+        "Números de gestão da instância (resumo por organização e métricas diárias)",
+        _bool,
+    ),
+    SettingSpec(
         "files_storage_encryption_keys",
         "FILES_STORAGE_ENCRYPTION_KEYS",
         "list",

@@ -364,6 +364,12 @@ def register_core_specs():
             "global",
             (),
         ),
+        "sk_system.instanceidentity": (
+            gettext_lazy("Identidade da instância"),
+            gettext_lazy("Identificador estável desta base, com nome e finalidade, usado pela API de gestão."),
+            "global",
+            (),
+        ),
         "sk_system.componentinstallation": (
             gettext_lazy("Componentes instalados"),
             gettext_lazy("Versão e procedência global do release confirmado."),
@@ -399,6 +405,24 @@ def register_core_specs():
             gettext_lazy("Fila de trabalho em segundo plano; payload só com identificadores, sem dados de negócio."),
             "global",
             (),
+        ),
+        "sk_insights.organizationsnapshot": (
+            gettext_lazy("Resumo das organizações"),
+            gettext_lazy("Números de gestão de cada organização (membros, apps, armazenamento, cobrança), por hora."),
+            "global",
+            (),
+        ),
+        "sk_insights.instancemetric": (
+            gettext_lazy("Métricas da instância"),
+            gettext_lazy("Valor diário de cada métrica de gestão da instância, por moeda; retenção declarada."),
+            "global",
+            (),
+        ),
+        "sk_integrations.remoteinstanceconnection": (
+            gettext_lazy("Conexões com instâncias remotas"),
+            gettext_lazy("API de gestão de outra instância lida pela central; o token é cifrado e nunca exibido."),
+            "global",
+            ("token",),
         ),
         "sk_jobs.workerheartbeat": (
             "Workers",

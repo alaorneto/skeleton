@@ -1,0 +1,31 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% load i18n skeleton_format billing %}{% block page_title %}{% translate "Indicadores" %}{% endblock %}
+{% block content %}
+<div class="max-w-5xl">
+<div class="page-header"><div class="min-w-0">
+  <h1>{% translate "Indicadores da instância" %}</h1>
+  <p class="page-description">{% translate "Resumo das organizações, atualizado de hora em hora e logo depois de mudanças de vínculo, app ou cobrança." %}{% if refreshed_at %} {% translate "Última atualização:" %} {{ refreshed_at|moment }}.{% endif %}</p>
+</div></div>
+<dl class="meta-list mb-5">
+  <div><dt>{% translate "Organizações" %}</dt><dd>{{ total }}</dd></div>
+  <div><dt>{% translate "Ativas" %}</dt><dd>{{ active }}</dd></div>
+  <div><dt>{% translate "Membros" %}</dt><dd>{{ members }}</dd></div>
+</dl>
+{% if by_currency %}<section class="card mb-5" aria-labelledby="insights-billing">
+  <h2 id="insights-billing">{% translate "Cobrança por moeda" %}</h2>
+  <div class="table-scroll mt-4"><table><thead><tr><th scope="col">{% translate "Moeda" %}</th><th scope="col" class="col-num">MRR</th><th scope="col" class="col-num">{% translate "Em aberto" %}</th><th scope="col" class="col-num">{% translate "Vencido" %}</th></tr></thead><tbody>
+  {% for currency, totals in by_currency %}<tr><td>{{ currency }}</td><td class="col-num">{{ totals.mrr|money:currency }}</td><td class="col-num">{{ totals.open|money:currency }}</td><td class="col-num">{{ totals.overdue|money:currency }}</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>{% endif %}
+{% if overdue %}<section class="card mb-5" aria-labelledby="insights-overdue">
+  <h2 id="insights-overdue">{% translate "Organizações com valores vencidos" %}</h2>
+  <ul class="mt-3">{% for row in overdue %}<li><a href="{% url 'platform:organization' row.subject_organization_id %}">{{ row.name }}</a> <span class="text-sm text-body-subtle">{{ row.billing.overdue_amount|money:row.billing.currency }}</span></li>{% endfor %}</ul>
+</section>{% endif %}
+<section class="card" aria-labelledby="insights-apps">
+  <h2 id="insights-apps">{% translate "Apps por número de organizações" %}</h2>
+  <div class="table-scroll mt-4"><table><thead><tr><th scope="col">{% translate "App" %}</th><th scope="col" class="col-num">{% translate "Organizações" %}</th></tr></thead><tbody>
+  {% for label, count in apps %}<tr><td><code>{{ label }}</code></td><td class="col-num">{{ count }}</td></tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=2 message=_("Nenhuma app em uso.") %}{% endfor %}
+  </tbody></table></div>
+</section>
+</div>
+{% endblock %}
