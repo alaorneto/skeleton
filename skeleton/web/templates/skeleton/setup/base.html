@@ -18,7 +18,7 @@
   </div>
 </header>
 <main id="conteudo" class="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6">
-<div class="grid gap-6 md:grid-cols-[15rem_minmax(0,1fr)] md:gap-10">
+<div class="{% if steps %}grid gap-6 md:grid-cols-[15rem_minmax(0,1fr)] md:gap-10{% else %}mx-auto grid max-w-2xl gap-6{% endif %}">
 {% if steps %}<nav aria-label="{% translate "Etapas" %}" class="min-w-0">
 <ol class="setup-steps">
 {% for item in steps %}<li class="{% if item.skipped %}setup-step-later{% elif item.done %}setup-step-done{% endif %}"><a href="{% url 'setup:'|add:item.name %}"{% if step == item.name %} aria-current="step"{% endif %}><span class="setup-step-number">{% if item.done and not item.skipped %}{% include "skeleton/web/components/icon.html" with name="check-circle" %}{% else %}{{ item.number }}{% endif %}</span><span>{{ item.label }}{% if item.skipped %}<span class="sr-only"> ({% translate "depois" %})</span>{% elif item.done %}<span class="sr-only"> ({% translate "feito" %})</span>{% endif %}</span></a></li>

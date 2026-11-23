@@ -225,3 +225,20 @@ def test_setup_token_command_issues_a_new_token_until_the_setup_completes(tmp_pa
     with pytest.raises(CommandError, match="já foi concluído"):
         call_command("instance", "setup-token", stdout=refused)
     assert refused.getvalue() == "" and not instance.has_open_setup_token(now=datetime.now(UTC))
+
+
+def test_setup_without_steps_uses_a_single_centered_column():
+    """Without the step list the card must not fall into the 15rem column of the steps grid (#727)."""
+    from types import SimpleNamespace
+
+    from django.template.loader import render_to_string
+    from django.test import override_settings
+    from django.utils import translation
+
+    step = SimpleNamespace(name="instance", number=1, label="Instância", done=False, skipped=False)
+    with translation.override("pt-br"), override_settings(ROOT_URLCONF="skeleton.setup.urls"):
+        alone = render_to_string("skeleton/setup/base.html", {"title": "Primeiro acesso", "steps": ()})
+        listed = render_to_string("skeleton/setup/base.html", {"title": "Instância", "steps": [step]})
+    assert "md:grid-cols-[15rem_minmax(0,1fr)]" not in alone
+    assert 'class="mx-auto grid max-w-2xl gap-6"' in alone
+    assert "md:grid-cols-[15rem_minmax(0,1fr)]" in listed and 'class="setup-steps"' in listed
