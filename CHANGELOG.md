@@ -2,6 +2,61 @@
 
 As versões a partir da primeira, `v0.1.0`, são escritas pelo workflow de release (`release.py run`, skill dev-workflow): não edite este arquivo à mão. O nível de cada versão e os PRs e issues incluídos seguem [docs/workflow.md](docs/workflow.md#versão).
 
+## [0.6.0](https://github.com/alaorneto/skeleton/compare/v0.5.1...v0.6.0) — 2026-11-23
+
+### ⚠ Mudanças incompatíveis
+
+- **accounts:** exigir MFA do administrador da plataforma e por política configurável (PR [#755](https://github.com/alaorneto/skeleton/pull/755)) — label `breaking-change`; MFA obrigatório para o administrador da plataforma em produção (sem como desligar), SKELETON_REQUIRE_MFA e política de MFA por organização; na pendência só as páginas de MFA respondem. Quebra: o E009 passa a exigir MFAEnrollmentMiddleware depois do tenant (projeto que sobrescreve MIDDLEWARE sem ele deixa de passar nos checks) e quem tem MFA exigido e não cadastrado perde acesso às demais páginas até cadastrar. Em 0.x sobe o minor.
+
+### Funcionalidades
+
+- Motor de limites da organização no núcleo, independente da cobrança ([#695](https://github.com/alaorneto/skeleton/issues/695)) — PR [#719](https://github.com/alaorneto/skeleton/pull/719)
+- Acréscimo de limites por app, definido pela plataforma ([#696](https://github.com/alaorneto/skeleton/issues/696)) — PR [#751](https://github.com/alaorneto/skeleton/pull/751)
+- Ajuste do limite de uma organização pela plataforma ([#697](https://github.com/alaorneto/skeleton/issues/697)) — PR [#751](https://github.com/alaorneto/skeleton/pull/751)
+- Uso e limite de membros visíveis, e convites que reservam vaga ([#698](https://github.com/alaorneto/skeleton/issues/698)) — PR [#751](https://github.com/alaorneto/skeleton/pull/751)
+- Atribuir e retirar apps de uma organização pela plataforma ([#699](https://github.com/alaorneto/skeleton/issues/699)) — PR [#751](https://github.com/alaorneto/skeleton/pull/751)
+- Travas de configuração da organização pela plataforma ([#701](https://github.com/alaorneto/skeleton/issues/701)) — PR [#752](https://github.com/alaorneto/skeleton/pull/752)
+- Campos de configuração de app geridos só pela plataforma ([#702](https://github.com/alaorneto/skeleton/issues/702)) — PR [#752](https://github.com/alaorneto/skeleton/pull/752)
+- Política de configurações das organizações novas ([#703](https://github.com/alaorneto/skeleton/issues/703)) — PR [#752](https://github.com/alaorneto/skeleton/pull/752)
+- Catálogo de locais de armazenamento da plataforma ([#704](https://github.com/alaorneto/skeleton/issues/704)) — PR [#752](https://github.com/alaorneto/skeleton/pull/752)
+- Armazenamento de arquivos por organização ([#705](https://github.com/alaorneto/skeleton/issues/705)) — PR [#752](https://github.com/alaorneto/skeleton/pull/752)
+- Local de armazenamento escolhido na criação da organização ([#706](https://github.com/alaorneto/skeleton/issues/706)) — PR [#752](https://github.com/alaorneto/skeleton/pull/752)
+- Identidade estável da instância ([#708](https://github.com/alaorneto/skeleton/issues/708)) — PR [#759](https://github.com/alaorneto/skeleton/pull/759)
+- Clientes de API da plataforma e tokens de plataforma ([#709](https://github.com/alaorneto/skeleton/issues/709)) — PR [#759](https://github.com/alaorneto/skeleton/pull/759)
+- Resumo por organização e métricas diárias da instância ([#710](https://github.com/alaorneto/skeleton/issues/710)) — PR [#759](https://github.com/alaorneto/skeleton/pull/759)
+- API de gestão da instância em /api/v1/platform/ ([#711](https://github.com/alaorneto/skeleton/issues/711)) — PR [#759](https://github.com/alaorneto/skeleton/pull/759)
+- Conexões com instâncias remotas para a instância central ([#712](https://github.com/alaorneto/skeleton/issues/712)) — PR [#759](https://github.com/alaorneto/skeleton/pull/759)
+- Pacotes de apps como níveis do produto ([#714](https://github.com/alaorneto/skeleton/issues/714)) — PR [#754](https://github.com/alaorneto/skeleton/pull/754)
+- Cadastro de organização pelo cliente ([#715](https://github.com/alaorneto/skeleton/issues/715)) — PR [#754](https://github.com/alaorneto/skeleton/pull/754)
+- Permitir que um serviço de app no portal numere, publique evento e escreva no calendário que ela gerencia ([#741](https://github.com/alaorneto/skeleton/issues/741)) — PR [#763](https://github.com/alaorneto/skeleton/pull/763)
+- Redefinir o MFA de uma identidade pela plataforma e por comando de emergência ([#736](https://github.com/alaorneto/skeleton/issues/736)) — PR [#762](https://github.com/alaorneto/skeleton/pull/762)
+- Exigir MFA do administrador da plataforma e tornar a exigência configurável na plataforma e por organização ([#740](https://github.com/alaorneto/skeleton/issues/740)) — PR [#755](https://github.com/alaorneto/skeleton/pull/755)
+
+### Melhorias
+
+- Mostrar no setup só a seção de anexos da opção escolhida ([#729](https://github.com/alaorneto/skeleton/issues/729)) — PR [#730](https://github.com/alaorneto/skeleton/pull/730)
+- Setup: cada etapa confere valores e conexões antes de gravar e avançar ([#732](https://github.com/alaorneto/skeleton/issues/732)) — PR [#733](https://github.com/alaorneto/skeleton/pull/733)
+- Mostrar uma engrenagem no botão de configuração da organização ([#742](https://github.com/alaorneto/skeleton/issues/742)) — PR [#744](https://github.com/alaorneto/skeleton/pull/744)
+
+### Correções
+
+- Setup sem lista de etapas espreme o cartão numa coluna de 15rem ([#727](https://github.com/alaorneto/skeleton/issues/727)) — PR [#728](https://github.com/alaorneto/skeleton/pull/728)
+- Testar a conexão com o Redis no setup antes de gravar o cache ([#731](https://github.com/alaorneto/skeleton/issues/731)) — PR [#733](https://github.com/alaorneto/skeleton/pull/733)
+- Concluir a página de códigos de recuperação depois de ativar o MFA ([#734](https://github.com/alaorneto/skeleton/issues/734)) — PR [#735](https://github.com/alaorneto/skeleton/pull/735)
+- O setup sugere a pasta dos anexos dentro do release do agente ([#737](https://github.com/alaorneto/skeleton/issues/737)) — PR [#738](https://github.com/alaorneto/skeleton/pull/738)
+- Cabeçalho de página: bloco do título não ocupa a largura disponível ([#745](https://github.com/alaorneto/skeleton/issues/745)) — PR [#746](https://github.com/alaorneto/skeleton/pull/746)
+- Tirar o preload da fonte e documentar scripts injetados pelo proxy na CSP ([#743](https://github.com/alaorneto/skeleton/issues/743)) — PR [#747](https://github.com/alaorneto/skeleton/pull/747)
+- Aviso de atualização continua oferecendo a versão já instalada depois de atualizar o núcleo ([#739](https://github.com/alaorneto/skeleton/issues/739)) — PR [#748](https://github.com/alaorneto/skeleton/pull/748)
+- Configurações da organização: aviso de endereço próprio indisponível fica colado aos botões do formulário ([#749](https://github.com/alaorneto/skeleton/issues/749)) — PR [#750](https://github.com/alaorneto/skeleton/pull/750)
+
+### Documentação
+
+- Guia: montar uma instância de produto ([#716](https://github.com/alaorneto/skeleton/issues/716)) — PR [#754](https://github.com/alaorneto/skeleton/pull/754)
+
+### Manutenção
+
+- O sandbox constrói a partir da última release publicada, não da main ([#724](https://github.com/alaorneto/skeleton/issues/724)) — PR [#725](https://github.com/alaorneto/skeleton/pull/725)
+
 ## [0.5.1](https://github.com/alaorneto/skeleton/compare/v0.5.0...v0.5.1) — 2026-11-23
 
 ### Correções
