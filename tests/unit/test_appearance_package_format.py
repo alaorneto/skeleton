@@ -124,11 +124,6 @@ CASES = [
         with_manifest(tokens={}, fonts=[{"family": "Serif", "file": "fonts/aurora-sans.woff2"}]),
         "font_family_name",
     ),
-    (
-        "core family reserved",
-        with_manifest(tokens={}, fonts=[{"family": "IBM Plex Sans Variable", "file": "fonts/aurora-sans.woff2"}]),
-        "font_family_name",
-    ),
     ("font not woff2", theme_zip({"fonts/aurora-sans.woff2": b"OTTO" + b"\0" * 10}), "font_file"),
     (
         "font weight",
@@ -240,3 +235,13 @@ def test_the_legacy_name_of_the_core_font_is_read_as_the_default():
     with pytest.raises(ThemePackageError) as refused:
         read_theme_archive(make_zip({"theme.json": json.dumps(legacy).encode()}))
     assert refused.value.code == "font"
+
+
+def test_a_package_may_name_the_core_family_or_the_old_one():
+    """#690: no family is reserved but the generic CSS keywords: a package that ships its own
+    IBM Plex Sans (or Inter) under the usual name keeps installing on every core."""
+    for family in ("IBM Plex Sans Variable", "Inter Variable"):
+        tokens = {"font_family": family}
+        fonts = [{"family": family, "file": "fonts/aurora-sans.woff2", "weight": "100 900"}]
+        package = read_theme_archive(with_manifest(tokens=tokens, fonts=fonts))
+        assert package.font_family == family and package.fonts[0].family == family

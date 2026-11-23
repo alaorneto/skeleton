@@ -99,7 +99,6 @@ GENERIC_FAMILIES = frozenset(
         "revert",
         "revert-layer",
         "default",
-        "ibm plex sans variable",
     }
 )
 ERROR_CODES = (

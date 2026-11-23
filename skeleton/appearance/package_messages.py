@@ -53,7 +53,7 @@ PACKAGE_ERROR_MESSAGES = {
     "logo_dark_without_logo": gettext_lazy("O logo para o modo escuro só vale junto com o logo."),
     "too_many_fonts": gettext_lazy("O pacote pode ter até 8 fontes."),
     "font_family_name": gettext_lazy(
-        "O nome da família de fonte é inválido ou reservado (letras, números, espaço e hífen; nunca serif, sans-serif ou IBM Plex Sans Variable)."
+        "O nome da família de fonte é inválido ou reservado (letras, números, espaço e hífen; nunca um nome genérico do CSS, como serif ou sans-serif)."
     ),
     "font_file": gettext_lazy("A fonte %(path)s precisa ser um .woff2 em fonts/, até 512 KB, declarado uma vez só."),
     "font_weight": gettext_lazy('O peso de fonte precisa ser 100 a 900 em centenas, ou uma faixa como "100 900".'),
