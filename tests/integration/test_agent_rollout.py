@@ -4,6 +4,7 @@ The primary's ``Rollout`` and a follower's ``Follower`` share the coordination t
 database; the services, backends and the channel are fakes that record what each node did.
 """
 
+import json
 import os
 import tarfile
 import threading
@@ -335,3 +336,82 @@ def test_the_agent_target_is_set_by_the_primary_only_and_followed_once(cluster, 
     with pytest.raises(AgentError, match="not_primary"):
         primary.set_agent_target("0.9.0", "d" * 64)
     assert service.coordinator.agent_target()["release"] == "c" * 64
+
+
+def test_a_cutover_announced_again_is_a_new_order_and_never_reads_the_old_failure(cluster, monkeypatch):
+    """#681: after follower_cutover_failed, recover complete announces the cutover again."""
+    primary, service, new, release_digest = cluster
+    run = rollout.begin(PrimaryService(primary), {"id": "op-c"}, plan_record(new, release_digest))
+    rollout.install_release(service, "2-plan", release_digest)
+    broken = {"on": True}
+
+    def health(service, inventory):
+        if broken["on"]:
+            raise AgentError("application_smoke_failed", 409)
+        service.log.append(("health", "ok"))
+
+    monkeypatch.setattr(execution, "health", health)
+    stop = threading.Event()
+    thread = threading.Thread(target=follow_until, args=(service, stop), daemon=True)
+    thread.start()
+    try:
+        with pytest.raises(AgentError) as failed:
+            run.wait("cutover", timeout=10, code="follower_cutover_failed")
+        assert failed.value.details == [{"code": "application_smoke_failed", "component": "node-b"}]
+        broken["on"] = False  # The operator fixed the node; the same follower process is still running.
+        rollout.Rollout.load(PrimaryService(primary), "op-c").wait(
+            "cutover", timeout=10, code="follower_cutover_failed"
+        )
+    finally:
+        stop.set()
+        thread.join(5)
+    assert service.active.name == "2-plan" and ("health", "ok") in service.log
+
+
+def test_a_forgotten_node_is_no_longer_waited_for(cluster):
+    primary, service, new, release_digest = cluster
+    rollout.begin(PrimaryService(primary), {"id": "op-g"}, plan_record(new, release_digest))
+    assert rollout.Rollout.load(PrimaryService(primary), "op-g").nodes == ["node-b"]
+    primary.forget("node-b")  # cluster forget: the node is gone for good.
+    resumed = rollout.Rollout.load(PrimaryService(primary), "op-g")
+    assert resumed.nodes == []
+    resumed.wait("cutover", timeout=0.2, code="follower_cutover_failed")  # Nobody left to wait for.
+
+
+class RestartingPrimary(FollowerService):
+    def state(self):
+        owned = json.loads((self.active / "owned-files.json").read_text(encoding="utf-8"))
+        return {"release": str(self.active), "inventory": {"generation": 2}, "owned_files": owned}
+
+    def ensure_available(self):
+        if Path(self.config["maintenance_marker"]).exists():
+            raise AgentError("recovery_or_operation_pending", 409)
+
+
+def test_cluster_restart_goes_node_by_node_with_the_same_release_and_refuses_when_busy(cluster, tmp_path, monkeypatch):
+    """#682: cluster restart applies a new configuration without changing any release."""
+    from deployment_agent.service import DeploymentService
+
+    primary, service, new, release_digest = cluster
+    monkeypatch.setattr(rollout.time, "sleep", lambda seconds: None)
+    service.active = new  # The follower runs the cluster's release.
+    primary_service = RestartingPrimary(tmp_path, primary, tmp_path / "primary-releases", active=new)
+    stop = threading.Event()
+    thread = threading.Thread(target=follow_until, args=(service, stop), daemon=True)
+    thread.start()
+    try:
+        result = rollout.restart_cluster(primary_service, operation_id="restart-1")
+    finally:
+        stop.set()
+        thread.join(5)
+    assert result["nodes"] == ["node-a", "node-b"]
+    for node in (primary_service, service):
+        assert [entry for entry in node.log if entry[0] != "active"] == [
+            ("drain", "2-plan"),
+            ("start", "2-plan"),
+            ("health", "ok"),
+        ]  # Stopped and started again on the same release: no cutover.
+    Path(primary_service.config["maintenance_marker"]).write_text("{}")  # An operation in flight.
+    with pytest.raises(AgentError) as busy:
+        DeploymentService.cluster_restart(primary_service)
+    assert (busy.value.code, busy.value.status) == ("cluster_busy", 409)

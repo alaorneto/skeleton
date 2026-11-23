@@ -356,3 +356,27 @@ def test_execution_stops_workers_before_migrations_and_restarts_them_after_cutov
     assert calls.index("/bin/drain-web") < calls.index("/bin/stop-worker") < calls.index("migrate")
     assert calls.index("migrate") < calls.index("cutover") < calls.index("/bin/restart-web")
     assert calls.index("/bin/restart-web") < calls.index("/bin/start-worker") < calls.index("health")
+
+
+def test_a_forwarded_approval_journals_the_node_and_never_binds_it(approved_deployment):
+    """#680: the primary records which node's web delivered the approval; the body cannot claim one."""
+    from deployment_agent.cluster_channel import Routes
+
+    service, values, pending = approved_deployment
+    result = Routes(service, None, source="node:node-b").call("POST", "/submit", values)
+    assert result["id"] == values["operation_id"] and len(pending) == 1
+    operation = service.store.get("operations", values["operation_id"])
+    assert operation["source"] == "node:node-b" and "source" not in operation["binding"]
+    with pytest.raises(AgentError, match="invalid_submit_fields"):
+        Routes(service, None).call("POST", "/submit", {**values, "source": "node:forged"})
+    # The same approval delivered again (the follower retried) is the same operation, not a conflict.
+    assert Routes(service, None).call("POST", "/submit", values)["id"] == values["operation_id"]
+
+
+def test_a_local_approval_has_no_source_and_rolling_is_refused_on_a_window_plan(approved_deployment):
+    service, values, pending = approved_deployment
+    with pytest.raises(AgentError, match="rolling_not_eligible"):
+        service.submit(**values, mode="rolling")  # The plan was previewed as "window" (#682).
+    assert pending == [] and not service.store.path("operations", values["operation_id"]).exists()
+    service.submit(**values)
+    assert "source" not in service.store.get("operations", values["operation_id"])

@@ -92,7 +92,12 @@ class DeploymentService:
         if coordinator is None:
             raise AgentError("cluster_not_configured")
         coordinator.assert_primary()
-        self.ensure_available()
+        try:
+            self.ensure_available()
+        except AgentError as error:
+            if error.code != "recovery_or_operation_pending":
+                raise
+            raise AgentError("cluster_busy", 409) from None  # An operation or a recovery is in flight.
         operation_id = f"restart-{uuid4().hex}"
         self.worker = threading.Thread(
             target=rollout.restart_cluster,
@@ -280,9 +285,10 @@ class DeploymentService:
         actor_id: str,
         request_id: str,
         mode: str | None = None,
+        source: str | None = None,
     ) -> JSON:
         operation, created = execution.queue_operation(
-            self, plan_id, plan_digest, generation, operation_id, actor_id, request_id, mode=mode
+            self, plan_id, plan_digest, generation, operation_id, actor_id, request_id, mode=mode, source=source
         )
         if not created:
             return self.public_operation(operation)

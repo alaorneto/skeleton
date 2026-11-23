@@ -124,10 +124,17 @@ class Rollout:
         if row is None:
             return None
         nodes = row[0] if isinstance(row[0], list) else json.loads(row[0])
-        return cls(service, operation_id, list(nodes))
+        # A node the operator removed with ``cluster forget`` is no longer waited for (#681).
+        present = {node["node_id"] for node in coordinator.nodes()}
+        return cls(service, operation_id, [node for node in nodes if node in present])
 
     def phase(self, phase: str) -> None:
         self.coordinator.assert_primary()
+        # The answers of the previous round go first: a phase announced again (``recover complete``)
+        # never reads the failure of its first round (#681).
+        self.coordinator._lock_conn.execute(
+            "UPDATE skeleton_deploy.node SET phase = '' WHERE operation_id = %s", (self.operation_id,)
+        )
         self.coordinator._lock_conn.execute(
             "UPDATE skeleton_deploy.rollout SET phase = %s, epoch = %s, phase_started_at = now()"
             " WHERE operation_id = %s",
@@ -137,6 +144,10 @@ class Rollout:
     def wait_node(self, phase: str, node: str, *, timeout: float, code: str, sleep: Any = time.sleep) -> None:
         """One node's turn of a rolling phase: it alone acts while ``current_node`` names it."""
         self.coordinator.assert_primary()
+        self.coordinator._lock_conn.execute(
+            "UPDATE skeleton_deploy.node SET phase = '' WHERE operation_id = %s AND node_id = %s",
+            (self.operation_id, node),
+        )
         self.coordinator._lock_conn.execute(
             "UPDATE skeleton_deploy.rollout SET phase = %s, current_node = %s, epoch = %s, phase_started_at = now()"
             " WHERE operation_id = %s",
@@ -358,7 +369,9 @@ class Follower:
     def __init__(self, service: DeploymentService) -> None:
         self.service = service
         self.coordinator = _coordinator(service)
-        self.done: set[tuple[str, str]] = set()
+        # (operation, phase, announcement): a phase announced again (``recover complete``) is a new order.
+        self.done: set[tuple[str, str, str]] = set()
+        self._round = ""
         self.started_services = False
         self.agent_attempted: str | None = None  # The agent target already tried, once per target (#689).
 
@@ -373,7 +386,7 @@ class Follower:
         release, state = self._active()
         generation = (state.get("inventory") or {}).get("generation") if state else None
         self.coordinator.acknowledge(operation_id, answer, epoch, release=str(release or ""), generation=generation)
-        self.done.add((operation_id, phase))
+        self.done.add((operation_id, phase, self._round))
 
     def _switch(self, release: Path, operation: str) -> None:
         from .execution import health
@@ -387,10 +400,10 @@ class Follower:
         self.service._write_active(release, inventory, owned)
 
     def _run(self, row: tuple[Any, ...]) -> None:
-        operation_id, epoch, phase, name, release_digest, current_node = row
+        operation_id, epoch, phase, name, release_digest, current_node = row[:6]
         if phase in ("rolling", "restart"):
             # One node at a time (#682): act only on this node's turn, once per operation.
-            if current_node != self.coordinator.settings.node_id or (operation_id, phase) in self.done:
+            if current_node != self.coordinator.settings.node_id or (operation_id, phase, self._round) in self.done:
                 return
             active, _ = self._active()
             if active is None:
@@ -403,7 +416,7 @@ class Follower:
                 )
             self._answer(operation_id, phase, int(epoch), ACKS[phase])
             return
-        if (operation_id, phase) in self.done or phase == "done":
+        if (operation_id, phase, self._round) in self.done or phase == "done":
             return
         marker = Path(self.service.config["maintenance_marker"])
         active, _ = self._active()
@@ -471,10 +484,12 @@ class Follower:
         if primary is None or self.coordinator.is_primary:
             return
         row = self.coordinator._execute(
-            "SELECT operation_id, epoch, phase, release, release_digest, current_node FROM skeleton_deploy.rollout"
+            "SELECT operation_id, epoch, phase, release, release_digest, current_node, phase_started_at"
+            " FROM skeleton_deploy.rollout"
             " WHERE epoch = %s ORDER BY started_at DESC LIMIT 1",
             (primary["epoch"],),
         ).fetchone()
+        self._round = str(row[6]) if row is not None else ""
         try:
             if row is not None and row[2] not in ("done",):
                 self._run(row)

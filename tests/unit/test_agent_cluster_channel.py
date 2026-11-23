@@ -6,11 +6,13 @@ and the coordinator are fakes, so the test needs neither PostgreSQL nor the agen
 
 import datetime
 import hashlib
+import http.client
 import ipaddress
 import json
 import os
 import ssl
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 from cryptography import x509
@@ -19,7 +21,14 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
 from deployment_agent import cluster_channel
-from deployment_agent.cluster_channel import ClusterChannel, sign, verify
+from deployment_agent.cluster_channel import (
+    CHANNEL_KEYS,
+    ClusterChannel,
+    server_context,
+    sign,
+    validate_channel,
+    verify,
+)
 from deployment_agent.storage import AgentError
 
 SECRET = b"s" * 40
@@ -244,3 +253,50 @@ def test_keygen_writes_a_private_secret_once(tmp_path):
     assert len(target.read_text().strip()) == 64
     with pytest.raises(AgentError, match="cluster_secret_exists"):
         cluster_channel.write_secret(str(target))
+
+
+def test_an_unknown_node_or_a_client_without_a_certificate_gets_nothing(pair):
+    _, _, _, follower = pair
+    url = follower._primary_url()
+    follower.node_id = "node-x"  # Signed with the cluster's secret, but not a node of the cluster.
+    status, data = follower.request("GET", "/v1/health", url=url)
+    assert status == 401 and json.loads(data) == {"error": "unauthorized"}
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.load_verify_locations(follower.cluster["tls_ca"])  # Trusts the server, presents nothing.
+    target = urlsplit(url)
+    connection = http.client.HTTPSConnection(target.hostname, target.port, context=context, timeout=5)
+    try:
+        with pytest.raises((OSError, http.client.HTTPException)):
+            connection.request("GET", "/v1/health")
+            connection.getresponse().read()
+    finally:
+        connection.close()
+
+
+def test_the_listener_does_not_start_without_valid_channel_files(tmp_path, pki):
+    cluster = {
+        "node_id": "node-a",
+        "listen": "127.0.0.1:9443",
+        "cluster_url": "https://node-a.cluster.test:9443",
+        "tls_cert": str(pki / "node-a.crt"),
+        "tls_key": str(pki / "node-a.key"),
+        "tls_ca": str(pki / "ca.crt"),
+        "secret_file": str(tmp_path / "secret"),
+    }
+    validate_channel(cluster)
+    for key in CHANNEL_KEYS:
+        with pytest.raises(AgentError, match="invalid_cluster_channel"):
+            validate_channel({**cluster, key: None})
+    with pytest.raises(AgentError, match="invalid_cluster_channel"):
+        validate_channel({**cluster, "tls_cert": "node-a.crt"})  # Relative: refused.
+    for key in ("tls_cert", "tls_key", "tls_ca"):
+        with pytest.raises(AgentError, match="invalid_cluster_channel"):
+            server_context({**cluster, key: str(tmp_path / "missing.pem")})
+    with pytest.raises(AgentError, match="invalid_cluster_channel"):
+        server_context({**cluster, "tls_key": str(pki / "stranger.key")})  # Not the certificate's key.
+    for content in (None, b"short"):
+        if content is not None:
+            Path(cluster["secret_file"]).write_bytes(content)
+            os.chmod(cluster["secret_file"], 0o600)
+        with pytest.raises(AgentError, match="invalid_cluster_channel"):
+            cluster_channel.read_secret(cluster["secret_file"])

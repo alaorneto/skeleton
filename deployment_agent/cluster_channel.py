@@ -129,8 +129,11 @@ def verify(
 def server_context(cluster: JSON) -> ssl.SSLContext:
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
-    context.load_cert_chain(cluster["tls_cert"], cluster["tls_key"])
-    context.load_verify_locations(cluster["tls_ca"])
+    try:
+        context.load_cert_chain(cluster["tls_cert"], cluster["tls_key"])
+        context.load_verify_locations(cluster["tls_ca"])
+    except (OSError, ValueError):  # ssl.SSLError is an OSError: a missing, unreadable or wrong file.
+        raise AgentError("invalid_cluster_channel") from None
     context.verify_mode = ssl.CERT_REQUIRED  # Mutual TLS: the client presents a certificate of the CA.
     return context
 
@@ -168,9 +171,10 @@ def allowed_artifacts(service: Any) -> set[str]:
 class Routes:
     """The routes of the control socket, run for a forwarded request (no socket, no token)."""
 
-    def __init__(self, service: Any, tickets: Any) -> None:
+    def __init__(self, service: Any, tickets: Any, *, source: str | None = None) -> None:
         self.server = SimpleNamespace(service=service, tickets=tickets)
         self.restart_after_response = False
+        self.source = source  # ``node:<id>`` of the node that forwarded the request, journaled by submit.
 
     def call(self, method: str, path: str, body: Any) -> Any:
         from .server import ControlHandler
@@ -283,7 +287,7 @@ class ChannelHandler(BaseHTTPRequestHandler):
                 method, path = request.get("method"), request.get("path")
                 if method not in ("GET", "POST") or not isinstance(path, str) or not path.startswith("/"):
                     raise AgentError("invalid_forward")
-                routes = Routes(service, channel.tickets)
+                routes = Routes(service, channel.tickets, source=f"node:{node_id}")
                 result = routes.call(method, path, request.get("body"))
                 if isinstance(result, dict) and result.get("id") and method == "POST" and path == "/submit":
                     result.setdefault("source_node", node_id)

@@ -265,3 +265,44 @@ def test_abort_after_migrations_with_an_external_backup_proves_the_restore(servi
     assert recovery_refused(service, operation, "abort", "database_restore_required")
     operation = service.store.get("operations", operation["id"])
     assert recovery_refused(service, operation, "abort", "external_restore_incomplete", external_restored=True)
+
+
+def test_a_candidate_that_takes_over_marks_the_running_operation_interrupted(service, tmp_path):
+    """#678: the new primary reconciles the journal it shares and refuses new work until recover."""
+    import threading
+
+    from deployment_agent import server
+
+    running = journal_operation(service, tmp_path, state="running", stage="migration_started")
+    published = []
+
+    class TakingOver:
+        is_primary = False
+
+        def ensure_schema(self):
+            pass
+
+        def tick(self, *, describe, on_acquired):
+            describe()
+            self.is_primary = True
+            on_acquired()
+            stop.set()
+
+        def publish_release(self, *args):
+            published.append(args)
+
+        def close(self):
+            pass
+
+    stop = threading.Event()
+    service.coordinator = TakingOver()
+    server.run_coordination(service, stop, interval=0)
+    operation = service.store.get("operations", running["id"])
+    assert (operation["state"], operation["stage"], operation["error"]) == (
+        "interrupted",
+        "interrupted",
+        "agent_interrupted",
+    )
+    assert marker(service) is not None and published  # Under maintenance; the cluster's release recorded.
+    with pytest.raises(AgentError, match="recovery_or_operation_pending"):
+        service.ensure_available()

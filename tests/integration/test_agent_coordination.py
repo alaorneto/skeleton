@@ -175,3 +175,18 @@ def test_status_names_the_primary_and_every_node_without_urls(make):
     assert status["mode"] == "cluster" and status["is_primary"] and status["primary"]["epoch"] == 1
     assert {node["node_id"] for node in status["nodes"]} == {"node-a", "node-f"}
     assert "cluster_url" not in status["nodes"][0]
+
+
+def test_a_candidate_whose_storage_is_not_shared_never_tries_the_lock(make, tmp_path, monkeypatch):
+    monkeypatch.setattr(coordination, "STORAGE_GRACE_S", -1)
+    a = make("node-a", storage=tmp_path / "a", preferred=True)
+    b = make("node-b", storage=tmp_path / "b", preferred=True)
+    a.heartbeat()
+    b.heartbeat()
+    tried, acquired = [], []
+    for candidate in (a, b):
+        monkeypatch.setattr(candidate, "try_acquire", lambda: tried.append(True) or True)
+        candidate.tick(on_acquired=lambda: acquired.append(True))
+        assert candidate.problem == "cluster_storage_not_shared" and not candidate.is_primary
+    assert tried == [] and acquired == []
+    assert a.primary() is None or a.primary()["node_id"] not in ("node-a", "node-b")

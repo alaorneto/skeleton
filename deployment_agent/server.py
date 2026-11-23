@@ -198,8 +198,9 @@ class ControlHandler(QuietHandler):
         required = {"plan_id", "plan_digest", "generation", "operation_id", "actor_id", "request_id"}
         if not required <= set(body) <= required | {"mode"}:
             raise AgentError("invalid_submit_fields")
-        result = self.server.service.submit(**body)
-        url = self.server.tickets.issue(result["id"])
+        source = getattr(self, "source", None)  # The node that forwarded it (#680), never from the body.
+        result = self.server.service.submit(**body, **({"source": source} if source else {}))
+        url = self.server.tickets.issue(result["id"]) if self.server.tickets is not None else None
         if url:
             result["status_url"] = url
         return result

@@ -109,7 +109,14 @@ def execute(service: "DeploymentService", operation_id: str) -> None:
                     try:
                         cluster.wait("drain", timeout=rollout.DRAIN_TIMEOUT_S, code="follower_drain_failed")
                     except AgentError:
-                        cluster.phase("abort")  # No migration ran: every follower goes back to its release.
+                        # No migration ran: every node, this one too, goes back to serving its release (#681).
+                        cluster.phase("abort")
+                        try:
+                            service.backend.start(state["release"], operation_id)
+                        except Exception as error:  # noqa: BLE001 - the marker stays for the operator's recover
+                            log_internal_error(error)
+                        else:
+                            Path(service.config["maintenance_marker"]).unlink(missing_ok=True)
                         raise
                 service.stage(operation, "drained")
                 backup = service.backend.backup(state["release"], operation_id)
@@ -276,11 +283,13 @@ def queue_operation(
     request_id: str,
     *,
     mode: str | None = None,
+    source: str | None = None,
 ) -> tuple[JSON, bool]:
     """Journal the approved binding; ``(operation, created)``, ``created`` False for a repeated delivery.
 
     ``mode`` (#682) is ``window`` to force the maintenance window on a rolling-eligible plan; it is
-    part of the binding, so a redelivery with another mode is an idempotency conflict.
+    part of the binding, so a redelivery with another mode is an idempotency conflict. ``source``
+    (#680) names the node that forwarded the approval (``node:<id>``); it is recorded, not bound.
     """
     if mode not in (None, "window", "rolling"):
         raise AgentError("invalid_rollout_mode")
@@ -343,6 +352,7 @@ def queue_operation(
             "expected_generation": generation,
             "plan": plan,
             "plan_digest": plan_digest,
+            **({"source": source} if source else {}),
             "binding": binding,
             "backup": None,
             "release": plan["release"],
