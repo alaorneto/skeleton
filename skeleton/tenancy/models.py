@@ -773,3 +773,19 @@ class OrganizationProvisioningRule(SystemRecord):
 
     def __str__(self):
         return f"{self.key}: {self.mode}"
+
+
+class OrganizationSignup(SystemRecord):
+    """An organization created by the person herself (#715): the per-person ceiling and the report.
+
+    ``bundle_code`` copies the code of the chosen bundle (no dependency on ``sk_system``).
+    Written only by ``skeleton.tenancy.signup``.
+    """
+
+    signup_organization = models.OneToOneField(Organization, on_delete=models.PROTECT, related_name="+")
+    signup_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    bundle_code = models.CharField(max_length=64, blank=True, default="")
+    immutable_fields = ("signup_organization_id", "signup_user_id", "bundle_code")
+
+    def __str__(self):
+        return f"{self.signup_organization_id} ({self.bundle_code})"

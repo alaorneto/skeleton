@@ -77,17 +77,23 @@ def collect_organization(organization: Any, *, now: datetime | None = None) -> d
         "storage_bytes_used": int(usage_for(organization.pk).bytes_used),
         "storage_quota_bytes": quota,
         "storage_location_code": _location_code(organization.pk),
+        "bundle_code": _bundle_code(organization.pk),
         "billing": organization_billing_summary(now=now),
         "daily": daily,
         "app_metrics": app_metrics,
     }
 
 
+def _bundle_code(organization_id: Any) -> str:
+    from skeleton.system.bundles import bundle_of
+
+    bundle = bundle_of(organization_id)
+    return bundle.code if bundle is not None else ""
+
+
 def _location_code(organization_id: Any) -> str:
-    try:
-        from skeleton.files.locations import location_for
-    except ImportError:  # Storage locations (#705) are not installed in this build.
-        return ""
+    from skeleton.files.locations import location_for
+
     location = location_for(organization_id)
     return location.code if location is not None else ""
 

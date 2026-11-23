@@ -329,6 +329,9 @@ from skeleton.api.proxy import proxy_settings
 
 globals().update(proxy_settings(env))
 SKELETON_PUBLIC_SIGNUP = env.bool("SKELETON_PUBLIC_SIGNUP", default=False)
+# A person creates her own organization at /organizations/new/ and picks a bundle (#715).
+SKELETON_ORGANIZATION_SIGNUP_ENABLED = env.bool("SKELETON_ORGANIZATION_SIGNUP_ENABLED", default=False)
+SKELETON_ORGANIZATION_SIGNUP_MAX_PER_PERSON = env.int("SKELETON_ORGANIZATION_SIGNUP_MAX_PER_PERSON", default=1)
 SKELETON_EVENT_RETENTION_DAYS = env.int("SKELETON_EVENT_RETENTION_DAYS", default=30)
 # CSV export and import (#182, #183).
 SKELETON_EXPORT_MAX_ROWS = env.int("SKELETON_EXPORT_MAX_ROWS", default=100_000)

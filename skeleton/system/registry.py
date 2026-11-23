@@ -248,6 +248,12 @@ def register_core_specs():
             "global",
             (),
         ),
+        "sk_tenancy.organizationsignup": (
+            "Cadastros de organizações",
+            "Organização criada pela própria pessoa no cadastro, com o pacote escolhido; base do teto por pessoa.",
+            "global",
+            (),
+        ),
         "sk_tenancy.organizationpage": (
             gettext_lazy("Páginas da organização"),
             gettext_lazy(
@@ -367,6 +373,26 @@ def register_core_specs():
         "sk_system.instanceidentity": (
             gettext_lazy("Identidade da instância"),
             gettext_lazy("Identificador estável desta base, com nome e finalidade, usado pela API de gestão."),
+            "global",
+            (),
+        ),
+        "sk_system.appbundle": (
+            gettext_lazy("Pacotes de apps"),
+            gettext_lazy(
+                "Nível do produto: conjunto de apps que uma organização recebe junto, definido pela plataforma."
+            ),
+            "global",
+            (),
+        ),
+        "sk_system.organizationbundle": (
+            gettext_lazy("Pacote das organizações"),
+            gettext_lazy("O pacote de apps (nível) atribuído a cada organização."),
+            "global",
+            (),
+        ),
+        "sk_billing.bundleoffer": (
+            gettext_lazy("Ofertas de pacotes"),
+            gettext_lazy("O preço que vende um pacote de apps numa moeda."),
             "global",
             (),
         ),
