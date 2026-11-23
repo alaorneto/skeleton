@@ -212,13 +212,19 @@ O host está bem. Pare `web`, `worker`, `scheduler` e `agent`, restaure o banco 
 
 Sem `agent_state` e `releases`, o agente da primeira partida instala o núcleo de novo sobre um banco já migrado, caminho que os testes não cobrem ([sandbox criado antes do agente](deployment.md#atualizar-o-sandbox)). Se não houver outra saída: defina `SKELETON_CORE_VERSION` com a versão exata do núcleo que o banco tem, faça o *Deploy* e reinstale cada app **na mesma versão** de antes (pela fonte, ou enviando de novo o pacote `.skapp`), antes de abrir o site. As apps cujo pacote só existia em `uploads/` precisam do pacote original do publicador.
 
+**Resultado esperado:** "Versões instaladas" e "Inventário confirmado no banco" com as mesmas versões do núcleo e de cada app, e a [conferência](#conferência-depois-de-qualquer-recuperação) sem erros. **Se falhar:** não abra o site; `check_skeleton_schema` recusando indica uma versão diferente da do banco (confira a versão de cada app no inventário do banco e reinstale aquela).
+
 ### Chave mestra perdida (sandbox)
 
 O SQLite da instância não abre. Restaure o volume `instance` do último conjunto. Sem ele, apague o SQLite e a chave, e grave a configuração exportada do cofre na instância nova (`manage.py instance set` para cada chave, ou o setup com os mesmos valores); com os mesmos `DJANGO_SECRET_KEY` e chaveiros, os dados e as sessões continuam valendo.
 
+**Resultado esperado:** `manage.py instance status` sem chaves pendentes e a instância fora do setup. **Se falhar:** com o setup pedindo chaves, falta alguma da configuração exportada; sem a configuração exportada nem o volume, os chaveiros perdidos seguem o roteiro abaixo.
+
 ### Chaveiro de criptografia perdido
 
 Não há recuperação do conteúdo cifrado com ele. Ponha uma chave nova no chaveiro e refaça o que ele protegia (MFA de cada pessoa, segredos do SSO, dos webhooks, das integrações e da cobrança), como na [tabela](#segredos). Sem o chaveiro do MFA, nem os códigos de recuperação abrem: com o site fora do ar, apague os autenticadores com a owner (`DELETE FROM skeleton.mfa_authenticator`), suba com a chave nova e avise as pessoas de que o MFA será cadastrado de novo no próximo acesso (o de administradores é obrigatório). Os cadastros anteriores não voltam.
+
+**Resultado esperado:** a instância sobe com o chaveiro novo e cada recurso refeito funciona (um login com MFA cadastrado de novo, um provedor SSO, um webhook). **Se falhar:** um erro de decifragem no log aponta um dado ainda cifrado com a chave perdida: refaça aquele item.
 
 ### Produção: perda de um nó ou do primário
 
@@ -236,7 +242,7 @@ Nada a restaurar: o nó é substituído pelo roteiro [adicionar um nó](high-ava
 
 ### Produção: `storage_root` perdido
 
-O site continua no ar (servir tráfego não depende do agente). Restaure o diretório do último snapshot com os agentes parados e suba-os de novo. Sem backup, as atualizações e as instalações de apps ficam impedidas até o operador reenviar os pacotes das apps instaladas e recriar as fontes; não tente uma atualização antes disso.
+O site continua no ar (servir tráfego não depende do agente). Restaure o diretório do último snapshot com os agentes parados e suba-os de novo. **Resultado esperado:** `cluster status` com um primário e o `journal` com as operações de antes. **Se falhar:** com `cluster_storage_not_shared`, os candidatos não veem o mesmo diretório: corrija a montagem compartilhada antes de subir os agentes. Sem backup, as atualizações e as instalações de apps ficam impedidas até o operador reenviar os pacotes das apps instaladas e recriar as fontes; não tente uma atualização antes disso.
 
 ### Produção: perda total (nós e servidor de dados)
 
@@ -250,6 +256,8 @@ O site continua no ar (servir tráfego não depende do agente). Restaure o diret
 ### Anexos perdidos
 
 No bucket, restaure as versões anteriores dos objetos apagados ou alterados (versionamento); no volume, o snapshot. Um anexo cujo arquivo falta responde 404, sem afetar o resto.
+
+**Resultado esperado:** os anexos e as imagens da marca e dos temas abrem de novo. **Se falhar:** sem versão anterior no bucket nem snapshot, o arquivo não volta; o registro continua no banco e o anexo pode ser enviado de novo.
 
 ## Teste periódico de restauração
 
