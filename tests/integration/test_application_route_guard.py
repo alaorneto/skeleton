@@ -69,22 +69,22 @@ def test_plain_member_is_not_gated_by_mfa(scenario, settings):
 def test_disabled_app_reveals_nothing_through_the_mfa_gate(scenario, settings):
     """A disabled app keeps its answer (403 HTML, 404 API) for whoever MFA does not hold back.
 
-    Whoever must still enrol MFA gets the same answer on every route (#740), the disabled app
-    and a route that never existed alike, so the gate reveals nothing about the app.
+    Whoever must still enrol MFA in the organization gets the gate's answer (#740) whether the
+    app is enabled or not, so the gate never tells a disabled app from an enabled one.
     """
     settings.SKELETON_REQUIRE_ADMIN_MFA = True
+    member = login(scenario, scenario.member)
+    admin = login(scenario, scenario.admin_a)
+
+    def admin_answers():
+        html, json = admin.get(page(scenario.a)), admin.get(api(scenario.a))
+        return (html.status_code, html["Location"], json.status_code, json.json()["code"])
+
+    enabled = admin_answers()
     with scenario.application_disabled():
-        member = login(scenario, scenario.member)
         assert member.get(page(scenario.a)).status_code == 403
         assert member.get(api(scenario.a)).status_code == 404
-        admin = login(scenario, scenario.admin_a)
-        missing = f"/o/{scenario.a.pk}/apps/example_notes/no-such-route/"
-        for path in (page(scenario.a), missing):
-            response = admin.get(path)
-            assert response.status_code == 302 and response["Location"] == reverse("mfa_index")
-        for path in (api(scenario.a), f"/api/v1/o/{scenario.a.pk}/apps/example_notes/no-such-route/"):
-            response = admin.get(path)
-            assert response.status_code == 403 and response.json()["code"] == "mfa_required"
+        assert admin_answers() == enabled == (302, reverse("mfa_index"), 403, "mfa_required")
 
 
 def _guarded(view, *, api_route=False):

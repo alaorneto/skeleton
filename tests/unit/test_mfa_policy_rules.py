@@ -166,19 +166,31 @@ def request(path, user=None, session=None):
 
 def test_only_an_organization_policy_marks_the_browser_session(monkeypatch):
     session = {}
-    middleware, _ = gate(monkeypatch, demand="platform")
+    middleware, seen = gate(monkeypatch, demand="platform")
     middleware(request("/profile/", session=session))
     assert session == {}  # The platform's rules hold every request by themselves.
-    middleware.state.demand = None
-    assert middleware(request("/profile/", session=session)).status_code == 200
     middleware.state.demand = "organization"
     assert middleware(request(f"/o/{ORG}/", session=session)).status_code == 302
     assert session == {SESSION_KEY: True}
-    middleware.state.demand = None  # A global page, or another organization.
-    assert middleware(request("/profile/", session=session)).status_code == 302
-    middleware.state.totp = True  # Enrolled: the mark goes away.
-    assert middleware(request("/profile/", session=session)).status_code == 200
-    assert session == {}
+
+
+def test_the_mark_only_keeps_the_enrolment_without_menus(monkeypatch):
+    """Sent to the MFA pages by an organization, the person still walks freely elsewhere."""
+    session = {SESSION_KEY: True}
+    middleware, seen = gate(monkeypatch, demand=None)  # The global MFA page, outside the organization.
+    assert middleware(request("/accounts/2fa/", session=session)).status_code == 200
+    assert seen == [True] and session == {SESSION_KEY: True}
+    assert middleware(request("/profile/", session=session)).status_code == 200  # Never held back.
+    assert seen == [True, False] and session == {}  # Leaving the enrolment drops the mark.
+    assert middleware(request("/accounts/2fa/", session=session)).status_code == 200
+    assert seen == [True, False, False]  # A visit of one's own shows the menus.
+
+
+def test_enrolling_drops_the_mark(monkeypatch):
+    session = {SESSION_KEY: True}
+    middleware, seen = gate(monkeypatch, demand=None, totp=True)
+    middleware(request("/accounts/2fa/", session=session))
+    assert seen == [False] and session == {}
 
 
 def test_a_bearer_token_never_marks_a_session(monkeypatch):

@@ -6,9 +6,10 @@ route outside ``ALLOWED_ROUTES`` sends an HTML request to ``mfa_index`` and answ
 request with 403 ``mfa_required``, also with a personal API token. Templates read
 ``request.mfa_enrollment_pending`` to hide the application's menus.
 
-An organization's policy applies inside that organization, but once it held a browser session
-back, the session stays on the MFA pages, global ones included, until the TOTP exists or the
-person logs out.
+An organization's policy holds back only that organization's pages: elsewhere (another
+organization, the profile) the person moves freely until coming back. The MFA pages are global,
+so a mark in the browser session (``SESSION_KEY``) keeps them without menus after that
+organization sent the person there; it only changes how they look, never what answers.
 """
 
 from django.http import JsonResponse
@@ -63,22 +64,25 @@ def allowed(path: str) -> bool:
     return route_name(path) in ALLOWED_ROUTES
 
 
-# Set once an organization's policy held a browser session back: the MFA pages are global, so
-# without it the enrolment would show the full application again, and the person could walk to
-# another page. The platform's rules need no mark: they hold every request on their own.
+# Set when an organization's rule sends a browser session to the MFA pages, which are global:
+# while it lasts they keep hiding the menus. Presentation only: it never holds another page back,
+# and it goes away on the first page outside the enrolment or once the TOTP exists.
 SESSION_KEY = "skeleton_mfa_pending"
 
 
-def _pending(request) -> bool:
+def _pending(request, *, enrolling: bool) -> bool:
+    """Whether MFA is missing for this request; outside the enrolment, also whether to hold it back."""
     user = getattr(request, "user", None)
     if user is None or not user.is_authenticated:
         return False
     session = getattr(request, "session", None)
     # A bearer token has no browser session to mark; each request is judged on its own context.
     browser = session is not None and getattr(request, "api_token", None) is None
-    demand = mfa_demand(user)
     marked = browser and bool(session.get(SESSION_KEY))
-    if demand is None and not marked:
+    demand = mfa_demand(user)
+    if demand is None and not (marked and enrolling):
+        if marked:
+            del session[SESSION_KEY]  # The person left the enrolment: other pages are free.
         return False
     if has_totp(user):
         if marked:
@@ -94,9 +98,10 @@ class MFAEnrollmentMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        pending = _pending(request)
+        enrolling = allowed(request.path_info)
+        pending = _pending(request, enrolling=enrolling)
         request.mfa_enrollment_pending = pending
-        if pending and not allowed(request.path_info):
+        if pending and not enrolling:
             if request.path_info.startswith("/api/"):
                 return JsonResponse(
                     {"code": "mfa_required", "detail": gettext("Configure autenticação multifator para continuar.")},

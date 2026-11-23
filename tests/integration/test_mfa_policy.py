@@ -76,18 +76,19 @@ def test_all_members_policy_leaves_only_the_mfa_page_in_that_organization(scenar
     with subtests.test("the API of A"):
         response = client.get(f"/api/v1/o/{scenario.a.pk}/roles/")
         assert response.status_code == 403 and response.json()["code"] == "mfa_required"
-    with subtests.test("once held back, the session stays on the MFA pages"):
-        assert_gated(client, url("web:dashboard", scenario.b))
-        assert_gated(client, "/profile/")
-    with subtests.test("B has no policy"):
-        fresh = support.login(scenario.member, password=FIXTURE_PASSWORD)
-        assert fresh.get(url("web:dashboard", scenario.b)).status_code == 200
-    with subtests.test("the MFA page has no application menu"):
+    with subtests.test("the MFA page it sends to has no application menu"):
         page = client.get(reverse("mfa_index"))
         html = page.content.decode()
         assert page.status_code == 200
         assert NAV not in html and ACCOUNT_MENU not in html and "with-sidebar" not in html
         assert reverse("account_logout") in html
+    with subtests.test("elsewhere the person moves freely"):
+        assert client.get(url("web:dashboard", scenario.b)).status_code == 200
+        assert client.get("/profile/").status_code == 200
+        assert NAV in client.get(reverse("mfa_index")).content.decode()  # A visit of one's own.
+    with subtests.test("back in A, held again"):
+        assert_gated(client, url("web:dashboard", scenario.a))
+        assert NAV not in client.get(reverse("mfa_index")).content.decode()
     with subtests.test("after the enrolment the organization opens again"):
         enrol(scenario.member)
         assert client.get(url("web:dashboard", scenario.a)).status_code == 200
