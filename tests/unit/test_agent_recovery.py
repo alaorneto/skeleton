@@ -306,3 +306,21 @@ def test_a_candidate_that_takes_over_marks_the_running_operation_interrupted(ser
     assert marker(service) is not None and published  # Under maintenance; the cluster's release recorded.
     with pytest.raises(AgentError, match="recovery_or_operation_pending"):
         service.ensure_available()
+
+
+def test_abort_after_the_operators_point_in_time_restore_reopens_on_the_previous_release(
+    service, tmp_path, monkeypatch
+):
+    """#683: with the graph back to the previous release's, abort --external-restored reopens."""
+    events = [{"stage": "approved", "at": "t"}, {"stage": "migration_started", "at": "t"}]
+    backup = tmp_path / "backup.json"
+    atomic_json(backup, {"kind": "external", "restore_point": "skeleton-y", "lsn": "0/2"})
+    operation = journal_operation(service, tmp_path, events=events, backup=str(backup))
+    operation["plan"]["applied_migrations"] = [["app", "0001"]]
+    service.store.put("operations", operation["id"], operation)
+    monkeypatch.setattr(service.backend, "probe", lambda release: {"applied": [["app", "0001"]]}, raising=False)
+    service.health = lambda inventory: None
+    result = service.recover(operation["id"], "abort", external_restored=True)
+    assert (result["state"], result["stage"]) == ("cancelled", "aborted")
+    assert service.backend.cutover.calls == [(service.source,)]
+    assert marker(service) is None  # Reopened on the release before the update.
