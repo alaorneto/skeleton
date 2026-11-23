@@ -27,6 +27,15 @@ def production_settings(base):
     DEBUG = base["DEBUG"]
     from django.core.exceptions import ImproperlyConfigured
 
+    if base["SKELETON_INSTANCE_MODE"] == "cluster":
+        # Cluster mode never enters the setup (#673): say what the environment lacks, without values.
+        from skeleton.instance.resolve import missing_for_setup
+
+        missing = missing_for_setup(BASE_DIR)
+        if missing:
+            raise ImproperlyConfigured(
+                "Modo cluster: faltam no ambiente as chaves " + ", ".join(missing) + " (o setup não roda em cluster)."
+            )
     SECRET_KEY = env("DJANGO_SECRET_KEY")
     ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS")
     organization_base = base["SKELETON_ORGANIZATION_BASE_DOMAIN"]
@@ -38,7 +47,9 @@ def production_settings(base):
     if database is None or database["ENGINE"] != "django.db.backends.postgresql":
         raise ImproperlyConfigured("Produção exige DATABASE_URL apontando para PostgreSQL.")
     DATABASES = {"default": database}
-    CACHES = {"default": env.cache("CACHE_URL")}
+    from skeleton.conf.base import cache_config
+
+    CACHES = {"default": cache_config(env)}
     if CACHES["default"]["BACKEND"] != "django.core.cache.backends.redis.RedisCache":
         raise ImproperlyConfigured("Produção exige Redis compartilhado.")
     from skeleton.conf.mailers import SMTP, mailer_from_url
@@ -99,7 +110,7 @@ def migrate_settings(base):
     from skeleton.conf.base import database_config
 
     # The owner credential is transient: environment only, never the instance store.
-    database = database_config(env, "MIGRATION_DATABASE_URL", conn_max_age=0)
+    database = database_config(env, "MIGRATION_DATABASE_URL", conn_max_age=0, pooler=False)  # Owner: always direct.
     DATABASES = {"default": database} if database else {}
     # Migrations do not authenticate or contact IdPs; runtime settings own provider configuration.
     SOCIALACCOUNT_PROVIDERS = {}
@@ -126,15 +137,12 @@ def test_settings(base):
     MAILERS = {"default": {"BACKEND": "django.core.mail.backends.locmem.EmailBackend"}}
     SKELETON_METRICS_QUEUE_TTL_S = 0  # The suite always reads the queue.
     import atexit
-    import os
     import shutil
     import tempfile
 
     files_root = tempfile.mkdtemp(prefix="skeleton-files-")
     # One directory per process importing these settings (pytest, manage.py, mypy): removed on exit (#333).
     atexit.register(shutil.rmtree, files_root, ignore_errors=True)
-    # Never the developer's own instance SQLite (#446): tests that need the mode point here explicitly.
-    SKELETON_MAINTENANCE_STORE = os.path.join(files_root, "maintenance-instance.sqlite3")
     STORAGES = {
         **base["STORAGES"],
         "skeleton_files": {

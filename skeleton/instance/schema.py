@@ -93,6 +93,16 @@ def _url(parser: str) -> Callable[[str], str]:
     return validate
 
 
+def _cache_prefix(value: str) -> str:
+    """The key prefix of the shared cache (#675): one per instance on the same Redis."""
+    import re
+
+    cleaned = _text(value).strip()
+    if cleaned and not re.fullmatch(r"[a-z0-9_-]{1,50}", cleaned):
+        raise ValueError("Use de 1 a 50 caracteres entre a-z, 0-9, _ e -.")
+    return cleaned
+
+
 def _origin(value: str) -> str:
     from urllib.parse import urlsplit
 
@@ -244,7 +254,24 @@ _SPECS = (
         True,
         True,
     ),
+    SettingSpec(
+        "database_transaction_pooler",
+        "DATABASE_TRANSACTION_POOLER",
+        "bool",
+        "Banco atrás de um pooler em modo transação (PgBouncer)",
+        _bool,
+    ),
+    SettingSpec(
+        "database_conn_max_age", "DATABASE_CONN_MAX_AGE", "int", "Segundos de reuso de uma conexão ao banco", _int(0)
+    ),
     SettingSpec("cache_url", "CACHE_URL", "url", "Cache compartilhado", _url("cache_url_config"), True),
+    SettingSpec(
+        "cache_key_prefix",
+        "SKELETON_CACHE_KEY_PREFIX",
+        "str",
+        "Prefixo das chaves no cache compartilhado",
+        _cache_prefix,
+    ),
     SettingSpec("email_url", "EMAIL_URL", "url", "Servidor de email", _url("email_url_config"), True),
     SettingSpec("default_from_email", "DEFAULT_FROM_EMAIL", "str", "Remetente padrão dos emails", _required_text),
     SettingSpec("public_url", "SKELETON_PUBLIC_URL", "url", "Origem pública dos links de notificação", _origin),
@@ -495,6 +522,9 @@ _SPECS = (
     ),
     SettingSpec("files_backend", "SKELETON_FILES_BACKEND", "str", "Armazenamento de anexos", _choice("local", "s3")),
     SettingSpec("files_root", "SKELETON_FILES_ROOT", "path", "Pasta local dos anexos", _required_text),
+    SettingSpec(
+        "files_shared", "SKELETON_FILES_SHARED", "bool", "Pasta dos anexos compartilhada por todos os nós", _bool
+    ),
     SettingSpec("files_s3_bucket", "SKELETON_FILES_S3_BUCKET", "str", "Bucket S3 dos anexos", _required_text),
     SettingSpec("files_s3_region", "SKELETON_FILES_S3_REGION", "str", "Região S3", _required_text),
     SettingSpec("files_s3_endpoint", "SKELETON_FILES_S3_ENDPOINT", "str", "Endpoint S3", _required_text),
@@ -508,9 +538,12 @@ BOOTSTRAP_ENV = (
     "DJANGO_SETTINGS_MODULE",
     "SKELETON_INSTANCE_DB",
     "SKELETON_INSTANCE_KEY_FILE",
+    "SKELETON_INSTANCE_MODE",
     "SKELETON_PROJECT_ROOT",
     "SKELETON_DEPLOYMENT_INVENTORY",
     "SKELETON_MAINTENANCE_MARKER",
+    "SKELETON_DRAIN_MARKER",
+    "SKELETON_NODE_ID",
     "SKELETON_DEPLOYMENT_SMOKE_TOKEN_FILE",
     "SKELETON_DEPLOYMENT_SMOKE_PATHS",
     "SKELETON_AGENT_SOCKET",

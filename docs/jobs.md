@@ -95,7 +95,7 @@ python manage.py run_worker [--once] [--queues default,mail] [--max-jobs N] [--w
 | App dona (`owner_app`) desativada ou indisponível na organização | O job é pulado antes do handler e fica `cancelled` (`application_disabled`); tipos do núcleo (sem dono ou com dono que não é app registrada) não passam por essa checagem (#337) |
 | Organização suspensa por inadimplência | Job de app (dono que é app registrada) é pulado e fica `cancelled` (`organization_suspended`); os jobs do núcleo continuam, para a organização ainda ser cobrada e avisada ([cobrança](billing.md#ganchos-de-direito)) |
 | SIGTERM/SIGINT | Para de reivindicar, termina o job atual e sai |
-| Manutenção | Com o marcador `SKELETON_MAINTENANCE_MARKER`, o worker e o scheduler pausam (heartbeat `paused`). Na [manutenção administrativa](maintenance.md#jobs-durante-a-manutenção) pausam só com a opção "pausar jobs" (o padrão; `--keep-jobs` desliga), lida do SQLite da instância em até 5 s, sem banco (#448). Um job em execução termina; a fila acumula e é drenada na saída |
+| Manutenção | Com o marcador `SKELETON_MAINTENANCE_MARKER` do deploy, o worker e o scheduler pausam (heartbeat `paused`, #448). Numa manutenção planejada, pare os serviços `worker` e `scheduler` na infraestrutura ([manutenção](maintenance.md#manutenção-planejada-pela-infraestrutura)). Um job em execução termina; a fila acumula e é drenada na saída |
 | Logs | `job.claimed`, `job.succeeded`, `job.failed`, `job.dead` e `job.skipped` via `security_event`, com o UUID do job e nunca o payload; `job.failed` e `job.dead` trazem `error_stack` (arquivo:linha:função), nunca a mensagem da exceção nem o payload (#243) |
 | Correlação | Cada execução recebe um `request_id` próprio, gerado pelo worker: vai em `job.succeeded`, `job.failed`, `job.dead` e `job.skipped` e, com tracing ligado, no span `job <code>` e nos spans de SQL abaixo dele (#176). Veja [deployment](deployment.md#tracing-opentelemetry-176) |
 
@@ -129,6 +129,8 @@ register_periodic("jobs.retention", "jobs.retention", every=timedelta(hours=6), 
 O núcleo declara também `appearance.orphans` ([#596](https://github.com/alaorneto/skeleton/issues/596), [aparência](appearance.md#imagens)): global (`scope="global"`, `per_organization=False`, `owner_app="sk_appearance"`), a cada 6 horas, três tentativas. Ele lista só `platform/branding/` no armazenamento privado e apaga os objetos que não são nenhuma das três chaves atuais da marca da instância (logo, logo escuro, ícone) e são mais velhos que a carência de `files.orphans` (`SKELETON_FILES_ORPHAN_GRACE_SECONDS`). Nunca lista nem apaga `org/…`, e `files.orphans` nunca toca `platform/branding/`.
 
 O núcleo declara também `system.update_check` (#502): global (`scope="global"`, `per_organization=False`), uma tentativa por janela, a cada `SKELETON_UPDATE_CHECK_HOURS` horas, agendado só quando `SKELETON_UPDATE_REPOSITORY` está definido e não há agente de deployment ([aviso sem agente](deployment.md#sandbox-no-coolify-369)). O payload é vazio e o job não lê nem escreve tabelas: o resultado vai para o cache.
+
+`accounts.clear_sessions` (#677) é global e diário (03:30 UTC): apaga de `django_session` as sessões com `expire_date` no passado, em lotes de 1 000 chaves e no máximo 100 000 por execução (o resto fica para o dia seguinte). As sessões ficam no banco, e o Django só apaga as vencidas quando alguém roda `clearsessions`; com muito acesso, a tabela cresceria sem limite.
 
 ## Operar a fila: `/platform/jobs/`
 

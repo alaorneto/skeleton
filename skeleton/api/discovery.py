@@ -2,8 +2,8 @@
 
 ``GET /api/v1/server/`` is anonymous by design and answers only public facts of the product
 (name, core version, API versions, OIDC issuer): no organization, host list, setting or secret.
-It stays open in the administrative maintenance mode, so a client can tell "down for
-maintenance" from "not a server of the core". ``GET /api/v1/o/<org>/apps/active/`` lists the
+During an update the deployment gate answers 503 with ``code: maintenance``, so a client can
+still tell "down for maintenance" from "not a server of the core". ``GET /api/v1/o/<org>/apps/active/`` lists the
 apps a member can use in the organization, with a session or a token; a non-member gets the
 neutral 404 of the tenant middleware.
 """

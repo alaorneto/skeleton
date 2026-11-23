@@ -294,3 +294,66 @@ def test_the_cli_offers_bootstrap():
     options = build_parser().parse_args(["--config", "/x.json", "bootstrap", "--version", "0.6.0"])
     assert (options.command, options.version, options.release_file) == ("bootstrap", "0.6.0", None)
     assert json.dumps(os.environ.get("NOTHING", "")) == '""'
+
+
+# --------------------------------------------------------------------------- cluster (#678, #685)
+
+
+def test_a_candidate_node_gets_the_cluster_key_and_the_drain_marker(tmp_path):
+    values, files = container_config(
+        environ(
+            tmp_path,
+            SKELETON_NODE_ID="node-a",
+            SKELETON_CLUSTER_URL="https://node-a.internal:9443",
+            SKELETON_CLUSTER_PREFERRED="true",
+        )
+    )
+    assert values["cluster"] == {
+        "node_id": "node-a",
+        "role": "candidate",
+        "cluster_url": "https://node-a.internal:9443",
+        "listen": "0.0.0.0:9443",
+        "preferred": True,
+        "tls_cert": "/run/cluster/node.crt",
+        "tls_key": "/run/cluster/node.key",
+        "tls_ca": "/run/cluster/ca.crt",
+        "secret_file": "/run/cluster/secret",
+    }
+    assert values["drain_marker"] == str(tmp_path / "control" / "drain") and values["drain_grace"] == 20
+    assert OWNER in files["migration.env"]
+
+
+def test_a_follower_has_no_owner_and_coordinates_with_its_own_role(tmp_path):
+    follower = {
+        "SKELETON_NODE_ID": "node-b",
+        "SKELETON_AGENT_ROLE": "follower",
+        "SKELETON_CLUSTER_URL": "https://node-b.internal:9443",
+        "SKELETON_COORDINATION_DATABASE_URL": "postgres://skeleton_agent:agent-secret@db:5432/skeleton",
+    }
+    with pytest.raises(AgentError, match="follower_has_owner"):
+        container_config(environ(tmp_path, **follower))
+    values, files = container_config(environ(tmp_path, **follower, SKELETON_MIGRATION_DATABASE_URL=""))
+    assert "MIGRATION_DATABASE_URL" not in files["migration.env"]
+    assert (
+        files["coordination.env"]
+        == "COORDINATION_DATABASE_URL=postgres://skeleton_agent:agent-secret@db:5432/skeleton\n"
+    )
+    assert values["cluster"]["coordination_env_file"].endswith("coordination.env")
+
+
+def test_in_cluster_mode_the_profiles_carry_the_instance_configuration_quoted(tmp_path):
+    from deployment_agent.config import read_environment
+
+    secret = "a$b'c\"d " + "x" * 50
+    _, files = container_config(
+        environ(tmp_path, SKELETON_INSTANCE_MODE="cluster", DJANGO_SECRET_KEY=secret, DATABASE_URL=RUNTIME)
+    )
+    runtime = tmp_path / "runtime.env"
+    runtime.write_text(files["runtime.env"])
+    runtime.chmod(0o600)
+    parsed = read_environment(runtime)
+    assert parsed["DJANGO_SECRET_KEY"] == secret and parsed["SKELETON_INSTANCE_MODE"] == "cluster"
+    assert files["runtime.env"].count("DATABASE_URL=") == 1  # The runtime URL of the agent's own variable.
+    assert (
+        "SKELETON_INSTANCE_MODE=cluster" in files["migration.env"] and "DJANGO_SECRET_KEY" not in files["migration.env"]
+    )

@@ -797,3 +797,20 @@ def test_confirm_schema_checks_the_deployed_schema_with_the_given_role(dummy_def
     assert database.confirm_schema(os.environ["TEST_DATABASE_URL"]) == []
     assert database.agent_manages_schema({"SKELETON_SETUP_SCHEMA": "agent"})
     assert not database.agent_manages_schema({})
+
+
+def test_storage_step_stores_the_cache_prefix_and_suggests_one_from_the_host(setup_mode, tmp_path):
+    """One Redis, several instances (#675): the prefix keeps their keys apart."""
+    from django.conf import settings
+
+    from skeleton.instance.writer import write_setting
+    from skeleton.setup.views import _stored
+
+    write_setting(settings.BASE_DIR, "allowed_hosts", "App.Example.com,other.example.com", source="test")
+    client = enter(setup_mode)
+    assert 'name="cache_key_prefix" value="app-example-com"' in client.get("/setup/storage/").content.decode()
+    data = {"files_backend": "local", "files_root": str(tmp_path / "files"), "cache_key_prefix": "Bad Prefix"}
+    refused = post(client, "/setup/storage/", data)
+    assert refused.status_code == 400 and "cache_key_prefix" in refused.context["form"].errors
+    assert post(client, "/setup/storage/", {**data, "cache_key_prefix": "inst-a"}).status_code == 302
+    assert _stored("cache_key_prefix") == "inst-a"

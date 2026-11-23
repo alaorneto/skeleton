@@ -108,6 +108,10 @@ class Launcher:
         previous = read_json(self.state_file) or {}
         self.applied = previous.get("id") if isinstance(previous.get("id"), str) else ""
         self.wanted = "stopped" if previous.get("state") == "stopped" else "running"
+        if getattr(options, "wait_for_agent", False):
+            # In a cluster (#681) the agent first checks that this node runs the cluster's release,
+            # then sends a restart: never start the pointer's release on our own.
+            self.wanted = "held"
         self.status = ""
         self.reason = ""
         self.ignored = ""
@@ -195,6 +199,8 @@ class Launcher:
                 return code if code else 1
         elif self.wanted == "running":
             self.start()
+        elif self.wanted == "held":
+            self.publish("waiting", "agent")
         elif self.status != "stopped":
             self.publish("stopped")
         return None
@@ -222,6 +228,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--releases-root", required=True)
     parser.add_argument("--active", required=True, help="The active release pointer the agent switches")
     parser.add_argument("--grace", type=float, default=30.0, help="Seconds between SIGTERM and SIGKILL")
+    parser.add_argument(
+        "--wait-for-agent", action="store_true", help="Start only on the agent's restart request (cluster, #681)"
+    )
     parser.add_argument("command", nargs=argparse.REMAINDER)
     return parser
 

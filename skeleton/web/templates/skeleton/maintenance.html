@@ -1,5 +1,5 @@
 {% load static i18n %}<!doctype html>
-{% comment %}Standalone (#446): rendered before sessions and the database, without a request or context processors.{% endcomment %}
+{% comment %}Standalone (#446): the deployment gate, rendered before sessions and the database, without a request or context processors.{% endcomment %}
 <html lang="{{ language }}">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
@@ -11,8 +11,6 @@
 <p class="page-eyebrow">{% translate "Manutenção" %}</p>
 <h1>{% translate "Sistema em manutenção" %}</h1>
 <p role="status" class="mt-4 whitespace-pre-line text-body">{{ detail }}</p>
-{% if ends_at %}<p class="mt-4 text-sm/6 text-body">{% translate "Previsão de retorno:" %} <time datetime="{{ ends_at_iso }}">{{ ends_at|date:"d/m/Y H:i T" }}</time></p>{% endif %}
-{% if login_url %}<p class="mt-10 text-sm/6"><a href="{{ login_url }}">{% translate "Entrar como administrador da plataforma" %}</a></p>{% endif %}
 </main>
 </body>
 </html>

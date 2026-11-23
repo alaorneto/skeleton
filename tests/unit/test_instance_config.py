@@ -218,7 +218,7 @@ def test_status_lists_what_the_setup_still_needs(instance):
     run("set", "secret_key", SECRET)
     status = run("status")
     assert "Faltam para o setup: allowed_hosts, database_url" in status
-    assert "Versão do schema: 2" in status
+    assert "Versão do schema: 3" in status
 
 
 def test_store_and_key_must_be_separate_files(tmp_path):
@@ -504,3 +504,29 @@ def test_organization_custom_domains_is_a_boolean():
     assert spec.clean("TRUE") == "true" and spec.clean("") == ""
     with pytest.raises(ValueError):
         spec.clean("maybe")
+
+
+def test_version_3_drops_the_administrative_maintenance_table(tmp_path):
+    """The administrative maintenance mode left the application (#674): its table goes on upgrade."""
+    path = tmp_path / "instance.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.execute("CREATE TABLE schema_version (version INTEGER NOT NULL)")
+        connection.execute("INSERT INTO schema_version (version) VALUES (2)")
+        connection.execute("CREATE TABLE maintenance (id INTEGER PRIMARY KEY, active INTEGER NOT NULL)")
+        connection.execute("INSERT INTO maintenance (id, active) VALUES (1, 1)")
+    store = InstanceStore(path)
+    store.initialize()
+    assert store.schema_version() == 3
+    with sqlite3.connect(path) as connection:
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    assert "maintenance" not in tables and {"setting", "setup_state", "change_log"} <= tables
+
+
+def test_an_invalid_cache_prefix_is_refused_by_the_cli_without_repeating_it(instance):
+    """#675: the CLI refuses through the catalog, like the setup and /platform/instance/."""
+    database, _ = instance
+    refused = "Prefixo Errado Zq9"
+    with pytest.raises(CommandError) as error:
+        run("set", "cache_key_prefix", refused)
+    assert refused not in str(error.value)
+    assert InstanceStore(database).settings() == {}

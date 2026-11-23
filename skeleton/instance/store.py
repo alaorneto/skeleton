@@ -1,10 +1,10 @@
-"""The instance SQLite: configuration, setup and maintenance state only, never application data.
+"""The instance SQLite: configuration and setup state only, never application data.
 
 Plain ``sqlite3`` from the standard library, not a ``DATABASES`` alias and without Django
 migrations: the settings read it before Django exists. Secrets are stored as Fernet tokens;
-the change log records which key changed and from where, never the value. The single
-``maintenance`` row is the administrative maintenance mode (#446), read on every request
-(``skeleton.instance.maintenance``), unlike the settings frozen at process start.
+the change log records which key changed and from where, never the value. Version 3 (#674)
+drops the table of the administrative maintenance mode, which left the application: maintenance
+is done in the infrastructure (proxy, Coolify).
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 _SCHEMA = (
     "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)",
     "CREATE TABLE IF NOT EXISTS setting ("
@@ -28,11 +28,8 @@ _SCHEMA = (
     "CREATE TABLE IF NOT EXISTS change_log ("
     " id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL, action TEXT NOT NULL,"
     " source TEXT NOT NULL, changed_at TEXT NOT NULL)",
-    # Version 2 (#446): administrative maintenance mode, one row at most.
-    "CREATE TABLE IF NOT EXISTS maintenance ("
-    " id INTEGER PRIMARY KEY CHECK (id = 1), active INTEGER NOT NULL CHECK (active IN (0, 1)),"
-    " message TEXT NOT NULL, ends_at TEXT, pause_jobs INTEGER NOT NULL CHECK (pause_jobs IN (0, 1)),"
-    " started_at TEXT, source TEXT NOT NULL, updated_at TEXT NOT NULL)",
+    # Version 3 (#674): the administrative maintenance table of version 2 (#446) is gone.
+    "DROP TABLE IF EXISTS maintenance",
 )
 
 
@@ -73,7 +70,8 @@ class InstanceStore:
             if current is None:
                 connection.execute("INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,))
             elif current < SCHEMA_VERSION:
-                # Every upgrade is additive (CREATE TABLE IF NOT EXISTS above): only the number moves.
+                # Upgrades are additive (CREATE TABLE IF NOT EXISTS above), except the drop of version 3:
+                # only the number moves.
                 connection.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
             connection.execute("COMMIT")
 
@@ -150,6 +148,14 @@ class InstanceStore:
                 )
             connection.execute("COMMIT")
         return bool(removed)
+
+    def log_change(self, key: str, action: str, source: str) -> None:
+        """A change-log row without any value (an export, #673)."""
+        with closing(self._connect(create=False)) as connection:
+            connection.execute(
+                "INSERT INTO change_log (key, action, source, changed_at) VALUES (?, ?, ?, ?)",
+                (key, action, source, _now()),
+            )
 
     def changes(self) -> list[tuple[str, str, str, str]]:
         if not self.exists():
@@ -237,78 +243,3 @@ class InstanceStore:
             ).rowcount
             connection.execute("COMMIT")
         return changed == 1
-
-    def maintenance(self) -> dict[str, object] | None:
-        """The administrative maintenance row (#446), or None when none was ever written.
-
-        A store from before version 2 has no table yet: that is "never written", not an error.
-        A store that exists but cannot be read raises ``InstanceStoreError``.
-        """
-        if not self.exists():
-            return None
-        try:
-            with closing(self._connect(create=False)) as connection:
-                tables = connection.execute(
-                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'maintenance'"
-                ).fetchone()
-                if tables is None:
-                    return None
-                row = connection.execute(
-                    "SELECT active, message, ends_at, pause_jobs, started_at, source FROM maintenance WHERE id = 1"
-                ).fetchone()
-        except sqlite3.Error as exc:
-            raise InstanceStoreError(f"Armazém da instância ilegível em {self.path}.") from exc
-        if row is None:
-            return None
-        active, message, ends_at, pause_jobs, started_at, source = row
-        return {
-            "active": bool(active),
-            "message": message,
-            "ends_at": ends_at,
-            "pause_jobs": bool(pause_jobs),
-            "started_at": started_at,
-            "source": source,
-        }
-
-    def put_maintenance(
-        self, *, active: bool, message: str, ends_at: str | None, pause_jobs: bool, source: str
-    ) -> bool:
-        """Enter (``active``) or leave the maintenance mode in one transaction; True if the state changed.
-
-        The change log records ``enter`` or ``exit`` and the source, never the message.
-        """
-        self.initialize()
-        with closing(self._connect(create=False)) as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            try:
-                previous = connection.execute("SELECT active, started_at FROM maintenance WHERE id = 1").fetchone()
-                was_active = bool(previous and previous[0])
-                now = _now()
-                # Changing the message or the end of an ongoing maintenance keeps when it started.
-                started_at = (previous[1] if was_active and previous[1] else now) if active else None
-                connection.execute(
-                    "INSERT INTO maintenance (id, active, message, ends_at, pause_jobs, started_at, source, updated_at)"
-                    " VALUES (1, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET active = excluded.active,"
-                    " message = excluded.message, ends_at = excluded.ends_at, pause_jobs = excluded.pause_jobs,"
-                    " started_at = excluded.started_at, source = excluded.source, updated_at = excluded.updated_at",
-                    (
-                        int(active),
-                        message if active else "",
-                        ends_at if active else None,
-                        int(pause_jobs and active),
-                        started_at,
-                        source,
-                        now,
-                    ),
-                )
-                changed = active or was_active
-                if changed:
-                    connection.execute(
-                        "INSERT INTO change_log (key, action, source, changed_at) VALUES (?, ?, ?, ?)",
-                        ("maintenance", "enter" if active else "exit", source, now),
-                    )
-                connection.execute("COMMIT")
-            except BaseException:
-                connection.execute("ROLLBACK")
-                raise
-        return changed

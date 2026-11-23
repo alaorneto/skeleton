@@ -62,6 +62,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Operator reviewed loss/reconciliation of writes after cutover",
     )
+    recovery.add_argument(
+        "--external-restored",
+        action="store_true",
+        help="abort after the operator restored the database to the restore point (#683)",
+    )
     commands.add_parser("revoke-status-tickets")
     commands.add_parser("selfcheck", help="Load the configuration and the agent modules; print the version")
     control = commands.add_parser(
@@ -78,6 +83,16 @@ def build_parser() -> argparse.ArgumentParser:
     install.add_argument("--root", help="Agent root directory instead of agent_root")
     rollback = commands.add_parser("agent-rollback", help="Offline: point the agent back at its previous version")
     rollback.add_argument("--root", help="Agent root directory instead of agent_root")
+    cluster = commands.add_parser("cluster", help="The agents of a cluster: status, handover, forget (#678)")
+    cluster_actions = cluster.add_subparsers(dest="cluster_action", required=True)
+    cluster_actions.add_parser("status", help="The primary, its epoch and every node")
+    handover = cluster_actions.add_parser("handover", help="Ask the idle primary to give the lock to a candidate")
+    handover.add_argument("--to", required=True, dest="target")
+    forget = cluster_actions.add_parser("forget", help="Remove a node that left the cluster (never the primary)")
+    forget.add_argument("node_id")
+    cluster_actions.add_parser("restart", help="Restart every node with the same release, one at a time (#682)")
+    keygen = cluster_actions.add_parser("keygen", help="Write a new secret of the channel between agents (0600)")
+    keygen.add_argument("--output", required=True)
     prune = commands.add_parser(
         "prune", help="Offline: list, and with --apply remove, releases, plans, images and backups no operation needs"
     )
@@ -102,7 +117,10 @@ OFFLINE = {
         service, release_file=options.release_file, version=options.version, source_id=options.source
     ),
     "recover": lambda service, options: service.recover(
-        options.operation_id, options.action, acknowledge_new_writes=options.acknowledge_new_writes
+        options.operation_id,
+        options.action,
+        acknowledge_new_writes=options.acknowledge_new_writes,
+        external_restored=options.external_restored,
     ),
     "journal": lambda service, options: {
         "operations": [service.public_operation(row) for row in service.store.operations()]
@@ -162,6 +180,35 @@ def control_services(config: Config, options: argparse.Namespace) -> JSON:
     return {"action": options.action, "services": states}
 
 
+def cluster_command(config: Config, options: argparse.Namespace) -> JSON:
+    """``cluster status|handover|forget``: straight to the coordination state, without the daemon."""
+    from .cluster_channel import write_secret
+    from .coordination import coordinator_for
+    from .storage import AgentError, Store
+
+    if options.cluster_action == "keygen":
+        return write_secret(options.output)
+    if options.cluster_action == "restart":  # Through the daemon, which holds the primary's lock.
+        from skeleton.system.deployment_client import AgentClient
+
+        client = AgentClient(config["socket_path"], config["token_file"], timeout=config.get("command_timeout", 1800))
+        return client.cluster_restart()
+    coordinator = coordinator_for(config)
+    if coordinator is None:
+        raise AgentError("cluster_not_configured")
+    try:
+        if options.cluster_action == "status":
+            return coordinator.status()
+        if options.cluster_action == "forget":
+            coordinator.forget(options.node_id)
+            return {"state": "forgotten", "node_id": options.node_id}
+        states = Store(config["storage_root"]).operation_states().values()
+        busy = any(state in ("queued", "running", "interrupted") for state in states)
+        return coordinator.request_handover(options.target, busy=busy)
+    finally:
+        coordinator.close()
+
+
 def follow_preview(client: Any, options: argparse.Namespace) -> Any:
     """The plan is prepared in the agent (#298): follow it until it is ready (plan) or failed (None)."""
     result = client.preview(options.action, artifacts=options.artifact, app_ids=options.app_id)
@@ -184,6 +231,9 @@ def main() -> int:
             return 0
         if options.command == "control":  # A fixed hook: no journal, no service state.
             print(json.dumps(control_services(config, options), sort_keys=True))
+            return 0
+        if options.command == "cluster":
+            print(json.dumps(cluster_command(config, options), indent=2, sort_keys=True))
             return 0
         service = DeploymentService(config)
         if options.command == "serve":

@@ -1,0 +1,128 @@
+# Data server of ONE Skeleton instance (#679): its own PostgreSQL cluster and its own Redis, outside
+# the application nodes. A data server hosts several instances by running this file once per instance,
+# each as its own Compose project with its own ports, volumes and passwords:
+#
+#   docker compose -p <instance> --env-file /srv/data/<instance>.env -f deploy/data-server/compose.yaml up -d
+#
+# One cluster per instance, never two instances in one cluster: the core's roles (skeleton_owner,
+# skeleton_runtime, skeleton_audit_writer, skeleton_agent) have fixed names and roles are global in a
+# cluster, so two instances would share the runtime role and its password. Check skeleton.W051 warns
+# when the runtime role reaches another database of its cluster.
+#
+# Variables (deploy/data-server/instance.env.example lists them, without values):
+#   DATA_BIND_ADDRESS   private address of this server the nodes reach (never 0.0.0.0 by default)
+#   DATA_CLIENT_CIDR    the network of the application nodes, the only one pg_hba accepts
+#   DATA_TLS_DIR        directory with server.crt and server.key of this server (TLS is required)
+#   POSTGRES_PORT, REDIS_PORT (and PGBOUNCER_PORT with the "pooler" profile): ports of this instance
+#   POSTGRES_PASSWORD, SKELETON_OWNER_DB_PASSWORD, SKELETON_RUNTIME_DB_PASSWORD, REDIS_PASSWORD;
+#   SKELETON_AGENT_DB_PASSWORD only with followers (#678). Letters and digits only.
+#
+# This is not PostgreSQL high availability by itself: a replica with failover (a managed service,
+# streaming replication with Patroni or repmgr) and Redis with Sentinel behind a stable address are
+# the operator's (docs/high-availability.md). compose.sandbox.yaml keeps its own PostgreSQL and Redis.
+
+services:
+  postgres:
+    build:
+      context: ../..
+      dockerfile: deploy/coolify/postgres.Dockerfile
+    restart: unless-stopped
+    # Writes pg_hba.conf for DATA_CLIENT_CIDR and the TLS files with the owner PostgreSQL requires,
+    # then hands over to the image's entrypoint.
+    entrypoint: ["/bin/sh", "/opt/data-server/entrypoint.sh"]
+    command:
+      - postgres
+      - -c
+      - listen_addresses=*
+      - -c
+      - hba_file=/var/lib/postgresql/skeleton/pg_hba.conf
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/var/lib/postgresql/skeleton/server.crt
+      - -c
+      - ssl_key_file=/var/lib/postgresql/skeleton/server.key
+      - -c
+      - password_encryption=scram-sha-256
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-skeleton}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define the PostgreSQL administrator password}
+      SKELETON_OWNER_DB_PASSWORD: ${SKELETON_OWNER_DB_PASSWORD:?Define the skeleton_owner password}
+      SKELETON_RUNTIME_DB_PASSWORD: ${SKELETON_RUNTIME_DB_PASSWORD:?Define the skeleton_runtime password}
+      SKELETON_AGENT_DB_PASSWORD: ${SKELETON_AGENT_DB_PASSWORD:-}
+      DATA_CLIENT_CIDR: ${DATA_CLIENT_CIDR:?Define the network of the application nodes}
+    ports:
+      - "${DATA_BIND_ADDRESS:?Define the private address of the data server}:${POSTGRES_PORT:?Define the PostgreSQL port of this instance}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # The socket and the generated access rules, shared only with the pooler of this instance.
+      - postgres_socket:/var/run/postgresql
+      - postgres_access:/var/lib/postgresql/skeleton
+      - ./postgres-entrypoint.sh:/opt/data-server/entrypoint.sh:ro
+      - ${DATA_TLS_DIR:?Define the directory with server.crt and server.key}:/opt/data-server/tls:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h /var/run/postgresql -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:8.10.3
+    restart: unless-stopped
+    # The password comes from the container environment ($$ escapes Compose interpolation), never the
+    # rendered command. volatile-lru evicts only keys with a TTL (every key of the core and of allauth
+    # has one); allkeys-lru could evict a TOTP anti-replay marker.
+    command: ["sh", "-c", "exec docker-entrypoint.sh redis-server --requirepass \"$$REDIS_PASSWORD\" --maxmemory \"$$REDIS_MAXMEMORY\" --maxmemory-policy volatile-lru"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Define the Redis password}
+      REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-256mb}
+    ports:
+      - "${DATA_BIND_ADDRESS:?Define the private address of the data server}:${REDIS_PORT:?Define the Redis port of this instance}:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Optional transaction pooler for the runtime role only (#676): the nodes set
+  # DATABASE_TRANSACTION_POOLER=true and point DATABASE_URL here. The owner and the agents always
+  # connect to PostgreSQL directly. It reaches PostgreSQL by the local socket of the shared volume
+  # (the only "local" entry of the runtime role in pg_hba) and applies to its own clients the same
+  # rule as PostgreSQL: TLS, SCRAM and only DATA_CLIENT_CIDR (pgbouncer_hba.conf, written by the
+  # entrypoint). It reads server.crt and server.key of DATA_TLS_DIR as its own user (uid 70): make
+  # the key readable to it. Pin the image to the version you validated.
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.26.1-p0
+    profiles: ["pooler"]
+    restart: unless-stopped
+    environment:
+      DB_HOST: /var/run/postgresql
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB:-skeleton}
+      DB_USER: skeleton_runtime
+      POOL_MODE: transaction
+      # The user list and the access rules come from the PostgreSQL entrypoint (the password never
+      # sits in this container's environment).
+      AUTH_TYPE: hba
+      AUTH_FILE: /var/lib/postgresql/skeleton/pgbouncer_userlist.txt
+      AUTH_HBA_FILE: /var/lib/postgresql/skeleton/pgbouncer_hba.conf
+      CLIENT_TLS_SSLMODE: require
+      CLIENT_TLS_CERT_FILE: /opt/data-server/tls/server.crt
+      CLIENT_TLS_KEY_FILE: /opt/data-server/tls/server.key
+      IGNORE_STARTUP_PARAMETERS: extra_float_digits,options
+      MAX_CLIENT_CONN: ${PGBOUNCER_MAX_CLIENT_CONN:-1000}
+      DEFAULT_POOL_SIZE: ${PGBOUNCER_POOL_SIZE:-40}
+    ports:
+      - "${DATA_BIND_ADDRESS:?Define the private address of the data server}:${PGBOUNCER_PORT:-6432}:5432"
+    volumes:
+      - postgres_socket:/var/run/postgresql
+      - postgres_access:/var/lib/postgresql/skeleton:ro
+      - ${DATA_TLS_DIR:?Define the directory with server.crt and server.key}:/opt/data-server/tls:ro
+    depends_on:
+      postgres: {condition: service_healthy}
+
+volumes:
+  postgres_data:
+  postgres_socket:
+  postgres_access:

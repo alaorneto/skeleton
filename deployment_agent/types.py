@@ -52,6 +52,8 @@ class Plan(TypedDict, total=False):
     presentation_changes: list[JSON]
     resources: list[JSON]
     dropped_dependencies: list[str]
+    rollout_mode: str  # "rolling" or "window" (#682)
+    rollout_reason: str | None
     digest: str
 
 

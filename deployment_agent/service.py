@@ -21,7 +21,7 @@ from skeleton.system.packages import (
     validate_release,
 )
 
-from . import adoption, catalogue, environments, execution, planning, recovery, selfupdate, sources
+from . import adoption, catalogue, coordination, environments, execution, planning, recovery, selfupdate, sources
 from .backends import backend_for
 from .catalogue import NoRedirect  # noqa: F401 - public name, importable from here
 from .config import Config
@@ -35,6 +35,7 @@ from .storage import (
     atomic_bytes,
     atomic_json,
     canonical,
+    digest,
     file_hash,
     identifier,
     load_json,
@@ -54,6 +55,67 @@ class DeploymentService:
         self.worker: threading.Thread | None = None
         self._drift: tuple[str, float, str, str | None] | None = None
         self._drift_lock = Lock()
+        # Cluster of agents (#678): None on a single node, which works exactly as before.
+        self.coordinator = coordination.coordinator_for(config, agent_version=selfupdate.agent_version() or "")
+        self.channel: Any = None  # The channel between agents, started by serve (#680).
+        self.rollout: Any = None  # The operation in flight across the cluster (#681).
+        self.request_restart: Any = None  # Set by serve(): restart outside a request (#689).
+
+    def assert_primary(self) -> None:
+        """In a cluster, only the primary migrates and changes the shared state (#678)."""
+        coordinator = getattr(self, "coordinator", None)
+        if coordinator is not None:
+            coordinator.assert_primary()
+
+    def cluster_status(self) -> JSON:
+        coordinator = getattr(self, "coordinator", None)
+        if coordinator is None:
+            return {"mode": "single"}
+        return coordinator.status()
+
+    def publish_cluster_release(self) -> None:
+        """The primary records the release the cluster runs, for the nodes that join (#681)."""
+        coordinator = getattr(self, "coordinator", None)
+        if coordinator is None or not coordinator.is_primary:
+            return
+        try:
+            state = self.state()
+        except AgentError:
+            return
+        coordinator.publish_release(state["release"], state["inventory"]["generation"], digest(state["owned_files"]))
+
+    def cluster_restart(self) -> JSON:
+        """Restart every node with the same release, one at a time, in the background (#682)."""
+        from . import rollout
+
+        coordinator = getattr(self, "coordinator", None)
+        if coordinator is None:
+            raise AgentError("cluster_not_configured")
+        coordinator.assert_primary()
+        try:
+            self.ensure_available()
+        except AgentError as error:
+            if error.code != "recovery_or_operation_pending":
+                raise
+            raise AgentError("cluster_busy", 409) from None  # An operation or a recovery is in flight.
+        operation_id = f"restart-{uuid4().hex}"
+        self.worker = threading.Thread(
+            target=rollout.restart_cluster,
+            args=(self,),
+            kwargs={"operation_id": operation_id},
+            daemon=False,
+            name=f"deployment-{operation_id}",
+        )
+        self.worker.start()
+        return {"state": "started", "operation_id": operation_id}
+
+    def describe_node(self) -> JSON:
+        """The active release of this node, for the heartbeat."""
+        try:
+            state = self.state()
+        except AgentError:
+            return {"release": "", "generation": None}
+        return {"release": state["release"], "generation": state["inventory"].get("generation")}
 
     def state(self) -> ActiveState:
         path = self.store.root / "active.json"
@@ -183,6 +245,9 @@ class DeploymentService:
         return adoption.initialize(self, inventory_path, core_package=core_package, app_packages=app_packages)
 
     def ensure_available(self, *, ignore_plan: str | None = None) -> None:
+        coordinator = getattr(self, "coordinator", None)
+        if coordinator is not None and not coordinator.is_primary:
+            raise AgentError("not_primary", 409)
         if Path(self.config["maintenance_marker"]).exists() or any(
             state in ("queued", "running", "interrupted") for state in self.store.operation_states().values()
         ):
@@ -212,10 +277,18 @@ class DeploymentService:
         return planning.prepare(self, plan_id)
 
     def submit(
-        self, plan_id: str, plan_digest: str, generation: int, operation_id: str, actor_id: str, request_id: str
+        self,
+        plan_id: str,
+        plan_digest: str,
+        generation: int,
+        operation_id: str,
+        actor_id: str,
+        request_id: str,
+        mode: str | None = None,
+        source: str | None = None,
     ) -> JSON:
         operation, created = execution.queue_operation(
-            self, plan_id, plan_digest, generation, operation_id, actor_id, request_id
+            self, plan_id, plan_digest, generation, operation_id, actor_id, request_id, mode=mode, source=source
         )
         if not created:
             return self.public_operation(operation)
@@ -285,8 +358,16 @@ class DeploymentService:
     def prune(self, *, plan_days: float = 7, backup_days: float | None = None, apply: bool = False) -> JSON:
         return recovery.prune(self, plan_days=plan_days, backup_days=backup_days, apply=apply)
 
-    def recover(self, operation_id: str, action: str, *, acknowledge_new_writes: bool = False) -> JSON:
-        return recovery.recover(self, operation_id, action, acknowledge_new_writes=acknowledge_new_writes)
+    def recover(
+        self, operation_id: str, action: str, *, acknowledge_new_writes: bool = False, external_restored: bool = False
+    ) -> JSON:
+        return recovery.recover(
+            self,
+            operation_id,
+            action,
+            acknowledge_new_writes=acknowledge_new_writes,
+            external_restored=external_restored,
+        )
 
     def catalogue_suggestions(self, dependency: str, required: str, target: JSON, *, limit: int = 3) -> list[JSON]:
         return catalogue.catalogue_suggestions(self, dependency, required, target, limit=limit)

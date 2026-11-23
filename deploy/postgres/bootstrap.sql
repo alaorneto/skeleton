@@ -12,6 +12,10 @@ BEGIN
     IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='skeleton_audit_writer') THEN
         CREATE ROLE skeleton_audit_writer NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
     END IF;
+    -- Followers of the deployment agent in a cluster (#678): only the coordination schema below.
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='skeleton_agent') THEN
+        CREATE ROLE skeleton_agent LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+    END IF;
 END
 $roles$;
 CREATE SCHEMA IF NOT EXISTS skeleton AUTHORIZATION skeleton_owner;
@@ -23,11 +27,20 @@ GRANT USAGE ON SCHEMA skeleton TO skeleton_runtime, skeleton_audit_writer;
 GRANT skeleton_audit_writer TO skeleton_owner;
 ALTER ROLE skeleton_owner SET search_path TO skeleton, public;
 ALTER ROLE skeleton_runtime SET search_path TO skeleton, public;
+-- Coordination of the deployment agents of a cluster (#678): the primary's lock row, the nodes and
+-- the rollout phases. Owned by the owner (the candidates create the tables); the followers read and
+-- report through skeleton_agent; the runtime role never sees it.
+CREATE SCHEMA IF NOT EXISTS skeleton_deploy AUTHORIZATION skeleton_owner;
+REVOKE ALL ON SCHEMA skeleton_deploy FROM PUBLIC;
+GRANT USAGE ON SCHEMA skeleton_deploy TO skeleton_agent;
+ALTER ROLE skeleton_agent SET search_path TO skeleton_deploy;
 -- Bounded waits for the application role only (#318): a row lock held by a stuck transaction no
 -- longer blocks web, worker and scheduler without limit. The owner migrates and restores without them.
 ALTER ROLE skeleton_runtime SET lock_timeout = '10s';
 ALTER ROLE skeleton_runtime SET idle_in_transaction_session_timeout = '60s';
 -- All table grants/policies are installed by reviewed migrations, not blanket DML.
+-- With an external continuous backup (#683), let the owner mark restore points:
+-- GRANT EXECUTE ON FUNCTION pg_create_restore_point(text) TO skeleton_owner;
 -- Text search (#180, #181): pg_trgm makes the reference picker tolerate typos. It is optional
 -- (a trusted contrib extension, absent from some builds); without it the picker matches
 -- prefixes and the full-text search, which needs no extension, keeps working.

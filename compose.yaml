@@ -1,17 +1,38 @@
-# A Compose deployment with the deployment agent (#649, #654); see docs/deployment.md. The agent
-# installs a published core release on its first start and every update after that; web, worker
-# and scheduler run the agent's active release through the launcher (#651). No service mounts the
-# Docker socket, and the owner credential exists only in the agent.
+# One application node of a Skeleton instance in high availability (#685); see
+# docs/high-availability.md and docs/deployment.md. PostgreSQL and Redis are NOT here: they run on a
+# data server (deploy/data-server/compose.yaml, one Compose project per instance). Every node of the
+# instance runs this file, each as its own Compose project on its own host, behind a load balancer
+# that checks /health/ready/.
 #
-# Required variables: POSTGRES_PASSWORD, SKELETON_OWNER_DB_PASSWORD, SKELETON_RUNTIME_DB_PASSWORD
-# and REDIS_PASSWORD (letters and digits only: they go into URLs unencoded). Optional:
-# SKELETON_CORE_VERSION (the release of the first start; default the newest published),
-# SKELETON_AGENT_RELEASE_FILE (a release package inside the agent container, without network) and,
-# for a fork, SKELETON_AGENT_SOURCE, SKELETON_AGENT_PUBLISHER and SKELETON_AGENT_PUBLISHER_KEY.
+# Like every deployment, the node runs the deployment agent (#649): a candidate (it holds the owner
+# credential and can become the primary that migrates) or a follower (never the owner), in the cluster
+# of agents of #678-#682. Web, worker and scheduler run the agent's active release through the launcher
+# (#651) and wait for the agent (--wait-for-agent) before starting it, so a node that missed an update
+# never serves old code against a migrated database. No service mounts the Docker socket.
 #
-# Application services run without capabilities, without privilege gain and with a read-only
-# root (#318). Writable: the instance, files and launcher state volumes and /tmp (uploads,
-# Gunicorn heartbeat). When used, mount PROMETHEUS_MULTIPROC_DIR as a volume too.
+# The instance configuration comes from the environment, the same on every node (cluster mode, #673):
+# SKELETON_INSTANCE_ENV_FILE names a private file made by `manage.py instance export-env` (database,
+# cache with SKELETON_CACHE_KEY_PREFIX, email, keys, files in S3 or a declared shared volume).
+#
+# Required: SKELETON_INSTANCE_ENV_FILE, SKELETON_NODE_ID, SKELETON_CLUSTER_URL (https://<this node's
+# private address>:9443), SKELETON_CLUSTER_DIR (ca.crt, node.crt, node.key and the channel secret of
+# `cluster keygen`), SKELETON_RUNTIME_DATABASE_URL; on a candidate SKELETON_MIGRATION_DATABASE_URL, on
+# a follower (SKELETON_AGENT_ROLE=follower) SKELETON_COORDINATION_DATABASE_URL instead. Use
+# sslmode=verify-full in the URLs to the data server. Optional: SKELETON_AGENT_ROLE (candidate),
+# SKELETON_CLUSTER_PREFERRED, SKELETON_CLUSTER_BIND/PORT (where the channel is published),
+# SKELETON_WEB_BIND/PORT, SKELETON_WEB_WORKERS/THREADS, SKELETON_FILES_SOURCE (a host path of the shared
+# files volume), SKELETON_AGENT_STATE_SOURCE (a host path shared by the candidates), SKELETON_CORE_VERSION,
+# SKELETON_AGENT_RELEASE_FILE and, for a fork, SKELETON_AGENT_SOURCE/PUBLISHER/PUBLISHER_KEY.
+#
+# Connections: nodes x (SKELETON_WEB_WORKERS x SKELETON_WEB_THREADS + worker + scheduler) + agent must
+# fit PostgreSQL's max_connections, or put the PgBouncer of the data server in front of the runtime role.
+#
+# A single host with everything: run deploy/data-server/compose.yaml on it too, published on an address
+# the containers reach (host.docker.internal resolves to the host here). compose.sandbox.yaml keeps its
+# own PostgreSQL and Redis for evaluation.
+#
+# Application services run without capabilities, without privilege gain and with a read-only root
+# (#318). Writable: the files and launcher state volumes and /tmp.
 x-hardened: &hardened
   read_only: true
   tmpfs:
@@ -28,66 +49,36 @@ x-features: &features
 x-app-environment: &app-environment
   <<: *features
   DJANGO_SETTINGS_MODULE: config.settings.production
-  # Bootstrap only: the configuration itself lives in the instance volume (#143, #146).
-  SKELETON_INSTANCE_DB: /instance/instance.sqlite3
-  SKELETON_INSTANCE_KEY_FILE: /instance/keys/master.key
+  # The configuration is the environment, the same on every node (#673).
+  SKELETON_INSTANCE_MODE: cluster
   SKELETON_FILES_ROOT: /files
   # The launcher's own code; the release it starts gets the release's paths instead.
   PYTHONPATH: /opt/launcher
   SKELETON_AGENT_SOCKET: /control/agent.sock
   SKELETON_AGENT_TOKEN_FILE: /control/agent.token
   SKELETON_MAINTENANCE_MARKER: /control/maintenance
+  # The rolling update takes the node out of the balancer through the readiness (#682).
+  SKELETON_DRAIN_MARKER: /control/drain
+  SKELETON_NODE_ID: ${SKELETON_NODE_ID:?Define the name of this node}
   # The agent migrated the schema: the setup only confirms it, never asks for the owner (#652).
   SKELETON_SETUP_SCHEMA: agent
 
-# What the application services mount: the releases and the agent's control files read-only.
+# What the application services mount: the releases and the agent's control files read-only. Files
+# are shared by every node: a host path of a shared volume here, or S3 in the configuration (E048).
 x-app-volumes: &app-volumes
-  - instance:/instance
-  - files:/files
+  - ${SKELETON_FILES_SOURCE:-files}:/files
   - releases:/releases:ro
   - control:/control:ro
   - control_state:/control-state
 
-# Optional overrides of the instance configuration (the environment wins over the SQLite).
 x-instance-env-file: &instance-env-file
-  - path: ${SKELETON_INSTANCE_ENV_FILE:-.env.instance}
-    required: false
+  - path: ${SKELETON_INSTANCE_ENV_FILE:?Define the configuration file of the instance (instance export-env)}
+    required: true
 
 services:
-  postgres:
-    # The reviewed bootstrap (roles, schema, runtime privileges) on the first start of an empty volume.
-    build:
-      context: .
-      dockerfile: deploy/coolify/postgres.Dockerfile
-    environment:
-      POSTGRES_DB: skeleton
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define a private PostgreSQL administrator password}
-      SKELETON_OWNER_DB_PASSWORD: ${SKELETON_OWNER_DB_PASSWORD:?Define the skeleton_owner password}
-      SKELETON_RUNTIME_DB_PASSWORD: ${SKELETON_RUNTIME_DB_PASSWORD:?Define the skeleton_runtime password}
-    ports: ["127.0.0.1:5432:5432"]
-    volumes: ["postgres_data:/var/lib/postgresql/data"]
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-  redis:
-    image: redis:8.10.3
-    # The password comes from the container environment ($$ escapes Compose interpolation), so it is
-    # not in the rendered command (#318); Redis replaces its process title, hiding the argument.
-    # Through docker-entrypoint.sh, the server still drops from root to the redis user.
-    command: ["sh", "-c", "exec docker-entrypoint.sh redis-server --requirepass \"$$REDIS_PASSWORD\""]
-    ports: ["127.0.0.1:6379:6379"]
-    healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-    environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?Define a private Redis password}
-  # The deployment agent (#652): writes its configuration once, installs generation 0 from the
-  # signed release (migrating with the owner), then serves the control socket.
+  # The deployment agent of this node (#652, #678): on a new cluster the first candidate to take the
+  # primary's lock installs generation 0 from the signed release; the other nodes install the release
+  # the cluster runs from the primary, over the channel between agents (#680).
   agent:
     <<: *hardened
     build:
@@ -96,12 +87,20 @@ services:
     image: ${SKELETON_AGENT_IMAGE:-django-skeleton-agent:local}
     restart: unless-stopped
     stop_grace_period: 30m
+    env_file: *instance-env-file
     environment:
       <<: *features
-      SKELETON_RUNTIME_DATABASE_URL: postgres://skeleton_runtime:${SKELETON_RUNTIME_DB_PASSWORD:?Define the skeleton_runtime password}@postgres:5432/skeleton
-      SKELETON_MIGRATION_DATABASE_URL: postgres://skeleton_owner:${SKELETON_OWNER_DB_PASSWORD:?Define the skeleton_owner password}@postgres:5432/skeleton
-      SKELETON_INSTANCE_DB: /instance/instance.sqlite3
-      SKELETON_INSTANCE_KEY_FILE: /instance/keys/master.key
+      SKELETON_INSTANCE_MODE: cluster
+      SKELETON_RUNTIME_DATABASE_URL: ${SKELETON_RUNTIME_DATABASE_URL:?Define the runtime URL of the data server}
+      # The owner credential, only on a candidate node; a follower refuses it (follower_has_owner).
+      SKELETON_MIGRATION_DATABASE_URL: ${SKELETON_MIGRATION_DATABASE_URL:-}
+      # The role skeleton_agent, only on a follower node (#678).
+      SKELETON_COORDINATION_DATABASE_URL: ${SKELETON_COORDINATION_DATABASE_URL:-}
+      SKELETON_NODE_ID: ${SKELETON_NODE_ID:?Define the name of this node}
+      SKELETON_AGENT_ROLE: ${SKELETON_AGENT_ROLE:-candidate}
+      SKELETON_CLUSTER_PREFERRED: ${SKELETON_CLUSTER_PREFERRED:-false}
+      SKELETON_CLUSTER_URL: ${SKELETON_CLUSTER_URL:?Define the private address of this node's channel}
+      SKELETON_CLUSTER_DIR: /run/cluster
       SKELETON_PUBLIC_HOST: ${SKELETON_PUBLIC_HOST:-localhost}
       SKELETON_HEALTH_URL: http://web:8000
       SKELETON_CORE_VERSION: ${SKELETON_CORE_VERSION:-}
@@ -109,15 +108,17 @@ services:
       SKELETON_AGENT_SOURCE: ${SKELETON_AGENT_SOURCE:-alaorneto/skeleton}
       SKELETON_AGENT_PUBLISHER: ${SKELETON_AGENT_PUBLISHER:-skeleton}
       SKELETON_AGENT_PUBLISHER_KEY: ${SKELETON_AGENT_PUBLISHER_KEY:-/opt/agent/publishers/skeleton.pub.pem}
+    # The channel between agents (#680), on the private network of the nodes only.
+    ports: ["${SKELETON_CLUSTER_BIND:-127.0.0.1}:${SKELETON_CLUSTER_PORT:-9443}:9443"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
     volumes:
       - agent_private:/agent/private
-      - agent_state:/agent/state
+      # Shared by the candidates when there are two or more (#678): a host path of a shared volume.
+      - ${SKELETON_AGENT_STATE_SOURCE:-agent_state}:/agent/state
       - releases:/releases
       - control:/control
       - control_state:/control-state:ro
-      - instance:/instance
-    depends_on:
-      postgres: {condition: service_healthy}
+      - ${SKELETON_CLUSTER_DIR:?Define the directory of the channel certificates and secret}:/run/cluster:ro
     healthcheck:
       # Healthy once the first installation is done and the control socket is served.
       test: ["CMD", "python", "-c", "import os, stat, sys; sys.exit(not stat.S_ISSOCK(os.stat('/control/agent.sock').st_mode))"]
@@ -129,48 +130,40 @@ services:
     <<: *hardened
     build: .
     image: ${SKELETON_IMAGE:-django-skeleton:local}
-    ports: ["127.0.0.1:8000:8000"]
-    # Waits for the agent's first release, then runs it; the agent stops and restarts it through
-    # the control files around each update. The setup exits the process when it completes; the
-    # policy brings it back in normal mode.
-    command: ["python", "-m", "deployment_agent.launcher", "--service", "web", "--control", "/control/services", "--state", "/control-state", "--releases-root", "/releases", "--active", "/releases/current", "--grace", "30", "--", "{venv}/bin/gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120", "--no-control-socket"]
+    ports: ["${SKELETON_WEB_BIND:-127.0.0.1}:${SKELETON_WEB_PORT:-8000}:8000"]
+    # Waits for the agent, which starts it once this node runs the cluster's release; the agent stops
+    # and restarts it through the control files around each update.
+    command: ["python", "-m", "deployment_agent.launcher", "--service", "web", "--control", "/control/services", "--state", "/control-state", "--releases-root", "/releases", "--active", "/releases/current", "--grace", "30", "--wait-for-agent", "--", "{venv}/bin/gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "${SKELETON_WEB_WORKERS:-3}", "--threads", "${SKELETON_WEB_THREADS:-1}", "--timeout", "120", "--no-control-socket"]
     restart: unless-stopped
     env_file: *instance-env-file
     environment:
       <<: *app-environment
-      SKELETON_SETUP_RESTART: exit
-      SKELETON_SETUP_ALLOWED_HOSTS: ${SKELETON_SETUP_ALLOWED_HOSTS:-localhost,127.0.0.1}
-      SKELETON_SETUP_SECURE_COOKIES: ${SKELETON_SETUP_SECURE_COOKIES:-false}
-      # Only behind a TLS proxy that replaces X-Forwarded-Proto and with the backend not reachable
-      # directly (#442); applies to setup mode only, the instance stores its own trust_proxy.
-      SKELETON_SETUP_TRUST_PROXY: ${SKELETON_SETUP_TRUST_PROXY:-false}
       SKELETON_REQUIRE_ADMIN_MFA: "true"
     volumes: *app-volumes
+    extra_hosts: ["host.docker.internal:host-gateway"]
     depends_on:
-      postgres: {condition: service_healthy}
-      redis: {condition: service_healthy}
       agent: {condition: service_started}
     healthcheck:
-      # Resolves a Host the instance accepts (setup or normal mode) without starting Django.
+      # Resolves a Host the instance accepts without starting Django.
       test: ["CMD", "python", "-m", "skeleton.api.healthcheck"]
       interval: 30s
       timeout: 5s
       retries: 3
-      # The first start waits for the agent to download and install the release.
+      # The first start waits for the agent to install the release (or to join the cluster's).
       start_period: 30m
-  # Job worker and periodic scheduler (#40): the same release, volumes and environment as web.
-  # The agent stops them before migrations and restarts them after the cutover through the
-  # control files. Until the setup finishes they exit and the policy retries.
+  # Job worker and periodic scheduler (#40): the same release, volumes and environment as web. Several
+  # nodes run them at once safely (SKIP LOCKED, one job per window).
   worker:
     <<: *hardened
     image: ${SKELETON_IMAGE:-django-skeleton:local}
     build: .
-    command: ["python", "-m", "deployment_agent.launcher", "--service", "worker", "--control", "/control/services", "--state", "/control-state", "--releases-root", "/releases", "--active", "/releases/current", "--grace", "300", "--", "{python}", "manage.py", "run_worker", "--queues", "default"]
+    command: ["python", "-m", "deployment_agent.launcher", "--service", "worker", "--control", "/control/services", "--state", "/control-state", "--releases-root", "/releases", "--active", "/releases/current", "--grace", "300", "--wait-for-agent", "--", "{python}", "manage.py", "run_worker", "--queues", "default"]
     restart: unless-stopped
     stop_grace_period: 5m
     env_file: *instance-env-file
     environment: *app-environment
     volumes: *app-volumes
+    extra_hosts: ["host.docker.internal:host-gateway"]
     depends_on:
       web: {condition: service_healthy}
     healthcheck:
@@ -184,11 +177,12 @@ services:
     <<: *hardened
     image: ${SKELETON_IMAGE:-django-skeleton:local}
     build: .
-    command: ["python", "-m", "deployment_agent.launcher", "--service", "scheduler", "--control", "/control/services", "--state", "/control-state", "--releases-root", "/releases", "--active", "/releases/current", "--grace", "30", "--", "{python}", "manage.py", "run_scheduler", "--interval", "30"]
+    command: ["python", "-m", "deployment_agent.launcher", "--service", "scheduler", "--control", "/control/services", "--state", "/control-state", "--releases-root", "/releases", "--active", "/releases/current", "--grace", "30", "--wait-for-agent", "--", "{python}", "manage.py", "run_scheduler", "--interval", "30"]
     restart: unless-stopped
     env_file: *instance-env-file
     environment: *app-environment
     volumes: *app-volumes
+    extra_hosts: ["host.docker.internal:host-gateway"]
     depends_on:
       web: {condition: service_healthy}
   keycloak:
@@ -202,8 +196,6 @@ services:
     ports: ["127.0.0.1:8080:8080"]
     volumes: ["./tests/sso:/opt/keycloak/data/import:ro"]
 volumes:
-  postgres_data:
-  instance:
   files:
   agent_private:
   agent_state:

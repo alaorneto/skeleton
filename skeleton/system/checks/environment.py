@@ -1,4 +1,4 @@
-"""Environment checks: PostgreSQL only (E025) and a shared cache in production (W029)."""
+"""Environment checks: PostgreSQL only (E025), a shared cache in production (W029) and its prefix (W049/E049)."""
 
 from django.core.checks import Error, Tags, Warning, register
 
@@ -52,3 +52,111 @@ def shared_cache_checks(app_configs=None, **kwargs):
             )
         ]
     return []
+
+
+@register(Tags.security, deploy=True)
+def cache_prefix_checks(app_configs=None, **kwargs):
+    """skeleton.W049/E049: a Redis without KEY_PREFIX collides with any other instance on it (#675)."""
+    from django.conf import settings
+
+    cache = settings.CACHES.get("default", {})
+    if not cache.get("BACKEND", "").endswith("redis.RedisCache") or cache.get("KEY_PREFIX"):
+        return []
+    hint = "Set SKELETON_CACHE_KEY_PREFIX (or ?key_prefix= in CACHE_URL) to a name of this instance."
+    if getattr(settings, "SKELETON_INSTANCE_MODE", "standalone") == "cluster":
+        return [Error("The shared cache has no key prefix in cluster mode.", hint=hint, id="skeleton.E049")]
+    return [
+        Warning(
+            "The shared cache has no key prefix: another instance on it would share keys.",
+            hint=hint,
+            id="skeleton.W049",
+        )
+    ]
+
+
+def multi_host_problems(databases) -> list:
+    """skeleton.W050: several hosts without ``target_session_attrs`` may land on a read-only replica (#676)."""
+    problems = []
+    for alias, config in databases.items():
+        if "," in str(config.get("HOST") or "") and not (config.get("OPTIONS") or {}).get("target_session_attrs"):
+            problems.append(
+                Warning(
+                    f"DATABASES[{alias!r}] lists several hosts without target_session_attrs.",
+                    hint="Add ?target_session_attrs=read-write to the URL, or a connection may reach a read-only replica.",
+                    id="skeleton.W050",
+                )
+            )
+    return problems
+
+
+@register(deploy=True)
+def multi_host_checks(app_configs=None, **kwargs):
+    from django.conf import settings
+
+    return multi_host_problems(settings.DATABASES)
+
+
+def pooler_search_path_problems(alias, cursor) -> list:
+    cursor.execute("SHOW search_path")
+    path = [item.strip().strip('"') for item in cursor.fetchone()[0].split(",")]
+    if path and path[0] == "skeleton":
+        return []
+    return [
+        Error(
+            f"DATABASES[{alias!r}] behind a transaction pooler: the role's search_path does not start with skeleton.",
+            hint="ALTER ROLE skeleton_runtime SET search_path TO skeleton, public (deploy/postgres/bootstrap.sql).",
+            id="skeleton.E050",
+        )
+    ]
+
+
+@register("database")
+def pooler_checks(app_configs=None, databases=None, **kwargs):
+    """skeleton.E050: behind a transaction pooler no startup options go out, so the role needs its search_path."""
+    from django.conf import settings
+    from django.db import connections
+
+    problems = []
+    for alias in databases or ():
+        config = settings.DATABASES.get(alias, {})
+        if config.get("ENGINE") != POSTGRESQL_ENGINE or not config.get("DISABLE_SERVER_SIDE_CURSORS"):
+            continue
+        with connections[alias].cursor() as cursor:
+            problems.extend(pooler_search_path_problems(alias, cursor))
+    return problems
+
+
+def other_databases(cursor) -> list[str]:
+    """The databases of the cluster, besides this one and the templates, the role may connect to."""
+    cursor.execute(
+        "SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate"
+        " AND datname <> current_database() AND has_database_privilege(current_user, datname, 'CONNECT')"
+        " ORDER BY datname"
+    )
+    return [row[0] for row in cursor.fetchall()]
+
+
+@register("database")
+def cluster_isolation_checks(app_configs=None, databases=None, **kwargs):
+    """skeleton.W051: one PostgreSQL cluster per instance (#679); the runtime role reaches only its database."""
+    from django.conf import settings
+    from django.db import connections
+
+    problems = []
+    for alias in databases or ():
+        if settings.DATABASES.get(alias, {}).get("ENGINE") != POSTGRESQL_ENGINE:
+            continue
+        with connections[alias].cursor() as cursor:
+            reachable = other_databases(cursor)
+        if reachable:
+            problems.append(
+                Warning(
+                    f"DATABASES[{alias!r}]: the role may connect to other databases of its cluster: "
+                    + ", ".join(reachable)
+                    + ".",
+                    hint="Run one PostgreSQL cluster per instance and REVOKE CONNECT ON DATABASE <name> FROM PUBLIC "
+                    "on the others (deploy/data-server/).",
+                    id="skeleton.W051",
+                )
+            )
+    return problems

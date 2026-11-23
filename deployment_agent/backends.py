@@ -23,9 +23,10 @@ from .storage import (
     identifier,
     inventory_files,
     load_json,
+    now,
     private_file,
 )
-from .types import StrPath
+from .types import JSON, StrPath
 
 if TYPE_CHECKING:
     from .config import Config
@@ -33,6 +34,25 @@ if TYPE_CHECKING:
 
 # Each command of an operation keeps its last output bytes in a private log (#244).
 MAX_COMMAND_LOG_BYTES = 256 * 1024
+
+
+def host_lists(netloc: str) -> tuple[str, str]:
+    """``PGHOST`` and ``PGPORT`` of a DSN with one or several hosts (failover, #676).
+
+    ``user:pw@h1:5432,[::1]:5433`` gives ``("h1,::1", "5432,5433")``; a host without a port gets 5432.
+    """
+    hosts, ports = [], []
+    for item in netloc.rsplit("@", 1)[-1].split(","):
+        if item.startswith("["):
+            host, _, rest = item[1:].partition("]")
+            port = rest.removeprefix(":")
+        else:
+            host, _, port = item.partition(":")
+        if not host or (port and not port.isdigit()):
+            raise AgentError("invalid_database_host")
+        hosts.append(unquote(host))
+        ports.append(port or "5432")
+    return ",".join(hosts), ",".join(ports)
 
 
 class Backend:
@@ -160,6 +180,25 @@ class Backend:
                 private_file(self.config["smoke_token_file"])
             except OSError:
                 raise AgentError("insecure_private_file", 409) from None
+        if self.backup_mode() == "external" and self.config["backup"].get("restore_point", True):
+            # pg_create_restore_point needs a superuser or a GRANT from the database administrator (#683).
+            allowed = self.capture(
+                [
+                    self.config.get("psql", "/usr/bin/psql"),
+                    "-X",
+                    "-At",
+                    "-c",
+                    "SELECT has_function_privilege(current_user, 'pg_create_restore_point(text)', 'EXECUTE')",
+                ],
+                env=self.pg_environment(release),
+                code="restore_point_check_failed",
+            )
+            if allowed.strip() != b"t":
+                raise AgentError("restore_point_not_permitted", 409)
+
+    def backup_mode(self) -> str:
+        """``pg_dump`` (default) or ``external``: continuous backup (PITR) of the operator (#683)."""
+        return str((self.config.get("backup") or {}).get("mode", "pg_dump"))
 
     def target_environment(self) -> Any:
         script = "import json,os,platform,sys; print(json.dumps(dict(implementation_name=sys.implementation.name,implementation_version=platform.python_version(),os_name=os.name,platform_machine=platform.machine(),platform_release=platform.release(),platform_system=platform.system(),platform_version=platform.version(),python_full_version=platform.python_version(),platform_python_implementation=platform.python_implementation(),python_version='.'.join(map(str,sys.version_info[:2])),sys_platform=sys.platform)))"
@@ -312,10 +351,11 @@ class Backend:
             url = urlsplit(read_environment(self.config["backup_env_file"])["MIGRATION_DATABASE_URL"])
         else:
             url = urlsplit(self.config.environment("migration", release)["MIGRATION_DATABASE_URL"])
+        hosts, ports = host_lists(url.netloc)
         result.update(
             {
-                "PGHOST": url.hostname or "",
-                "PGPORT": str(url.port or 5432),
+                "PGHOST": hosts,
+                "PGPORT": ports,
                 "PGDATABASE": unquote(url.path.lstrip("/")),
                 "PGUSER": unquote(url.username or ""),
                 "PGPASSWORD": unquote(url.password or ""),
@@ -327,6 +367,7 @@ class Backend:
             "sslcert": "PGSSLCERT",
             "sslkey": "PGSSLKEY",
             "options": "PGOPTIONS",
+            "target_session_attrs": "PGTARGETSESSIONATTRS",
         }
         for key, values in parse_qs(url.query).items():
             if key not in allowed or len(values) != 1:
@@ -343,6 +384,8 @@ class Backend:
         url = urlsplit(self.config.environment("migration", release)["MIGRATION_DATABASE_URL"])
         if url.scheme not in ("postgres", "postgresql"):
             raise AgentError("unsupported_database")  # The data layer is PostgreSQL only (#144).
+        if self.backup_mode() == "external":
+            return self._external_backup(root, release, operation)
         database = root / "database.dump"
         self.run(
             [
@@ -358,6 +401,53 @@ class Backend:
         self.run([self.config.get("pg_restore", "/usr/bin/pg_restore"), "--list", database], code="backup_invalid")
         if not database.is_file() or database.stat().st_size == 0:
             raise AgentError("backup_invalid", 409)
+        resources = self._snapshot_resources(root)
+        metadata = {
+            "id": operation,
+            "database": str(database),
+            "database_sha256": file_hash(database),
+            "database_kind": url.scheme,
+            "resources": resources,
+            "previous_release": str(release),
+        }
+        return self._seal_backup(root, metadata)
+
+    def _external_backup(self, root: Path, release: StrPath, operation: str) -> str:
+        """No dump: a named restore point in the WAL, recorded with its LSN, and the resources (#683)."""
+        point, lsn = "", ""
+        if self.config["backup"].get("restore_point", True):
+            name = f"skeleton-{operation}"
+            output = self.capture(
+                [
+                    self.config.get("psql", "/usr/bin/psql"),
+                    "-X",
+                    "-At",
+                    "-c",
+                    f"SELECT pg_create_restore_point('{name}'), pg_current_wal_lsn()",
+                ],
+                env=self.pg_environment(release),
+                code="restore_point_failed",
+            )
+            point, _, lsn = output.decode().strip().partition("|")
+            point = name if point else ""
+        metadata = {
+            "id": operation,
+            "kind": "external",
+            "restore_point": point,
+            "lsn": lsn,
+            "created_at": now(),
+            "resources": self._snapshot_resources(root),
+            "previous_release": str(release),
+        }
+        return self._seal_backup(root, metadata)
+
+    def _seal_backup(self, root: Path, metadata: JSON) -> str:
+        atomic_json(root / "backup.json", metadata)
+        for path in root.rglob("*"):
+            os.chmod(path, 0o700 if path.is_dir() else 0o600)
+        return str(root / "backup.json")
+
+    def _snapshot_resources(self, root: Path) -> list[JSON]:
         resources = []
         for index, source in enumerate(self.config.get("recovery_paths", [])):
             source = Path(source)
@@ -376,21 +466,24 @@ class Backend:
             resources.append(
                 {"path": str(source), "snapshot": str(target), "directory": source.is_dir(), "files": hashes}
             )
-        metadata = {
-            "id": operation,
-            "database": str(database),
-            "database_sha256": file_hash(database),
-            "database_kind": url.scheme,
-            "resources": resources,
-            "previous_release": str(release),
-        }
-        atomic_json(root / "backup.json", metadata)
-        for path in root.rglob("*"):
-            os.chmod(path, 0o700 if path.is_dir() else 0o600)
-        return str(root / "backup.json")
+        return resources
 
     def restore(self, backup: StrPath, release: StrPath) -> None:
         metadata = load_json(backup)
+        if metadata.get("kind") == "external":
+            # The database comes back through the operator's PITR, never here (#683).
+            raise AgentError(
+                "external_restore_required",
+                409,
+                [
+                    {
+                        "code": "restore_point",
+                        "component": metadata.get("restore_point") or "none",
+                        "found": metadata.get("lsn") or "unknown",
+                        "required": metadata.get("created_at") or "unknown",
+                    }
+                ],
+            )
         database = Path(metadata["database"])
         if file_hash(database) != metadata["database_sha256"]:
             raise AgentError("backup_hash_conflict", 409)

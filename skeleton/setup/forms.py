@@ -429,6 +429,15 @@ class StorageForm(forms.Form):
         widget=forms.PasswordInput(render_value=False, attrs={"autocomplete": "new-password"}),
         help_text=gettext_lazy("Em branco se o Redis não pede senha."),
     )
+    cache_key_prefix = forms.CharField(
+        label=gettext_lazy("Prefixo das chaves no cache"),
+        max_length=50,
+        required=False,
+        help_text=gettext_lazy(
+            "Opcional. Um nome desta instância (a-z, 0-9, _ e -), para várias instâncias poderem usar o mesmo"
+            " Redis sem misturar chaves."
+        ),
+    )
     files_backend = forms.ChoiceField(
         label=gettext_lazy("Onde guardar os anexos"),
         choices=(
@@ -487,6 +496,14 @@ class StorageForm(forms.Form):
                 " numa máquina)."
             )
         )
+
+    def clean_cache_key_prefix(self):
+        from skeleton.instance.schema import CATALOG
+
+        try:
+            return CATALOG["cache_key_prefix"].clean(self.cleaned_data["cache_key_prefix"])
+        except ValueError as error:
+            raise forms.ValidationError(str(error)) from None
 
     def clean_cache_location(self):
         # Messages never echo the value: an address could still carry a password.

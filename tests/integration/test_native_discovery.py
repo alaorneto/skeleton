@@ -9,9 +9,6 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
-from skeleton.instance import maintenance
-from skeleton.instance.maintenance import enter
-from skeleton.instance.store import InstanceStore
 from skeleton.integrations.tokens.services import issue_personal_token
 from skeleton.tenancy.context import request_context, system_context
 from tests import oidc_support as oidc
@@ -35,7 +32,7 @@ def active_url(organization):
     return reverse("api-application-active", kwargs={"organization_id": organization.pk})
 
 
-def test_server_is_anonymous_public_and_open_in_maintenance(skeleton_db, settings, tmp_path, subtests):
+def test_server_is_anonymous_and_public(skeleton_db, settings, tmp_path, subtests):
     from skeleton.versioning import core_version
 
     url = reverse("api:server")
@@ -57,18 +54,12 @@ def test_server_is_anonymous_public_and_open_in_maintenance(skeleton_db, setting
         text = json.dumps(body)
         assert set(body) == {"product", "core_version", "api_versions", "oidc_issuer"}
         assert "PRIVATE KEY" not in text and "testserver" not in text
-    with subtests.test("maintenance"):
-        path = tmp_path / "instance" / "instance.sqlite3"
-        settings.SKELETON_MAINTENANCE_STORE = str(path)
-        store = InstanceStore(path)
-        try:
-            enter(store, message="Migração", ends_at=None, pause_jobs=False, source="test")
-            maintenance.reader_for(store.path)._cached = None
-            assert Client().get(url).status_code == 200
-            assert Client().get(reverse("api:organizations")).status_code == 503
-            assert Client().post(url).status_code == 503  # Only the read stays open.
-        finally:
-            maintenance._readers.pop(str(path), None)
+    with subtests.test("deployment gate"):
+        marker = tmp_path / "maintenance"
+        settings.SKELETON_MAINTENANCE_MARKER = str(marker)
+        marker.touch()
+        response = Client().get(url)
+        assert response.status_code == 503 and response.json()["code"] == "maintenance"
 
 
 @pytest.mark.needs_example_app
