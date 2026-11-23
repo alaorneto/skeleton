@@ -235,6 +235,79 @@ def activate_for_entitlement(app_label):
         return record
 
 
+def platform_fields(manifest):
+    """The configuration fields only the platform writes (``managed_by: "platform"``, #702)."""
+    return tuple(field for field in manifest.configuration_fields if field.managed_by == "platform")
+
+
+def _keep_platform_fields(manifest, configuration):
+    """The organization's configuration with the platform's fields as they are stored (#702).
+
+    An absent platform field keeps the stored value; a different one is refused with
+    ``setting_locked``, before anything is written. Infrastructure is not restricted.
+    """
+    from .models import AppInstallation
+
+    managed = platform_fields(manifest)
+    if not managed or not isinstance(configuration, dict) or current_context().system:
+        return configuration
+    record = AppInstallation.objects.filter(app_label=manifest.app_label).first()
+    stored = validate_configuration(manifest, record.configuration if record else {})
+    result = dict(configuration)
+    for field in managed:
+        if field.name not in result:
+            result[field.name] = stored[field.name]
+        elif result[field.name] != stored[field.name]:
+            message = gettext("Definido pela plataforma: %(name)s.") % {"name": field.label or field.name}
+            raise ValidationError({"configuration": ValidationError(message, code="setting_locked")})
+    return result
+
+
+@transaction.atomic
+def configure_application_by_platform(app_label, *, user, organization_id, values, revision):
+    """The platform administrator writes the platform's fields of one organization (#702).
+
+    Only fields with ``managed_by: "platform"`` are accepted, validated by the manifest; CAS by
+    the revision of the organization's ``AppInstallation`` (0 before it exists: the row is
+    created disabled with the defaults). Opens the system context of that organization only.
+    """
+    from skeleton.accounts.platform import require_platform_context
+    from skeleton.tenancy.context import system_context
+
+    from .models import AppInstallation
+
+    require_platform_context(user)
+    manifest = get_app(app_label)
+    allowed = {field.name for field in platform_fields(manifest)}
+    if not isinstance(values, dict) or set(values) - allowed:
+        raise ValidationError(
+            {"configuration": gettext("Só os campos geridos pela plataforma podem ser gravados aqui.")}
+        )
+    if type(revision) is not int:
+        raise ConcurrentUpdate("Application configuration changed.")
+    from skeleton.access.services import organization_lock
+
+    with system_context(reason=PLATFORM_FIELDS_REASON, organization_id=organization_id), organization_lock():
+        record = AppInstallation.objects.select_for_update().filter(app_label=app_label).first()
+        if (record.revision if record else 0) != revision:
+            raise ConcurrentUpdate("Application configuration changed.")
+        stored = validate_configuration(manifest, record.configuration if record else {})
+        merged = validate_configuration(manifest, {**stored, **values})
+        if record is None:
+            record = AppInstallation(
+                organization_id=organization_id, app_label=app_label, enabled=False, configuration=merged
+            )
+            record.save()
+        elif record.configuration != merged:
+            record.configuration = merged
+            record.save(update_fields={"configuration"})
+        forget_application_states(everywhere=True)
+        return record
+
+
+PLATFORM_FIELDS_REASON = "platform:setting-lock"
+
+
 @transaction.atomic
 def configure_application(app_label, *, user, enabled, configuration, revision):
     from skeleton.access.capabilities import APPS_MANAGE, require_capability
@@ -248,7 +321,18 @@ def configure_application(app_label, *, user, enabled, configuration, revision):
     validate_dependencies()
     if type(enabled) is not bool:
         raise ValidationError({"enabled": gettext("Use true or false.")})
+    configuration = _keep_platform_fields(manifest, configuration)
     values = validate_configuration(manifest, configuration)
+    from skeleton.tenancy.setting_locks import require_unlocked
+
+    # Activation and fields the platform locked (#701) keep their values.
+    require_unlocked(
+        {f"apps.{app_label}.enabled": enabled, **{f"apps.{app_label}.{name}": value for name, value in values.items()}},
+        field_of={
+            f"apps.{app_label}.enabled": "enabled",
+            **{f"apps.{app_label}.{name}": "configuration" for name in values},
+        },
+    )
     # Serialize even the first virtual revision=0 transition and dependency changes. The lock
     # re-validates the organization and the actor's capability once it is held (#253).
     with organization_lock(user, capability=APPS_MANAGE):

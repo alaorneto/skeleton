@@ -41,6 +41,8 @@ PLATFORM_ADMIN_REASONS = frozenset(
         "platform:organization-inspect",
         # The platform acting on one organization's billing account (#405).
         "platform:billing",
+        # The platform locking a setting of one organization and writing its value (#701).
+        "platform:setting-lock",
     }
 )
 # Admission by the person (#26, #27): opened by the admission services for one organization,

@@ -111,13 +111,21 @@ def application_configuration(request, organization_id, app_label):
         else gettext("Sem dependências.")
     )
     form_type = type("ApplicationConfigurationForm", (forms.Form,), fields)
-    form = form_type(
-        request.POST if request.method == "POST" else None,
-        initial={
-            "enabled": state.enabled,
-            "revision": state.revision,
-            **{item.name: item.value for item in state.configuration},
-        },
+    data = request.POST.copy() if request.method == "POST" else None
+    from .organization_settings_views import lock_fields
+
+    # The activation and fields the platform locked (#701) are read-only and keep their value.
+    form = lock_fields(
+        form_type(
+            data,
+            initial={
+                "enabled": state.enabled,
+                "revision": state.revision,
+                **{item.name: item.value for item in state.configuration},
+            },
+        ),
+        state.locked_fields,
+        data,
     )
     status = 200
     incompatible = not state.configuration_valid  # #251
@@ -148,10 +156,14 @@ def application_configuration(request, organization_id, app_label):
                 )
                 return redirect("application-admin", organization_id=organization_id, app_label=app_label)
             except service_errors.Conflict as exc:
-                if exc.code != "stale_revision":
+                if exc.code == "setting_locked":
+                    form.add_error(None, gettext("Definido pela plataforma."))
+                    status = 409
+                elif exc.code != "stale_revision":
                     raise
-                form.add_error(None, gettext("A configuração mudou. Atualize a página."))
-                status = 409
+                else:
+                    form.add_error(None, gettext("A configuração mudou. Atualize a página."))
+                    status = 409
             except service_errors.InvalidInput as exc:
                 # The service's own messages: dependency, availability or value (#338).
                 for messages_ in exc.errors.values():

@@ -56,7 +56,7 @@
     <p class="mt-1 text-sm/6 text-body-subtle">A disponibilidade é decidida pela plataforma; a ativação, pela própria organização. Esta leitura não mostra parâmetros nem dados de negócio.</p>
     <div class="table-scroll mt-4"><table><thead><tr><th scope="col">Aplicativo</th><th scope="col">Disponível</th><th scope="col">Ativada pela organização</th><th scope="col">Em uso</th></tr></thead><tbody>
     {% for app in overview.applications %}<tr>
-      <td><a class="cell-primary" href="{% url 'platform:app-availability' app.app_label %}">{{ app.label }}</a></td>
+      <td><a class="cell-primary" href="{% url 'platform:app-availability' app.app_label %}">{{ app.label }}</a>{% if app.app_label in platform_configurable %}<span class="cell-secondary"><a href="{% url 'platform:organization-app-configuration' subject.pk app.app_label %}">Campos da plataforma</a></span>{% endif %}</td>
       <td>{% if app.available %}{{ "active"|status_badge:"Sim" }}{% else %}{{ "inactive"|status_badge:"Não" }}{% endif %}</td>
       <td>{% if app.enabled %}{{ "active"|status_badge:"Sim" }}{% else %}{{ "inactive"|status_badge:"Não" }}{% endif %}</td>
       <td>{% if app.effective %}{{ "active"|status_badge:"Sim" }}{% elif app.enabled %}{{ "past_due"|status_badge:"Bloqueada" }}{% else %}{{ "inactive"|status_badge:"Não" }}{% endif %}</td>
@@ -74,10 +74,17 @@
     <p class="mt-1 text-sm/6 text-body-subtle">{% translate "Assinatura, faturas, pagamentos, baixa manual, prorrogação e cortesia." %}</p>
     <p class="mt-4"><a class="btn btn-secondary" href="{% url 'platform:organization-billing' subject.pk %}">{% translate "Abrir a cobrança" %}</a></p>
   </section>
+  <section class="card" aria-labelledby="organization-locks">
+    <h2 id="organization-locks">{% translate "Configurações travadas" %}</h2>
+    <p class="mt-1 text-sm/6 text-body-subtle">{% translate "Valores que a plataforma fixa nesta organização: ela vê o campo desabilitado e não consegue mudá-lo." %}</p>
+    <p class="mt-4"><a class="btn btn-secondary" href="{% url 'platform:organization-settings' subject.pk %}">{% translate "Abrir as travas" %}</a></p>
+  </section>
   <section class="card lg:col-span-2" aria-labelledby="organization-storage">
     <h2 id="organization-storage">{% translate "Armazenamento" %}</h2>
     <p class="mt-1 text-sm/6 text-body-subtle">{% translate "Soma dos anexos vivos da organização. Um upload ou restauração acima da cota é recusado; a recontagem diária corrige o contador." %}</p>
     <dl class="meta-list mt-4">
+      <div><dt>{% translate "Local de armazenamento" %}</dt><dd>{% if storage_location.current %}{{ storage_location.current.label }}{% else %}{% translate "Armazenamento da instância" %}{% endif %}{% if storage_location.choices %}
+        <form method="post" action="{% url 'platform:organization-storage-location' subject.pk %}" class="mt-2 toolbar">{% csrf_token %}<label class="sr-only" for="storage-location">{% translate "Local" %}</label><select id="storage-location" name="location"><option value="">{% translate "Armazenamento da instância" %}</option>{% for choice in storage_location.choices %}<option value="{{ choice.pk }}"{% if storage_location.current.pk == choice.pk %} selected{% endif %}>{{ choice.label }}</option>{% endfor %}</select><button type="submit" class="btn btn-secondary btn-sm">{% translate "Trocar" %}</button></form>{% endif %}</dd></div>
       <div><dt>{% translate "Em uso" %}</dt><dd>{{ storage.bytes_used|filesizeformat }}</dd></div>
       <div><dt>{% translate "Cota" %}</dt><dd>{% if storage.quota_bytes is None %}{% translate "Ilimitada" %}{% else %}{{ storage.quota_bytes|filesizeformat }}{% endif %}{% if not storage.overridden %} <span class="badge">{% translate "padrão da instância" %}</span>{% endif %}</dd></div>
       <div><dt>{% translate "Última recontagem" %}</dt><dd>{% if storage.recounted_at %}{{ storage.recounted_at|moment }}{% else %}{% translate "Ainda não recontado" %}{% endif %}</dd></div>

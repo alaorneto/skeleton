@@ -11,7 +11,7 @@ from django.utils.translation import gettext
 
 from .base import ServiceAPI, service_method
 from .dto import DEFAULT_PAGE_SIZE, Page, as_uuid, paginate
-from .errors import InvalidInput, NotFound
+from .errors import Conflict, InvalidInput, NotFound
 from .identity import PersonSummary, _display_name, _kind, _user
 
 
@@ -33,13 +33,40 @@ class OrganizationSettingsInfo:
     brand_color: str
     has_logo: bool
     revision: int
+    # Fields the platform locked (#701, since 0.6.0): the organization cannot change them.
+    locked_fields: tuple[str, ...] = ()
+
+
+def is_setting_locked(error: Any) -> bool:
+    """Whether a ``ValidationError`` is the refusal of a setting locked by the platform (#701)."""
+    items = error.error_dict.values() if hasattr(error, "error_dict") else [error.error_list]
+    return any(item.code == "setting_locked" for group in items for item in group)
+
+
+def _write_settings(
+    actor: Any, display_name: str, default_language: str, default_timezone: str, brand_color: str, revision: int
+) -> Any:
+    from skeleton.tenancy.organization_settings import update_settings
+
+    return update_settings(
+        actor=_user(actor),
+        data={
+            "display_name": display_name,
+            "default_language": default_language,
+            "default_timezone": default_timezone,
+            "brand_color": brand_color,
+        },
+        expected_revision=revision,
+    )
 
 
 def _settings_info(record: Any) -> OrganizationSettingsInfo:
     from skeleton.tenancy.organization_settings import revision_of
+    from skeleton.tenancy.setting_locks import locked_fields
 
+    locked = locked_fields("organization")
     if record is None:
-        return OrganizationSettingsInfo("", "", "", "", False, 0)
+        return OrganizationSettingsInfo("", "", "", "", False, 0, locked)
     return OrganizationSettingsInfo(
         display_name=record.display_name,
         default_language=record.default_language,
@@ -47,6 +74,7 @@ def _settings_info(record: Any) -> OrganizationSettingsInfo:
         brand_color=record.brand_color,
         has_logo=bool(record.logo_key),
         revision=revision_of(record),
+        locked_fields=locked,
     )
 
 
@@ -257,19 +285,18 @@ class OrganizationService(ServiceAPI):
 
         Autorização: administrador da organização.
         Erros: Forbidden para quem não é administrador; InvalidInput para idioma fora de
-        ``LANGUAGES``, fuso inválido ou cor fora de ``#RRGGBB``; Conflict("stale_revision").
+        ``LANGUAGES``, fuso inválido ou cor fora de ``#RRGGBB``; Conflict("stale_revision");
+        Conflict("setting_locked") para um campo travado pela plataforma (desde 0.6.0).
         Efeitos: grava ``OrganizationSettings`` (auditado) na transação do chamador.
         """
-        from skeleton.tenancy.organization_settings import update_settings
+        from django.core.exceptions import ValidationError
 
-        record = update_settings(
-            actor=_user(actor),
-            data={
-                "display_name": display_name,
-                "default_language": default_language,
-                "default_timezone": default_timezone,
-                "brand_color": brand_color,
-            },
-            expected_revision=expected_revision,
-        )
+        try:
+            record = _write_settings(
+                actor, display_name, default_language, default_timezone, brand_color, expected_revision
+            )
+        except ValidationError as exc:
+            if is_setting_locked(exc):
+                raise Conflict("setting_locked") from None
+            raise
         return _settings_info(record)

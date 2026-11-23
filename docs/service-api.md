@@ -295,6 +295,8 @@ IdentityService().update_my_preferences(actor=request.user, expected_revision=me
 | `settings(*, actor) -> OrganizationSettingsInfo` | vínculo ativo | `ContextRequired` sem organização |
 | `update_settings(*, actor, display_name, default_language, default_timezone, brand_color, expected_revision) -> OrganizationSettingsInfo` | administrador da organização | `Forbidden`; `InvalidInput` (idioma fora de `LANGUAGES`, fuso inválido, cor fora de `#RRGGBB`, nome acima de 200 caracteres); `Conflict("stale_revision")` |
 
+`OrganizationSettingsInfo.locked_fields` (desde 0.6.0) traz os campos que a plataforma travou, e `update_settings` responde `Conflict("setting_locked")` a uma mudança deles; `ApplicationState.locked_fields` traz a ativação e os campos da app travados ou geridos pela plataforma, e `ApplicationAdministrationService.configure` responde `Conflict("setting_locked")` a uma mudança deles; `ApplicationService.my_configuration` devolve também os campos geridos pela plataforma ([configurações geridas pela plataforma](managed-settings.md)).
+
 As configurações começam em branco com `revision=0` e passam a existir na primeira gravação; valores em branco significam "use o padrão da instância", e `has_logo` diz se há logo sem revelar a chave do storage.
 
 O diretório traz só vínculos ativos de identidades ativas da organização atual, busca por nome de exibição ou nome, e deixa de fora as contas de serviço (#44). Administrar vínculos continua nos serviços de acesso.

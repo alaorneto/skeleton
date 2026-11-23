@@ -359,7 +359,13 @@ def organization_create(request):
             data = form.cleaned_data
             try:
                 with transaction.atomic():
-                    organization = create_organization(owner=data["owner"], slug=data["slug"], name=data["name"])
+                    organization = create_organization(
+                        owner=data["owner"],
+                        slug=data["slug"],
+                        name=data["name"],
+                        settings=form.provided_settings(),
+                        storage_location=data["storage_location"] if "storage_location" in form.fields else "default",
+                    )
             except ValidationError as exc:
                 status = form_error(form, exc)
             except IntegrityError:
@@ -421,10 +427,31 @@ def _organization_page(request, organization, *, form=None, admin_form=None, quo
             "storage": storage,
             "quota_form": quota_form or _quota_form(organization),
             "identity_providers": organization_providers(organization),
+            "platform_configurable": _platform_configurable(),
+            "storage_location": _storage_location(organization),
             "site_address": _site_address(organization),
         },
         status=status,
     )
+
+
+def _storage_location(organization):
+    """The organization's storage location row (#705) and the active locations to choose from."""
+    from skeleton.files.models import OrganizationStorage, StorageLocation
+
+    row = OrganizationStorage.objects.select_related("location").filter(storage_organization=organization).first()
+    return {
+        "current": row.location if row is not None else None,
+        "choices": list(StorageLocation.objects.filter(is_active=True).order_by("label")),
+    }
+
+
+def _platform_configurable():
+    """Labels of the installed apps that declare fields only the platform writes (#702)."""
+    from skeleton.system.app_registry import all_apps
+    from skeleton.system.applications import platform_fields
+
+    return {manifest.app_label for manifest in all_apps() if platform_fields(manifest)}
 
 
 def _site_address(organization):
@@ -845,6 +872,310 @@ def app_screen(request, app_label, screen_id):
         # A sensitive screen needs a recent authentication on every method, GET included (#311).
         return recent_authentication_required(handler)(request)
     return handler(request)
+
+
+# --------------------------------------------------------------------------- setting locks (#701)
+
+
+def _setting_display(setting, value):
+    if setting.kind == "frozen":
+        return gettext("enviado") if value else gettext("nenhum")
+    if setting.kind == "bool":
+        return gettext("sim") if value else gettext("não")
+    if setting.kind == "text":
+        from skeleton.tenancy.business_hours import format_holidays, format_hours
+
+        return (format_hours if setting.key.endswith("business_hours") else format_holidays)(value) or "—"
+    return "—" if value in (None, "") else str(value)
+
+
+def _setting_locks_page(request, organization, *, form=None, error=None, status=200):
+    from itertools import groupby
+
+    from skeleton.tenancy.setting_locks import lockable_settings, settings_overview
+
+    from .forms import SettingLockForm
+
+    rows = settings_overview(actor=request.user, organization=organization)
+    groups = [
+        {
+            "label": group,
+            "rows": [
+                {
+                    "key": row.setting.key,
+                    "label": row.setting.label,
+                    "current": _setting_display(row.setting, row.current),
+                    "lock": row.lock,
+                    "locked": _setting_display(row.setting, row.lock.value) if row.lock else "",
+                }
+                for row in items
+            ],
+        }
+        for group, items in groupby(rows, key=lambda row: row.setting.group)
+    ]
+    chosen = request.GET.get("key")
+    lock = next((row.lock for row in rows if row.setting.key == chosen and row.lock), None)
+    initial = {"key": chosen, "expected_revision": lock.revision if lock else 0}
+    if lock is not None:
+        initial["reason"] = lock.reason
+    return render(
+        request,
+        "skeleton/web/platform/organization_settings.html",
+        {
+            "platform_section": "organizations",
+            "subject": organization,
+            "groups": groups,
+            "form": form or SettingLockForm(initial=initial, settings=lockable_settings()),
+            "error": error,
+        },
+        status=status,
+    )
+
+
+@platform_page
+@require_http_methods(["GET", "POST"])
+@recent_authentication_required(allow_get=True)
+@transaction.atomic
+def organization_setting_locks(request, sysid):
+    """Lock or unlock settings of one organization; the value is written to the organization."""
+    from skeleton.tenancy.setting_locks import lock_setting, lockable_settings, parse_form_value, unlock_setting
+
+    from .forms import SettingLockForm, SettingUnlockForm
+
+    organization = get_object_or_404(_model("sk_tenancy.Organization").objects, pk=sysid)
+    if request.method != "POST":
+        return _setting_locks_page(request, organization)
+    if request.POST.get("action") == "unlock":
+        unlock = SettingUnlockForm(request.POST)
+        if not unlock.is_valid():
+            return _setting_locks_page(request, organization, error=gettext("Pedido inválido."), status=400)
+        try:
+            with transaction.atomic():
+                unlock_setting(
+                    actor=request.user,
+                    organization=organization,
+                    key=unlock.cleaned_data["key"],
+                    expected_revision=unlock.cleaned_data["expected_revision"],
+                )
+        except ConcurrentUpdate:
+            detail = gettext("A trava mudou desde que a página foi aberta. Revise antes de destravar.")
+            return _setting_locks_page(request, organization, error=detail, status=409)
+        messages.success(request, gettext("Configuração destravada: a organização pode mudá-la de novo."))
+        return redirect("platform:organization-settings", sysid=organization.pk)
+    settings = lockable_settings()
+    form = SettingLockForm(request.POST, settings=settings)
+    if not form.is_valid():
+        return _setting_locks_page(request, organization, form=form, status=400)
+    data = form.cleaned_data
+    try:
+        with transaction.atomic():
+            value = parse_form_value(settings[data["key"]], data["value"])
+            lock_setting(
+                actor=request.user,
+                organization=organization,
+                key=data["key"],
+                value=value,
+                reason=data["reason"],
+                expected_revision=data["expected_revision"],
+            )
+    except (ValidationError, ConcurrentUpdate) as exc:
+        status = form_error(form, exc)
+        return _setting_locks_page(request, organization, form=form, status=status)
+    messages.success(request, gettext("Configuração travada."))
+    return redirect("platform:organization-settings", sysid=organization.pk)
+
+
+# --------------------------------------------------------------------------- platform fields of an app (#702)
+
+
+def _platform_fields_form(manifest, fields, data=None, initial=None):
+    from django import forms
+
+    declared = {"expected_revision": forms.IntegerField(min_value=0, widget=forms.HiddenInput)}
+    for field in fields:
+        options = {"label": field.label or field.name, "help_text": field.help_text, "required": False}
+        if field.value_type is bool:
+            declared[field.name] = forms.BooleanField(**options)
+        elif field.value_type is int:
+            declared[field.name] = forms.IntegerField(**{**options, "required": True})
+        else:
+            declared[field.name] = forms.CharField(max_length=field.max_length, **options)
+    return type("PlatformFieldsForm", (forms.Form,), declared)(data, initial=initial)
+
+
+def _stored_configuration(request, organization, manifest):
+    """Revision and configuration of the app in the organization, read in the inspection context."""
+    from skeleton.access.administration import read_only_inspection
+    from skeleton.system.app_registry import validate_configuration
+    from skeleton.system.models import AppInstallation
+    from skeleton.tenancy.context import system_context
+
+    with (
+        system_context(reason="platform:organization-inspect", organization_id=organization.pk),
+        read_only_inspection("default"),
+    ):
+        record = AppInstallation.objects.filter(app_label=manifest.app_label).first()
+        stored = record.configuration if record else {}
+    try:
+        values = validate_configuration(manifest, stored)
+    except ValidationError:
+        values = validate_configuration(manifest, {})
+    return (record.revision if record else 0), values
+
+
+@platform_page
+@require_http_methods(["GET", "POST"])
+@recent_authentication_required(allow_get=True)
+@transaction.atomic
+def organization_app_configuration(request, sysid, app_label):
+    """The fields of an app only the platform writes (``managed_by: "platform"``), per organization."""
+    from skeleton.system.administration import application_identity
+    from skeleton.system.applications import configure_application_by_platform, platform_fields
+
+    organization = get_object_or_404(_model("sk_tenancy.Organization").objects, pk=sysid)
+    manifest = _manifest(app_label)
+    fields = platform_fields(manifest)
+    if not fields:
+        raise Http404
+    revision, values = _stored_configuration(request, organization, manifest)
+    initial = {**{field.name: values[field.name] for field in fields}, "expected_revision": revision}
+    form = _platform_fields_form(manifest, fields, request.POST if request.method == "POST" else None, initial)
+    status = 200
+    if request.method == "POST":
+        if form.is_valid():
+            data = dict(form.cleaned_data)
+            expected = data.pop("expected_revision")
+            data = {
+                field.name: data[field.name] if data[field.name] is not None else values[field.name] for field in fields
+            }
+            try:
+                with transaction.atomic():
+                    configure_application_by_platform(
+                        manifest.app_label,
+                        user=request.user,
+                        organization_id=organization.pk,
+                        values=data,
+                        revision=expected,
+                    )
+            except (ValidationError, ConcurrentUpdate) as exc:
+                status = form_error(form, exc)
+            else:
+                messages.success(request, gettext("Campos da plataforma salvos."))
+                return redirect("platform:organization-app-configuration", sysid=organization.pk, app_label=app_label)
+        else:
+            status = 400
+    return render(
+        request,
+        "skeleton/web/platform/organization_app_configuration.html",
+        {
+            "platform_section": "organizations",
+            "subject": organization,
+            "application": application_identity(manifest),
+            "form": form,
+        },
+        status=status,
+    )
+
+
+# --------------------------------------------------------------------------- policy of new organizations (#703)
+
+
+def _policy_page(request, *, form=None, error=None, status=200):
+    from skeleton.tenancy.provisioning import rule_targets, rules
+
+    from .forms import ProvisioningRuleForm
+
+    targets = rule_targets()
+    rows = [
+        {
+            "rule": rule,
+            "target": targets.get(rule.key),
+            "value": "—" if rule.value in (None, "") else rule.value,
+        }
+        for rule in rules()
+    ]
+    chosen = request.GET.get("key")
+    rule = next((row["rule"] for row in rows if row["rule"].key == chosen), None)
+    initial = {"key": chosen, "expected_revision": rule.revision if rule else 0, "mode": "default"}
+    if rule is not None:
+        initial.update(mode=rule.mode, value=rule.value, locked=rule.locked, reason=rule.reason)
+    return render(
+        request,
+        "skeleton/web/platform/organization_policy.html",
+        {
+            "platform_section": "organizations",
+            "rows": rows,
+            "form": form or ProvisioningRuleForm(initial=initial, targets=targets),
+            "error": error,
+        },
+        status=status,
+    )
+
+
+@platform_page
+@require_http_methods(["GET", "POST"])
+@recent_authentication_required(allow_get=True)
+@transaction.atomic
+def organization_policy(request):
+    """The rules every new organization receives; ``action=apply`` queues one for the existing ones."""
+    from skeleton.tenancy.provisioning import enqueue_apply, remove_rule, rule_targets, rules, save_rule
+    from skeleton.tenancy.setting_locks import parse_form_value
+
+    from .forms import ProvisioningRuleForm, ProvisioningRuleRemoveForm
+
+    if request.method != "POST":
+        return _policy_page(request)
+    action = request.POST.get("action")
+    if action in ("remove", "apply"):
+        chosen = ProvisioningRuleRemoveForm(request.POST)
+        if not chosen.is_valid():
+            return _policy_page(request, error=gettext("Pedido inválido."), status=400)
+        key, revision = chosen.cleaned_data["key"], chosen.cleaned_data["expected_revision"]
+        try:
+            with transaction.atomic():
+                if action == "remove":
+                    remove_rule(actor=request.user, key=key, expected_revision=revision)
+                else:
+                    rule = next((rule for rule in rules() if rule.key == key and rule.revision == revision), None)
+                    if rule is None:
+                        raise ConcurrentUpdate("Provisioning rule changed.")
+                    enqueue_apply(actor=request.user, rule=rule)
+        except ConcurrentUpdate:
+            return _policy_page(request, error=gettext("A regra mudou. Atualize a página."), status=409)
+        except ValidationError as exc:
+            return _policy_page(request, error=" ".join(exc.messages), status=400)
+        messages.success(
+            request,
+            gettext("Regra removida.")
+            if action == "remove"
+            else gettext("Aplicação às organizações existentes agendada."),
+        )
+        return redirect("platform:organization-policy")
+    targets = rule_targets()
+    form = ProvisioningRuleForm(request.POST, targets=targets)
+    if not form.is_valid():
+        return _policy_page(request, form=form, status=400)
+    data = form.cleaned_data
+    try:
+        with transaction.atomic():
+            target = targets[data["key"]]
+            value = None
+            if data["mode"] == "default" and (data["value"] or target.kind == "bool"):
+                value = parse_form_value(target, data["value"])
+            save_rule(
+                actor=request.user,
+                key=data["key"],
+                mode=data["mode"],
+                value=value,
+                locked=data["locked"],
+                reason=data["reason"],
+                expected_revision=data["expected_revision"],
+            )
+    except (ValidationError, ConcurrentUpdate) as exc:
+        status = form_error(form, exc)
+        return _policy_page(request, form=form, status=status)
+    messages.success(request, gettext("Regra salva: vale para as organizações criadas a partir de agora."))
+    return redirect("platform:organization-policy")
 
 
 # --------------------------------------------------------------------------- storage quota

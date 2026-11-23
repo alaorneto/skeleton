@@ -14,6 +14,7 @@ from skeleton.api.openapi import (
     ORGANIZATION_ADMIN,
     UUID,
     Operation,
+    array,
     nullable,
     obj,
     results,
@@ -44,6 +45,7 @@ def state_data(state):
         "configuration": {item.name: item.value for item in state.configuration},
         "revision": state.revision,
         "sysid": state.sysid,
+        "locked_fields": list(state.locked_fields),
     }
 
 
@@ -58,6 +60,7 @@ APPLICATION_STATE = obj(
         "enabled": BOOLEAN,
         "configuration": OBJECT,
         "revision": INTEGER,
+        "locked_fields": array(string()),
         "sysid": nullable(UUID),
     }
 )
