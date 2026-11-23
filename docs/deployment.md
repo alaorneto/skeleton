@@ -430,6 +430,8 @@ Na conclusão, o processo sai, a política de reinício o traz de volta em modo 
 
 ### Atualizar o sandbox
 
+O backup diário do sandbox e a recuperação depois da perda do host estão em [backup e recuperação](backup-recovery.md#backup-do-sandbox).
+
 O sandbox não recebe deploy a cada merge (o job `deploy-sandbox` saiu do CI, #654). Versões novas do core e apps chegam pela tela `/platform/updates/`, que consulta o repositório oficial: escolha a versão, confira o plano e confirme cada passo ([atualizações](updates.md)). Um *Redeploy* no Coolify só reconstrói as imagens do agente e de runtime; o release ativo continua o mesmo.
 
 **Sandbox criado antes do agente.** O volume `postgres_data` já tem o schema e o `instance` a configuração, mas não há estado do agente, e a primeira partida sobre um banco já migrado não é coberta pelos testes. Como o sandbox só tem dados de teste, apague os volumes do recurso (`postgres_data`, `instance` e os do agente) antes do primeiro *Deploy* com este arquivo e refaça o [primeiro acesso](#primeiro-acesso).
@@ -1171,6 +1173,8 @@ O Compose base deve montar secrets runtime/SSO/smoke e socket de controle read-o
 O backend já faz `stop web` no drain e `up --detach --no-deps --no-build --force-recreate web` no restart. Configure hooks fixos reais para drenar/parar/reabrir jobs/proxy externos; se só há web, hooks podem operar o gate do proxy. Não use hooks de systemd do exemplo diretório para serviços inexistentes nem comandos fictícios/no-op. O agente precisa de acesso Docker delimitado operacionalmente (socket Docker equivale a privilégios elevados); isso nunca é concedido ao web.
 
 ### Backup, crash e recuperação
+
+Esta seção é o backup que o agente faz antes de cada migration, para desfazer uma atualização. O backup de desastre, fora do servidor, os segredos a guardar e a recuperação de uma instância inteira estão em [backup e recuperação](backup-recovery.md).
 
 **Backup** é a cópia consistente de banco e recursos necessários; **restore** é a reposição dessa cópia; **rollback** é retornar a um estado anterior. Só trocar arquivos ou o ponteiro de release não desfaz migrations ou escritas. A indisponibilidade planejada começa quando o tráfego é bloqueado e os escritores são drenados, e termina somente após verificar banco, release e workers.
 

@@ -38,5 +38,7 @@ Num cluster de vários nós, faça isso no balanceador (que atende todos os nós
 
 ## Limites
 
+- A manutenção não é backup: o plano de backup e de recuperação de desastre está em [backup e recuperação](backup-recovery.md).
+
 - O portão do deploy não serve para manutenção planejada: só o agente o escreve, e ele faz parte do protocolo de atualização.
 - Uma instância que atualizar de uma versão com a manutenção administrativa **ativa** abre o site ao subir o release novo: saia dela antes de atualizar e use a infraestrutura.

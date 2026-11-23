@@ -10,7 +10,7 @@ Este arquivo é o contrato normativo de implementação, tanto para agentes quan
 4. `docs/service-api.md` antes de criar uma app ou integrar apps; o procedimento é o skill `service-api`.
 5. `docs/jobs.md`, `docs/events.md`, `docs/notifications.md`, `docs/files.md`, `docs/webhooks.md`, `docs/sequences.md`, `docs/flows.md`, `docs/comments.md`, `docs/data-transfer.md`, `docs/billing.md`, `docs/organization-sites.md` e `docs/appearance.md` antes de usar ou alterar o subsistema correspondente.
 6. `docs/authentication-sso.md` e `docs/privacy.md` para identidade e dados pessoais; `docs/portal.md` para pessoas externas; `docs/api.md` para endpoints; `docs/ui-design.md` para páginas; `docs/themes.md` para criar ou alterar um tema da instância (o procedimento é o skill `instance-theme`).
-7. `docs/testing.md`, `docs/checks.md`, `docs/deployment.md`, `docs/maintenance.md` e `docs/updates.md` antes de verificar/operar; `docs/high-availability.md` antes de operar em vários nós.
+7. `docs/testing.md`, `docs/checks.md`, `docs/deployment.md`, `docs/maintenance.md` e `docs/updates.md` antes de verificar/operar; `docs/high-availability.md` antes de operar em vários nós; `docs/backup-recovery.md` para o backup de desastre e a recuperação de uma instância.
 8. Antes de planejar, abrir issue, commitar ou abrir PR: o skill `dev-workflow` ([Rastreabilidade](#rastreabilidade-plano-issue-commit-versão-e-fechamento)); `docs/workflow.md` para o que é próprio deste repositório.
 9. Ao trabalhar numa app que tem `AGENTS.md` próprio: este arquivo primeiro, depois o da app ([Contrato de agentes em apps e projetos derivados](#contrato-de-agentes-em-apps-e-projetos-derivados)).
 
