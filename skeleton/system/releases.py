@@ -126,24 +126,82 @@ def _notice_from_status(status):
     return {"mode": "agent", "core": core, "apps": apps, "checked_at": checked if isinstance(checked, str) else None}
 
 
+def _notice_key():
+    """The notice of the running deployment generation (#739).
+
+    Whoever reconciles an operation may not share this cache (the agent's ``sync_deployment_state``
+    runs with the migration profile), so a new release must never depend on an invalidation to
+    stop reading the previous release's notice.
+    """
+    generation = getattr(getattr(settings, "SKELETON_DEPLOYMENT_STATE", None), "generation", 0)
+    return f"{NOTICE_CACHE_KEY}:{generation}"
+
+
+def _running_versions():
+    """``{component_id: version}`` of what this process runs: the core and the loaded apps."""
+    from skeleton.versioning import core_version
+
+    state = getattr(settings, "SKELETON_DEPLOYMENT_STATE", None)
+    running = {
+        item["manifest"]["app_id"]: item["manifest"]["version"]
+        for item in getattr(state, "apps", ())
+        if item.get("state") == "installed"
+    }
+    core = core_version()["version"]
+    if core:
+        running["django-skeleton"] = core
+    return running
+
+
+def _same_version(left, right):
+    from packaging.version import InvalidVersion, Version
+
+    from skeleton.versioning import normalize_version
+
+    try:
+        return Version(normalize_version(left)) == Version(normalize_version(right))
+    except (InvalidVersion, TypeError, ValueError):
+        return left == right
+
+
+def _agent_sees_running(status):
+    """Whether the agent evaluated the versions this process runs (#739).
+
+    Between a switch of workers and the agent recording the new release (or on a node still
+    rolling), the agent answers for the previous release: that answer is not cached as the notice.
+    """
+    running = _running_versions()
+    for path in status["paths"]:
+        if not isinstance(path, dict) or path.get("installed") is None:
+            continue
+        expected = running.get(path.get("component_id"))
+        if expected is not None and not _same_version(path["installed"], expected):
+            return False
+    return True
+
+
 def update_notice():
     """Summary of pending updates for the platform banner, or None (#501). Never raises."""
     from django.core.cache import cache
 
     if not getattr(settings, "SKELETON_AGENT_SOCKET", None):
         return _informative_notice(cache)
+    key = _notice_key()
     try:
-        cached = cache.get(NOTICE_CACHE_KEY)
+        cached = cache.get(key)
     except Exception:  # noqa: BLE001 - a cache outage means no notice, never a broken page
         return None
     if isinstance(cached, dict):
         return cached if cached.get("mode") else None
     try:
-        notice, ttl = _notice_from_status(agent_client().update_status(timeout=2)), NOTICE_TTL
+        status = agent_client().update_status(timeout=2)
+        notice, ttl = _notice_from_status(status), NOTICE_TTL
+        if not _agent_sees_running(status):
+            notice, ttl = {"mode": None}, NOTICE_FAILURE_TTL  # The release is still settling.
     except Exception:  # noqa: BLE001 - agent down, slow or answering out of shape: no notice
         notice, ttl = {"mode": None}, NOTICE_FAILURE_TTL
     with contextlib.suppress(Exception):  # A cache outage only drops the hint.
-        cache.set(NOTICE_CACHE_KEY, notice, ttl)
+        cache.set(key, notice, ttl)
     return notice if notice.get("mode") else None
 
 
@@ -169,7 +227,7 @@ def invalidate_update_notice():
     from django.core.cache import cache
 
     with contextlib.suppress(Exception):  # The notice is only a hint.
-        cache.delete(NOTICE_CACHE_KEY)
+        cache.delete(_notice_key())
 
 
 def _plan_id(value):

@@ -595,6 +595,8 @@ def notice_agent(monkeypatch, status=STATUS):
     double = PathAgent(status)
     monkeypatch.setattr(releases, "agent_client", lambda: double)
     monkeypatch.setattr(updates, "agent_client", lambda: double)
+    # The agent evaluated what this process runs (#739): the core STATUS says is installed.
+    monkeypatch.setattr(releases, "_running_versions", lambda: {"django-skeleton": "0.5.2"})
     return double
 
 
