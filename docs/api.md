@@ -21,6 +21,7 @@ Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do coo
 | `o/<org>/catalog/` | GET | Apenas tabelas legíveis; não inventário técnico global |
 | `o/<org>/search/` | GET | [Busca global](#busca-global) nas tabelas marcadas com `global_search` que o ator lê; `q` e `limit`; sessão ou token |
 | `o/<org>/audit/`, `audit/<event>/` | GET | Eventos autorizados; filtros `record_sysid`, `model_label`, `from`, `to` (data ou ISO 8601), `actor`, `operation` e `request_id` na lista (#184); filtro desconhecido ou inválido é 400 `invalid_filter`; `table_name` e `db_principal` vêm vazios para quem não administra a organização (#324) |
+| `platform/...` | GET | A [API de gestão da instância](platform-api.md): só tokens `platform` com o escopo da rota (ou a sessão do administrador da plataforma); somente leitura |
 | `o/<org>/membership/` | GET | O próprio vínculo do ator nesta organização (sysid, revisão) com ETag; 404 sem vínculo ativo |
 | `o/<org>/limits/` | GET | Uso e limite das métricas limitadas da organização ([#698](https://github.com/alaorneto/skeleton/issues/698)): `{"results": [{"metric", "used", "limit", "reserved", "over_limit"}]}`; métrica ilimitada não aparece; exige `members.view` ou `members.manage` (403 sem a capacidade, 404 para não membro). Ver [limites da organização](organization-limits.md) |
 | `o/<org>/membership/leave/` | POST | O ator sai da organização; exige `If-Match` com a revisão do próprio vínculo (428 sem ele, 412 se mudou), corpo vazio; 204; 409 `last_administrator` para o último administrador |

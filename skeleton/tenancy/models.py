@@ -64,6 +64,11 @@ class Membership(OrganizationRecord):
             from skeleton.accounts.models import AccountType, User
 
             using = self._state.db or "default"
+            if User.all_objects.using(using).filter(pk=self.user_id, account_type=AccountType.PLATFORM_CLIENT).exists():
+                # A platform client reads the instance; it is never a member of an organization (#709).
+                raise ValidationError(
+                    {"user": ValidationError(gettext("Um cliente da plataforma não é membro."), code="service_account")}
+                )
             # A service account has exactly one membership: the organization that created it (#44).
             owner = (
                 User.all_objects.using(using)

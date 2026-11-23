@@ -3,13 +3,16 @@ from django.urls import path
 from skeleton.web.page_editor import editor_urls
 
 from . import (
+    api_clients_views,
     appearance_views,
     billing_views,
     identity_views,
+    insights_views,
     instance_views,
     jobs_views,
     native_clients_views,
     privacy_views,
+    remote_instances_views,
     updates,
     views,
 )
@@ -18,8 +21,18 @@ app_name = "platform"
 urlpatterns = [
     path("", views.overview, name="overview"),
     path("instance/", instance_views.instance, name="instance"),
+    path("insights/", insights_views.insights, name="insights"),
+    path("api-clients/", api_clients_views.api_clients, name="api-clients"),
+    path("remote-instances/", remote_instances_views.remote_instances, name="remote-instances"),
+    path("remote-instances/<uuid:sysid>/", remote_instances_views.remote_instance, name="remote-instance"),
+    path(
+        "remote-instances/<uuid:sysid>/test/", remote_instances_views.remote_instance_test, name="remote-instance-test"
+    ),
+    path("api-clients/<uuid:sysid>/", api_clients_views.api_client, name="api-client"),
+    path("api-clients/<uuid:sysid>/deactivate/", api_clients_views.api_client_deactivate, name="api-client-deactivate"),
     path("instance/setting/", instance_views.instance_setting, name="instance-setting"),
     path("instance/restart/", instance_views.instance_restart, name="instance-restart"),
+    path("instance/identity/", instance_views.instance_identity_update, name="instance-identity"),
     path("appearance/", appearance_views.appearance, name="appearance"),
     path("appearance/brand/", appearance_views.appearance_brand, name="appearance-brand"),
     # The public home page of the instance (#622): the shared block editor (#619).

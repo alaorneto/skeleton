@@ -5,6 +5,16 @@
 <p class="page-description">{% translate "Chaves do catálogo e a origem de cada valor: o ambiente vence o SQLite da instância, que vence o padrão. Chaves que vêm do ambiente ficam somente leitura. Segredos nunca são exibidos. As mudanças valem depois do reinício." %}</p></div>
 {% if not cluster %}<form method="post" action="{% url 'platform:instance-restart' %}">{% csrf_token %}<button type="submit" class="btn btn-secondary">{% translate "Pedir reinício" %}</button></form>{% endif %}</div>
 {% if cluster %}<div class="alert mb-4" role="status">{% include "skeleton/web/components/icon.html" with name="info" %}<div class="min-w-0">{% translate "Configuração gerida pelo ambiente (modo cluster): os mesmos valores valem em todos os nós. Mude o arquivo de ambiente ou o cofre de segredos e reinicie os nós." %}</div></div>{% endif %}
+<section class="card mb-5" aria-labelledby="instance-identity">
+  <h2 id="instance-identity">{% translate "Identidade" %}</h2>
+  <p class="mt-1 text-sm/6 text-body-subtle">{% translate "Identificador estável desta base, usado pela API de gestão e pelas conexões de uma instância central. Ele nunca muda." %}</p>
+  <label class="mt-4 block text-sm font-medium text-heading" for="instance-id">{% translate "Identificador" %}</label>
+  <input id="instance-id" class="mt-1 w-full font-mono" type="text" value="{{ identity.instance_id }}" readonly>
+  <form method="post" action="{% url 'platform:instance-identity' %}" class="mt-4">{% csrf_token %}
+    {% with form=identity_form %}{% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" %}{% endwith %}
+    <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Salvar identidade" %}</button></div>
+  </form>
+</section>
 {% if form and form.errors %}{% include "skeleton/web/components/form-errors.html" %}{% endif %}
 <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Chave" %}</th><th scope="col">{% translate "Origem" %}</th><th scope="col">{% translate "Valor" %}</th><th scope="col">{% translate "Alterar" %}</th></tr></thead><tbody>
 {% for row in rows %}<tr>
