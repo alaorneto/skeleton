@@ -21,7 +21,9 @@ Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do coo
 | `o/<org>/catalog/` | GET | Apenas tabelas legíveis; não inventário técnico global |
 | `o/<org>/search/` | GET | [Busca global](#busca-global) nas tabelas marcadas com `global_search` que o ator lê; `q` e `limit`; sessão ou token |
 | `o/<org>/audit/`, `audit/<event>/` | GET | Eventos autorizados; filtros `record_sysid`, `model_label`, `from`, `to` (data ou ISO 8601), `actor`, `operation` e `request_id` na lista (#184); filtro desconhecido ou inválido é 400 `invalid_filter`; `table_name` e `db_principal` vêm vazios para quem não administra a organização (#324) |
+| `platform/...` | GET | A [API de gestão da instância](platform-api.md): só tokens `platform` com o escopo da rota (ou a sessão do administrador da plataforma); somente leitura |
 | `o/<org>/membership/` | GET | O próprio vínculo do ator nesta organização (sysid, revisão) com ETag; 404 sem vínculo ativo |
+| `o/<org>/limits/` | GET | Uso e limite das métricas limitadas da organização ([#698](https://github.com/alaorneto/skeleton/issues/698)): `{"results": [{"metric", "used", "limit", "reserved", "over_limit"}]}`; métrica ilimitada não aparece; exige `members.view` ou `members.manage` (403 sem a capacidade, 404 para não membro). Ver [limites da organização](organization-limits.md) |
 | `o/<org>/membership/leave/` | POST | O ator sai da organização; exige `If-Match` com a revisão do próprio vínculo (428 sem ele, 412 se mudou), corpo vazio; 204; 409 `last_administrator` para o último administrador |
 | `o/<org>/memberships/`, `<id>/` | GET, POST; GET/PATCH/DELETE no detalhe | `members.view` para ler, `members.manage` para alterar; criar com user explícito; PATCH só is_active; sem `access.manage`, não desativa quem tem capacidade |
 | `o/<org>/roles/`, `<id>/` | GET, POST; GET/PATCH/DELETE | `access.manage`; code,name,description; is_builtin read-only |
@@ -36,7 +38,7 @@ Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do coo
 | `o/<org>/invitations/<id>/resend/` | POST | `invitations.manage`, corpo `{}` e If-Match; revoga convite antigo e retorna novo UUID/ETag/token só por email |
 | `o/<org>/billing/`, `billing/<ação>/` | GET; POST | [Cobrança](billing.md#superfícies): GET com `billing.view` (situação, assinatura, faturas, ofertas, armazenamento); POST com `billing.manage` nas ações `contract`, `remove`, `cancel`, `resume`, `voucher`, `account` e `checkout` (responde a URL da página do provedor). Os erros seguem o mapeamento da API de serviços; continua acessível com o acesso limitado. Tokens não administram, então só sessões usam estas rotas |
 | `o/<org>/apps/active/` | GET | Qualquer membro ativo, sessão ou token: as apps ativas e visíveis ao papel ([descoberta](#descoberta-para-clientes-nativos)) |
-| `o/<org>/apps/`, `apps/<app_label>/configuration/` | GET; GET/PUT configuração | Capacidade `apps.manage` (gestor de apps ou administrador; os demais recebem 404); lista só as apps disponíveis para a organização e as ativas que a plataforma retirou (`available: false`); app_id/version declarados, enabled/configuration; If-Match `"0"` para estado virtual inicial; PUT numa app indisponível responde 400 `app_unavailable`, salvo a desativação de uma app ativa; com a configuração gravada incompatível com a versão instalada, o PUT responde 400 (`configuration_incompatible`) e nada é gravado (#251) |
+| `o/<org>/apps/`, `apps/<app_label>/configuration/` | GET; GET/PUT configuração | Capacidade `apps.manage` (gestor de apps ou administrador; os demais recebem 404); lista só as apps disponíveis para a organização e as ativas que a plataforma retirou (`available: false`); app_id/version declarados, enabled/configuration; If-Match `"0"` para estado virtual inicial; PUT numa app indisponível responde 400 `app_unavailable`, salvo a desativação de uma app ativa; com a configuração gravada incompatível com a versão instalada, o PUT responde 400 (`configuration_incompatible`) e nada é gravado (#251); `locked_fields` lista a ativação e os campos que a plataforma travou ou gere, e mudá-los responde 409 `setting_locked` ([configurações geridas pela plataforma](managed-settings.md)) |
 
 ### Recursos dos subsistemas
 
@@ -264,7 +266,7 @@ Views que aceitam token, com os métodos:
 | Recurso | Métodos | Escopo |
 |---|---|---|
 | `me/` | GET (nunca PATCH) | nenhum |
-| `organizations/`, `o/<org>/membership/`, `o/<org>/catalog/` | GET | nenhum |
+| `organizations/`, `o/<org>/membership/`, `o/<org>/limits/`, `o/<org>/catalog/` | GET | nenhum |
 | `o/<org>/tables/<tabela>/records/`, `<id>/` | GET, POST, PATCH, DELETE | `<tabela>:read`, `create`, `update`, `delete` |
 | `.../records/<id>/restore/` | POST | `<tabela>:restore` |
 | `o/<org>/tables/<tabela>/references/<campo>/` | GET | `read` da tabela referenciada |

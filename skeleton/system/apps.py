@@ -21,6 +21,9 @@ class SystemConfig(AppConfig):
 
         # Organization limits (#695): the core metrics and the resolver, with or without billing.
         register_limits()
+        from .setting_locks import register_app_setting_provider
+
+        register_app_setting_provider()  # apps.<label>.* settings the platform may lock (#701).
         from .synchronization import post_migrate_catalog
 
         post_migrate.connect(post_migrate_catalog, sender=self, dispatch_uid="skeleton.sync.catalog")

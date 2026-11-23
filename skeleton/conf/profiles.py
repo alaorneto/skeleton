@@ -6,6 +6,7 @@ def development_settings(base):
     BASE_DIR = base["BASE_DIR"]
     DEBUG = base["DEBUG"]
     DEBUG = True
+    SKELETON_FILES_DIRECTORY_LOCATIONS = True  # Directory storage locations, never in production (#704).
     if base["SKELETON_ORGANIZATION_CUSTOM_DOMAINS"] and base["SKELETON_ORGANIZATION_BASE_DOMAIN"]:
         from skeleton.tenancy.site import SiteAllowedHosts
 
@@ -129,6 +130,7 @@ def test_settings(base):
     BASE_DIR = base["BASE_DIR"]
     DEBUG = base["DEBUG"]
     DEBUG = True
+    SKELETON_FILES_DIRECTORY_LOCATIONS = True  # Directory storage locations, never in production (#704).
     from skeleton.conf.base import database_config
 
     # The suite runs on PostgreSQL with the runtime role (#145); tools/dev_postgres.py provides one.

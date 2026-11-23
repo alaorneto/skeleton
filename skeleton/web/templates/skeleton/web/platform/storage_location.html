@@ -1,0 +1,29 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% load i18n %}{% block page_title %}{% if location %}{{ location.label }}{% else %}{% translate "Novo local" %}{% endif %}{% endblock %}
+{% block content %}
+<div class="max-w-3xl">
+<div class="page-header">
+  <div class="min-w-0">
+    <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'platform:storage' %}">{% translate "Locais de armazenamento" %}</a></li><li><span aria-current="page">{% if location %}{{ location.label }}{% else %}{% translate "Novo local" %}{% endif %}</span></li></ol></nav>
+    <h1>{% if location %}{{ location.label }}{% else %}{% translate "Novo local de armazenamento" %}{% endif %}</h1>
+    {% if location %}<p class="mt-2 text-sm/6 text-body-subtle">{% translate "Chave secreta" %}: {% if secret_set %}{% translate "definida" %}{% else %}{% translate "não definida" %}{% endif %}</p>{% endif %}
+  </div>
+</div>
+{% if result %}<p class="alert {% if result.ok %}alert-success{% else %}alert-warning{% endif %} mb-4" role="status">{{ result.message }}</p>{% endif %}
+<section class="card">
+  <form method="post" action="{% if location %}{% url 'platform:storage-location' location.pk %}{% else %}{% url 'platform:storage-create' %}{% endif %}" autocomplete="off">
+    {% csrf_token %}
+    {% include "skeleton/web/components/form-errors.html" %}
+    {% include "skeleton/web/components/form-fields.html" %}
+    <p class="mt-2 text-sm/6 text-body-subtle">{% translate "A chave secreta é cifrada e nunca exibida. Toda mudança é auditada e exige autenticação recente." %}</p>
+    <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Salvar" %}</button><a class="btn btn-secondary" href="{% url 'platform:storage' %}">{% translate "Voltar" %}</a></div>
+  </form>
+</section>
+{% if location %}<section class="card mt-5">
+  <div class="toolbar">
+    <form method="post" action="{% url 'platform:storage-location-test' location.pk %}">{% csrf_token %}<button type="submit" class="btn btn-secondary">{% translate "Testar conexão" %}</button></form>
+    {% if location.is_active %}<form method="post" action="{% url 'platform:storage-location' location.pk %}">{% csrf_token %}<input type="hidden" name="action" value="deactivate"><input type="hidden" name="revision" value="{{ location.revision }}"><button type="submit" class="btn btn-danger-outline">{% translate "Desativar" %}</button></form>{% endif %}
+  </div>
+</section>{% endif %}
+</div>
+{% endblock %}

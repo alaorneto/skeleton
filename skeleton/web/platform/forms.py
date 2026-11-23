@@ -8,7 +8,12 @@ from skeleton.accounts.models import User
 __all__ = [
     "AppAvailabilityForm",
     "AppGrantForm",
+    "AppLimitsForm",
     "AppRevokeForm",
+    "SettingLockForm",
+    "SettingUnlockForm",
+    "LimitOverrideForm",
+    "LimitOverrideRemoveForm",
     "CatalogLabelForm",
     "OrganizationAdministratorForm",
     "OrganizationCreateForm",
@@ -62,6 +67,56 @@ class PlatformUserForm(forms.Form):
     expected_revision = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
 
 
+def add_required_rule_fields(form):
+    """One field per ``required`` provisioning rule (#703); returns field name → rule target."""
+    from skeleton.tenancy.provisioning import required_rules, rule_targets
+
+    targets = rule_targets()
+    fields = {}
+    for index, rule in enumerate(required_rules()):
+        target = targets[rule.key]
+        name = f"setting_{index}"
+        label = f"{target.group} · {target.label}"
+        if target.kind == "bool":
+            form.fields[name] = forms.BooleanField(label=label, required=False, help_text=rule.key)
+        elif target.kind == "int":
+            form.fields[name] = forms.IntegerField(label=label, help_text=rule.key)
+        else:
+            form.fields[name] = forms.CharField(label=label, max_length=2000, help_text=rule.key)
+        fields[name] = target
+    return fields
+
+
+class ProvisioningRuleForm(forms.Form):
+    """A rule of the policy of new organizations (#703)."""
+
+    key = forms.ChoiceField(label=gettext_lazy("Configuração"), choices=())
+    mode = forms.ChoiceField(
+        label=gettext_lazy("Regra"),
+        choices=(("default", gettext_lazy("Valor inicial")), ("required", gettext_lazy("Informado na criação"))),
+    )
+    value = forms.CharField(
+        label=gettext_lazy("Valor inicial"),
+        required=False,
+        max_length=2000,
+        help_text=gettext_lazy("Só na regra de valor inicial. Sim/não para ligar e desligar."),
+    )
+    locked = forms.BooleanField(label=gettext_lazy("Travar na organização"), required=False)
+    reason = forms.CharField(label=gettext_lazy("Motivo da trava"), max_length=500, required=False)
+    expected_revision = forms.IntegerField(min_value=0, widget=forms.HiddenInput)
+
+    def __init__(self, *args, targets=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["key"].choices = [
+            (key, f"{target.group} · {target.label} ({key})") for key, target in (targets or {}).items()
+        ]
+
+
+class ProvisioningRuleRemoveForm(forms.Form):
+    key = forms.CharField(max_length=200, widget=forms.HiddenInput)
+    expected_revision = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
+
+
 class OrganizationCreateForm(forms.Form):
     name = forms.CharField(label=gettext_lazy("Nome"), max_length=200)
     slug = forms.SlugField(
@@ -73,6 +128,35 @@ class OrganizationCreateForm(forms.Form):
         max_length=254,
         help_text=gettext_lazy("Identidade ativa que recebe o papel de administrador da organização."),
     )
+
+    def __init__(self, *args, **kwargs):
+        from skeleton.files.models import StorageLocation
+
+        super().__init__(*args, **kwargs)
+        self.required_rules = add_required_rule_fields(self)
+        locations = StorageLocation.objects.filter(is_active=True).order_by("label")
+        if locations.exists():
+            # Where the organization's files live (#706); it never sees this choice.
+            self.fields["storage_location"] = forms.ModelChoiceField(
+                label=gettext_lazy("Local de armazenamento"),
+                queryset=locations,
+                required=False,
+                empty_label=gettext("Armazenamento da instância"),
+                initial=locations.filter(is_default=True).first(),
+            )
+
+    def provided_settings(self):
+        """The values of the platform's required rules (#703), by key, typed by the setting kind."""
+        from skeleton.tenancy.setting_locks import parse_form_value
+
+        result = {}
+        for name, target in self.required_rules.items():
+            raw = self.cleaned_data.get(name)
+            if target.kind == "bool":
+                result[target.key] = bool(raw)
+            else:
+                result[target.key] = parse_form_value(target, str(raw if raw is not None else ""))
+        return result
 
     def clean_slug(self):
         from skeleton.common.hostnames import slug_problem
@@ -170,6 +254,114 @@ class AppGrantForm(forms.Form):
         field.queryset = _grantable_organizations(granted_ids)
         field.label_from_instance = lambda organization: f"{organization.name} ({organization.slug})"
         field.error_messages["invalid_choice"] = "Escolha uma organização ativa que ainda não tenha a app."
+
+
+class AppLimitsForm(forms.Form):
+    """What one app adds to each organization limit (#696): one field per registered metric.
+
+    Empty or 0 is no contribution. The field names never carry the metric code itself (an app
+    metric has a dot): ``limit_<n>`` in the order of the sorted codes.
+    """
+
+    expected_revision = forms.IntegerField(min_value=0, widget=forms.HiddenInput)
+
+    def __init__(self, *args, **kwargs):
+        from skeleton.common.limits import limit_metric, registered_limit_metrics
+        from skeleton.system.limits import MAX_APP_LIMIT
+
+        super().__init__(*args, **kwargs)
+        self.metrics: dict[str, str] = {}
+        for index, code in enumerate(sorted(registered_limit_metrics())):
+            name = f"limit_{index}"
+            self.metrics[name] = code
+            self.fields[name] = forms.IntegerField(
+                label=limit_metric(code).label or code,
+                required=False,
+                min_value=0,
+                max_value=MAX_APP_LIMIT,
+                help_text=code,
+            )
+
+    @classmethod
+    def for_limits(cls, limits, *, revision):
+        form = cls(initial={"expected_revision": revision})
+        for name, code in form.metrics.items():
+            form.initial[name] = limits.get(code) or None
+        return form
+
+    def limits(self) -> dict[str, int]:
+        return {code: self.cleaned_data[name] for name, code in self.metrics.items() if self.cleaned_data.get(name)}
+
+
+class LimitOverrideForm(forms.Form):
+    """The platform's adjustment of one organization limit (#697): bonus or fixed, with a reason."""
+
+    metric = forms.ChoiceField(label=gettext_lazy("Métrica"), choices=())
+    mode = forms.ChoiceField(
+        label=gettext_lazy("Ajuste"),
+        choices=(("bonus", gettext_lazy("Bônus: soma ao limite calculado")), ("fixed", gettext_lazy("Limite fixo"))),
+    )
+    value = forms.IntegerField(
+        label=gettext_lazy("Valor"),
+        required=False,
+        min_value=1,
+        max_value=2_147_483_647,
+        help_text=gettext_lazy("No limite fixo, vazio é ilimitado."),
+    )
+    reason = forms.CharField(label=gettext_lazy("Motivo"), max_length=500)
+    expires_at = forms.DateTimeField(
+        label=gettext_lazy("Válido até"),
+        required=False,
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"),
+        input_formats=["%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d"],
+        help_text=gettext_lazy("Vazio: sem prazo. Vencido, o ajuste deixa de valer sozinho."),
+    )
+    expected_revision = forms.IntegerField(min_value=0, widget=forms.HiddenInput)
+
+    def __init__(self, *args, **kwargs):
+        from skeleton.common.limits import limit_metric, registered_limit_metrics
+
+        super().__init__(*args, **kwargs)
+        self.fields["metric"].choices = [
+            (code, limit_metric(code).label or code) for code in sorted(registered_limit_metrics())
+        ]
+
+    def clean(self):
+        data = super().clean()
+        if data.get("mode") == "bonus" and data.get("value") is None:
+            self.add_error("value", gettext("Informe quanto o bônus soma ao limite."))
+        return data
+
+
+class LimitOverrideRemoveForm(forms.Form):
+    metric = forms.CharField(max_length=100, widget=forms.HiddenInput)
+    expected_revision = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
+
+
+class SettingLockForm(forms.Form):
+    """Lock one setting of one organization (#701): the key, the value typed as text and a reason."""
+
+    key = forms.ChoiceField(label=gettext_lazy("Configuração"), choices=())
+    value = forms.CharField(
+        label=gettext_lazy("Valor"),
+        required=False,
+        max_length=2000,
+        widget=forms.Textarea(attrs={"rows": 2}),
+        help_text=gettext_lazy("Sim/não para ligar e desligar; vazio no logo e no ícone (trava o atual)."),
+    )
+    reason = forms.CharField(label=gettext_lazy("Motivo"), max_length=500)
+    expected_revision = forms.IntegerField(min_value=0, widget=forms.HiddenInput)
+
+    def __init__(self, *args, settings=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["key"].choices = [
+            (key, f"{setting.group} · {setting.label} ({key})") for key, setting in (settings or {}).items()
+        ]
+
+
+class SettingUnlockForm(forms.Form):
+    key = forms.CharField(max_length=200, widget=forms.HiddenInput)
+    expected_revision = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
 
 
 class AppRevokeForm(forms.Form):

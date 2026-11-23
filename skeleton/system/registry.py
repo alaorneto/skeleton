@@ -236,6 +236,24 @@ def register_core_specs():
             "global",
             ("logo_key", "icon_key"),
         ),
+        "sk_tenancy.organizationsettinglock": (
+            "Travas de configuração",
+            "Configuração de uma organização fixada pela plataforma, com o valor e o motivo; a organização não a muda.",
+            "global",
+            (),
+        ),
+        "sk_tenancy.organizationprovisioningrule": (
+            "Política das organizações novas",
+            "Valor inicial, travado ou exigido na criação, que a plataforma define para toda organização nova.",
+            "global",
+            (),
+        ),
+        "sk_tenancy.organizationsignup": (
+            "Cadastros de organizações",
+            "Organização criada pela própria pessoa no cadastro, com o pacote escolhido; base do teto por pessoa.",
+            "global",
+            (),
+        ),
         "sk_tenancy.organizationpage": (
             gettext_lazy("Páginas da organização"),
             gettext_lazy(
@@ -346,6 +364,38 @@ def register_core_specs():
             "global",
             (),
         ),
+        "sk_system.organizationlimitoverride": (
+            gettext_lazy("Ajustes de limites"),
+            gettext_lazy("Bônus ou limite fixo de uma métrica numa organização, definido pela plataforma com motivo."),
+            "global",
+            (),
+        ),
+        "sk_system.instanceidentity": (
+            gettext_lazy("Identidade da instância"),
+            gettext_lazy("Identificador estável desta base, com nome e finalidade, usado pela API de gestão."),
+            "global",
+            (),
+        ),
+        "sk_system.appbundle": (
+            gettext_lazy("Pacotes de apps"),
+            gettext_lazy(
+                "Nível do produto: conjunto de apps que uma organização recebe junto, definido pela plataforma."
+            ),
+            "global",
+            (),
+        ),
+        "sk_system.organizationbundle": (
+            gettext_lazy("Pacote das organizações"),
+            gettext_lazy("O pacote de apps (nível) atribuído a cada organização."),
+            "global",
+            (),
+        ),
+        "sk_billing.bundleoffer": (
+            gettext_lazy("Ofertas de pacotes"),
+            gettext_lazy("O preço que vende um pacote de apps numa moeda."),
+            "global",
+            (),
+        ),
         "sk_system.componentinstallation": (
             gettext_lazy("Componentes instalados"),
             gettext_lazy("Versão e procedência global do release confirmado."),
@@ -381,6 +431,24 @@ def register_core_specs():
             gettext_lazy("Fila de trabalho em segundo plano; payload só com identificadores, sem dados de negócio."),
             "global",
             (),
+        ),
+        "sk_insights.organizationsnapshot": (
+            gettext_lazy("Resumo das organizações"),
+            gettext_lazy("Números de gestão de cada organização (membros, apps, armazenamento, cobrança), por hora."),
+            "global",
+            (),
+        ),
+        "sk_insights.instancemetric": (
+            gettext_lazy("Métricas da instância"),
+            gettext_lazy("Valor diário de cada métrica de gestão da instância, por moeda; retenção declarada."),
+            "global",
+            (),
+        ),
+        "sk_integrations.remoteinstanceconnection": (
+            gettext_lazy("Conexões com instâncias remotas"),
+            gettext_lazy("API de gestão de outra instância lida pela central; o token é cifrado e nunca exibido."),
+            "global",
+            ("token",),
         ),
         "sk_jobs.workerheartbeat": (
             "Workers",
@@ -441,6 +509,18 @@ def register_core_specs():
         "sk_files.storagequota": (
             gettext_lazy("Cotas de armazenamento"),
             gettext_lazy("Cota de anexos definida pela plataforma para uma organização; sem ela vale o padrão."),
+            "global",
+            (),
+        ),
+        "sk_files.storagelocation": (
+            gettext_lazy("Locais de armazenamento"),
+            gettext_lazy("Bucket S3 (ou diretório de teste) da plataforma; a chave secreta é cifrada e nunca exibida."),
+            "global",
+            ("access_key_id", "secret_access_key"),
+        ),
+        "sk_files.organizationstorage": (
+            gettext_lazy("Armazenamento das organizações"),
+            gettext_lazy("Local de armazenamento que guarda os arquivos de uma organização; sem ele, o da instância."),
             "global",
             (),
         ),

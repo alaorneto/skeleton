@@ -22,11 +22,13 @@ from .limits import (
     BUNDLED_KIND,
     BUNDLED_LABEL_PREFIX,
     BUNDLED_PACKAGE,
+    CONFIGURATION_OWNERS,
     DOCUMENT_HEADINGS,
     INSTANCE_THEME_RESERVED_DIRECTORIES,
     INSTANCE_THEME_SLUG,
     INSTANCE_THEMES_CORE_MINIMUM,
     MAX_INSTANCE_THEMES,
+    PLATFORM_MANAGED_CONFIG_CORE_MINIMUM,
     PORTAL_CORE_MINIMUM,
     RESERVED_NAMES,
     SERVICE_API_CORE_MINIMUM,
@@ -184,7 +186,7 @@ def _validate_configuration_fields(m, r):
     for config in r["configuration_fields"]:
         config_fields = ("name", "type", "default", "max_length")
         if m["manifest_version"] == 2:
-            config_fields += ("label", "help_text", "section_id")
+            config_fields += ("label", "help_text", "section_id", "managed_by")
         _object(config, config_fields, ("name", "type", "default"))
         name = _identifier(config["name"])
         if m["manifest_version"] == 2 and name in {"enabled", "revision", "csrfmiddlewaretoken"}:
@@ -202,6 +204,13 @@ def _validate_configuration_fields(m, r):
             or (expected is str and len(config["default"]) > maximum)
         ):
             _fail("Invalid scalar configuration field.")
+        owner = config.get("managed_by", "organization")
+        if owner not in CONFIGURATION_OWNERS:
+            _fail("Invalid configuration field owner.")
+        if owner == "platform" and not _core_floor_at_least(
+            m["compatibility"]["skeleton"], PLATFORM_MANAGED_CONFIG_CORE_MINIMUM
+        ):
+            _fail("managed_by platform requires a core minimum of " + PLATFORM_MANAGED_CONFIG_CORE_MINIMUM + ".")
 
 
 def _validate_navigation(r, label):

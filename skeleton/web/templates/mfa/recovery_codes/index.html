@@ -1,0 +1,61 @@
+{% extends "mfa/recovery_codes/base.html" %}
+{% load i18n allauth %}
+{% comment %}
+Override of allauth's page (#734). With MFA_RECOVERY_CODES_SHOW_ONCE allauth draws only the
+"saved" checkbox, with no way to finish. Here the checkbox is required by a GET form that goes
+back to mfa_index: native validation, no script, nothing written. The checkbox has no name, so
+the query string stays empty.
+{% endcomment %}
+{% block content %}
+    {% element h1 %}
+        {% translate "Códigos de recuperação" %}
+    {% endelement %}
+    {% element p %}
+        {% blocktranslate count unused_count=unused_codes|length %}Há {{ unused_count }} de {{ total_count }} código de recuperação disponível.{% plural %}Há {{ unused_count }} de {{ total_count }} códigos de recuperação disponíveis.{% endblocktranslate %}
+    {% endelement %}
+    {% if can_view_codes %}
+        {% element field id="recovery_codes" type="textarea" rows=unused_codes|length readonly=True %}
+            {% slot label %}
+                {% translate "Códigos não utilizados" %}
+            {% endslot %}
+            {# djlint:off #}
+{% slot value %}{% for code in unused_codes %}{% if forloop.counter0 %}
+{% endif %}{{ code }}{% endfor %}{% endslot %}
+            {# djlint:on #}
+        {% endelement %}
+    {% endif %}
+    {% if MFA_RECOVERY_CODES_SHOW_ONCE and can_view_codes %}
+        {% url 'mfa_index' as mfa_url %}
+        {% element form method="get" action=mfa_url %}
+            {% slot body %}
+                {% element field type="checkbox" id="codes_saved" required=True %}
+                    {% slot label %}
+                        {% translate "Eu salvei meus códigos de recuperação" %}
+                    {% endslot %}
+                {% endelement %}
+            {% endslot %}
+            {% slot actions %}
+                {% element button type="submit" %}
+                    {% translate "Concluir" %}
+                {% endelement %}
+            {% endslot %}
+        {% endelement %}
+    {% else %}
+        {% if can_download_codes or can_generate_codes %}
+            {% element button_group %}
+                {% if can_download_codes %}
+                    {% url 'mfa_download_recovery_codes' as download_url %}
+                    {% element button href=download_url tags="secondary" %}
+                        {% translate "Baixar códigos" %}
+                    {% endelement %}
+                {% endif %}
+                {% if can_generate_codes %}
+                    {% url 'mfa_generate_recovery_codes' as generate_url %}
+                    {% element button href=generate_url %}
+                        {% translate "Gerar novos códigos" %}
+                    {% endelement %}
+                {% endif %}
+            {% endelement %}
+        {% endif %}
+    {% endif %}
+{% endblock content %}

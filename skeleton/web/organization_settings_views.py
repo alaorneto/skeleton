@@ -111,6 +111,38 @@ def _custom_domains_enabled() -> bool:
     return custom_domains_enabled()
 
 
+LOCKED_HELP = gettext_lazy("Definido pela plataforma.")
+
+
+def lock_fields(form, locked, data=None):
+    """Show the fields the platform locked (#701) as read-only and keep their value in the POST.
+
+    A disabled field is not sent by the browser: its displayed value is put back before the
+    form validates, so the service receives the locked value. A forged different value still
+    reaches the service, which refuses it with ``setting_locked``.
+    """
+    for name in locked:
+        field = form.fields.get(name)
+        if field is None:
+            continue
+        field.widget.attrs["disabled"] = True
+        field.help_text = LOCKED_HELP
+        if data is not None and name not in data:
+            value = form.initial.get(name, field.initial)
+            if isinstance(field, forms.BooleanField):
+                if value:
+                    data[name] = "on"
+            else:
+                data[name] = "" if value is None else value
+    return form
+
+
+def _locked():
+    from skeleton.tenancy.setting_locks import locked_fields
+
+    return set(locked_fields("organization"))
+
+
 def _apply_error(form: OrganizationSettingsForm, error: ValidationError, site_form=None) -> None:
     for field, problems in error.message_dict.items():
         if site_form is not None and field in site_form.fields:
@@ -123,8 +155,11 @@ def _page(request, organization_id, form, *, status=200, logo_errors=(), site_fo
     record = current_settings()
     dashboard = reverse("web:dashboard", kwargs={"organization_id": organization_id})
     origin, site_refused = _site_address(organization_id)
+    locked = _locked()
     if site_form is None:
         site_form = SiteAddressForm(initial={"site_enabled": bool(record is not None and record.site_enabled)})
+    lock_fields(form, locked)
+    lock_fields(site_form, locked)
     return render(
         request,
         "skeleton/web/organization_settings.html",
@@ -139,6 +174,8 @@ def _page(request, organization_id, form, *, status=200, logo_errors=(), site_fo
             "has_logo": bool(record is not None and record.logo_key),
             "logo_errors": list(logo_errors),
             "has_icon": bool(record is not None and record.icon_key),
+            "logo_locked": "logo" in locked,
+            "icon_locked": "icon" in locked,
             "icon_errors": list(icon_errors),
             "cancel_url": dashboard,
             "breadcrumbs": [{"label": gettext("Início"), "url": dashboard}, {"label": gettext("Configurações")}],
@@ -153,9 +190,12 @@ def _form(request, record):
     initial = {name: getattr(record, name, "") for name in WRITE_FIELDS}
     initial["business_hours"] = format_hours(getattr(record, "business_hours", None))
     initial["holidays"] = format_holidays(getattr(record, "holidays", None))
-    return OrganizationSettingsForm(
-        request.POST if request.method == "POST" else None, initial={**initial, "revision": revision_of(record)}
-    )
+    initial["revision"] = revision_of(record)
+    if request.method != "POST":
+        return OrganizationSettingsForm(None, initial=initial)
+    data = request.POST.copy()
+    form = OrganizationSettingsForm(data, initial=initial)
+    return lock_fields(form, _locked(), data)
 
 
 @tenant_page(admin=True)
@@ -167,7 +207,12 @@ def organization_settings(request, organization_id):
     origin, _refused = _site_address(organization_id)
     site_form = None
     if request.method == "POST" and origin:
-        site_form = SiteAddressForm(request.POST)
+        site_data = request.POST.copy()
+        site_form = lock_fields(
+            SiteAddressForm(site_data, initial={"site_enabled": bool(record is not None and record.site_enabled)}),
+            _locked(),
+            site_data,
+        )
     status = 200
     if request.method == "POST":
         allowed = set(form.fields) | set(SiteAddressForm.base_fields) | {"csrfmiddlewaretoken"}
@@ -188,8 +233,10 @@ def organization_settings(request, organization_id):
                 form.add_error(None, gettext("As configurações mudaram. Atualize a página antes de tentar novamente."))
                 status = 409
             except ValidationError as exc:
+                from skeleton.service_api.organizations import is_setting_locked
+
                 _apply_error(form, exc, site_form)
-                status = 400
+                status = 409 if is_setting_locked(exc) else 400
             else:
                 messages.success(request, gettext("Configurações salvas."))
                 return redirect("web:organization-settings", organization_id=organization_id)

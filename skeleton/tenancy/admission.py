@@ -114,6 +114,12 @@ def configure_policy(*, actor: Any, data: dict[str, Any], expected_revision: int
         if type(value) is not bool:
             raise ValidationError({name: "Use true ou false."})
         values[name] = value
+    from .setting_locks import require_unlocked
+
+    require_unlocked(
+        {f"admission.{name}": values[name] for name in POLICY_FLAGS},
+        field_of={f"admission.{name}": name for name in POLICY_FLAGS},
+    )
     with organization_lock(actor, capability=ADMISSION_CONFIGURE) as organization:
         values["request_default_role"] = _role(data.get("request_default_role"), organization.pk)
         record = (
@@ -130,6 +136,31 @@ def configure_policy(*, actor: Any, data: dict[str, Any], expected_revision: int
                 setattr(record, name, values[name])
             if changed:
                 record.save(update_fields=changed)
+        _sync_directory(organization, record)
+        return record
+
+
+def write_policy_flag(name: str, value: bool) -> Any:
+    """Write one flag of the policy in the current organization, without an actor (#701).
+
+    For the platform locking it, inside the system context of the organization: the same
+    lock, row and directory index as ``configure_policy``.
+    """
+    from skeleton.access.services import organization_lock
+
+    models = _models()
+    if name not in POLICY_FLAGS or type(value) is not bool:
+        raise ValidationError({"value": "Use true ou false."})
+    with organization_lock() as organization:
+        record = (
+            models.OrganizationAdmissionPolicy.objects.select_for_update().filter(organization=organization).first()
+        )
+        if record is None:
+            record = models.OrganizationAdmissionPolicy(organization=organization, **{name: value})
+            record.save()
+        elif getattr(record, name) != value:
+            setattr(record, name, value)
+            record.save(update_fields={name})
         _sync_directory(organization, record)
         return record
 

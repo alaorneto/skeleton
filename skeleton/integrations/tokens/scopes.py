@@ -39,6 +39,19 @@ class TokenScope:
 
 _named: dict[str, TokenScope] = {}
 
+# The platform API (#709, #711): registered by the core only, valid only on ``platform`` tokens.
+PLATFORM_SCOPES = {
+    "platform.instance:read": "Identidade, versão e apps da instância",
+    "platform.organizations:read": "Resumo de cada organização",
+    "platform.billing:read": "Faturas, pagamentos e situação de cobrança das organizações",
+    "platform.billing_contacts:read": "Contato de cobrança das organizações (dado pessoal)",
+    "platform.metrics:read": "Métricas diárias da instância",
+}
+
+
+def is_platform_scope(scope: str) -> bool:
+    return scope in PLATFORM_SCOPES
+
 
 def register_token_scope(name: str, description: str, *, feed: bool = False) -> TokenScope:
     """Declare a named scope in ``AppConfig.ready()``."""
@@ -70,6 +83,17 @@ def table_scope(model: type[Model], action: str) -> str:
     return f"{model._meta.label_lower}:{action}"
 
 
+def validate_platform_scopes(scopes: object) -> list[str]:
+    """The scopes of a ``platform`` token: only the ``platform.*`` family (#709)."""
+    if not isinstance(scopes, list | tuple) or not scopes or not all(isinstance(scope, str) for scope in scopes):
+        raise ValidationError({"scopes": gettext("Informe ao menos um escopo.")})
+    clean = sorted(set(scopes))
+    for scope in clean:
+        if not is_platform_scope(scope):
+            raise ValidationError({"scopes": gettext("Escopo desconhecido: %(scope)s.") % {"scope": scope}})
+    return clean
+
+
 def validate_scopes(scopes: object, *, feed: bool) -> list[str]:
     """Normalized, sorted and unique scopes, or ``ValidationError`` (400) for any unknown one."""
     if not isinstance(scopes, list | tuple) or not scopes:
@@ -81,6 +105,10 @@ def validate_scopes(scopes: object, *, feed: bool) -> list[str]:
     known_tables = set(table_scopes())
     clean = sorted(set(scopes))
     for scope in clean:
+        if is_platform_scope(scope):
+            raise ValidationError(
+                {"scopes": gettext("Escopo %(scope)s não vale para este tipo de token.") % {"scope": scope}}
+            )
         named = _named.get(scope)
         if named is not None:
             if named.feed != feed:

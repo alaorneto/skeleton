@@ -903,3 +903,14 @@ class ProviderEvent(OperationalRecord):
 
     def __str__(self):
         return f"{self.provider_account_id} {self.event_id} {self.status}"
+
+
+class BundleOffer(SystemRecord):
+    """The price that sells a bundle of apps (#714), one per bundle and currency (checked by the service)."""
+
+    bundle = models.ForeignKey("sk_system.AppBundle", on_delete=models.PROTECT, related_name="offers")
+    price = models.ForeignKey(Price, on_delete=models.PROTECT, related_name="bundle_offers")
+    immutable_fields = ("bundle_id", "price_id")
+
+    def __str__(self):
+        return f"{self.bundle_id} → {self.price_id}"

@@ -6,6 +6,7 @@ from django.utils.decorators import method_decorator
 from django.utils.http import urlencode
 from django.views.decorators.http import require_http_methods
 
+from skeleton.common.exceptions import QuotaLimitExceeded
 from skeleton.tenancy.invitations import InvalidInvitation, accept_invitation, validate_invitation
 
 
@@ -32,6 +33,14 @@ def invitation_view(request, organization_id, token):
             return redirect(reverse("account_reauthenticate") + "?next=" + request.path)
         try:
             accept_invitation(user=request.user, organization_id=organization_id, token=token)
+        except QuotaLimitExceeded as full:
+            # Reachable only when seats were taken by other paths after the invitation (#698).
+            return render(
+                request,
+                "account/invitation.html",
+                {"invitation_email": proof.email, "error": " ".join(full.messages)},
+                status=409,
+            )
         except ValidationError:
             return render(request, "account/invitation_invalid.html", status=400)
         request.session.pop("skeleton_invitation", None)

@@ -3,9 +3,11 @@
 {% block content %}
 <div class="page-header">
   <div class="min-w-0"><p class="page-eyebrow">{% translate "Identidade" %}</p><h1>{% translate "Organizações" %}</h1><p class="page-description">{% translate "Criação e situação das organizações. Membros, papéis e dados são administrados dentro de cada organização, por quem tem vínculo nela." %}</p></div>
-  <nav class="toolbar" aria-label="{% translate "Ações" %}"><a class="btn btn-primary" href="{% url 'platform:organization-create' %}">{% include "skeleton/web/components/icon.html" with name="plus" %}{% translate "Nova organização" %}</a></nav>
+  <nav class="toolbar" aria-label="{% translate "Ações" %}"><a class="btn btn-secondary" href="{% url 'platform:organization-policy' %}">{% translate "Política das novas" %}</a><a class="btn btn-primary" href="{% url 'platform:organization-create' %}">{% include "skeleton/web/components/icon.html" with name="plus" %}{% translate "Nova organização" %}</a></nav>
 </div>
+{% if signup_blocked %}<p class="alert alert-warning mb-4" role="status">{% translate "O cadastro de organizações está ligado, mas uma regra da política das organizações novas exige um valor que só a plataforma informa: as pessoas não conseguem criar organizações." %} <a href="{% url 'platform:organization-policy' %}">{% translate "Ver a política" %}</a></p>{% endif %}
 {% include "skeleton/web/platform/search.html" with placeholder=_("Buscar por nome ou identificador") %}
+{% if signup_enabled %}<p class="mb-4 text-sm">{% if by_signup %}<a href="{% url 'platform:organizations' %}">{% translate "Todas as organizações" %}</a>{% else %}<a href="?signup=1">{% translate "Criadas por cadastro" %}</a>{% endif %}</p>{% endif %}
 <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Nome" %}</th><th scope="col">{% translate "Situação" %}</th><th scope="col" class="col-date">{% translate "Criada em" %}</th></tr></thead><tbody>
 {% for organization in rows %}<tr><td><a class="cell-primary" href="{% url 'platform:organization' organization.pk %}">{{ organization.name }}</a><span class="cell-secondary"><code class="uuid">{{ organization.slug }}</code></span></td><td>{% if organization.is_active %}{{ "active"|status_badge:_("Ativa") }}{% else %}{{ "inactive"|status_badge:_("Inativa") }}{% endif %}</td><td class="col-date">{{ organization.created_at|moment }}</td></tr>
 {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=3 message=_("Nenhuma organização encontrada.") icon="building" %}{% endfor %}

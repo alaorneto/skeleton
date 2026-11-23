@@ -12,6 +12,8 @@ KEYRINGS = (
     ("IDENTITY_PROVIDER_ENCRYPTION_KEYS", "identity provider"),
     ("INTEGRATION_ENCRYPTION_KEYS", "integration"),
     ("BILLING_ENCRYPTION_KEYS", "billing"),
+    ("REMOTE_INSTANCE_ENCRYPTION_KEYS", "remote instance"),
+    ("FILES_STORAGE_ENCRYPTION_KEYS", "storage location"),
 )
 
 
