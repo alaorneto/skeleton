@@ -6,6 +6,8 @@ a test does, change the structure the way the few DDL tests do, and compare the 
 the migrated one by the same fingerprint that proves the template (test_schema_template.py).
 """
 
+import json
+
 import psycopg
 import pytest
 from django.db import connection
@@ -238,13 +240,6 @@ REFUSED = {
     "force_rls_lifted": lambda owner, pair, template: _role_statement(
         "ALTER TABLE skeleton.{} NO FORCE ROW LEVEL SECURITY"
     )(owner),
-    "seeded_row_deleted": lambda owner, pair, template: owner.execute(
-        "DELETE FROM skeleton.django_migrations WHERE id=(SELECT max(id) FROM skeleton.django_migrations)"
-    ),
-    "seeded_row_changed": lambda owner, pair, template: owner.execute(
-        "UPDATE skeleton.django_migrations SET name = name || '_changed'"
-        " WHERE id=(SELECT max(id) FROM skeleton.django_migrations)"
-    ),
     "schema_recreated": _recreate,
 }
 
@@ -271,6 +266,57 @@ def test_a_change_the_deletes_cannot_undo_recreates_the_schema(reuse, change):
     assert idb.rows_outside_template(fresh) == []
     # And the recreated schema is reusable again.
     assert idb.template_schema(pair, template) == "reuse"
+
+
+LAST_MIGRATION = "id = (SELECT max(id) FROM skeleton.django_migrations)"
+SEEDED_CHANGES = {
+    "row_deleted": f"DELETE FROM skeleton.django_migrations WHERE {LAST_MIGRATION}",
+    "row_changed": f"UPDATE skeleton.django_migrations SET name = name || '_changed' WHERE {LAST_MIGRATION}",
+    "every_row_changed": "UPDATE skeleton.django_migrations SET applied = applied + interval '1 day'",
+    "rows_of_two_tables": (
+        f"DELETE FROM skeleton.django_migrations WHERE {LAST_MIGRATION};"
+        " UPDATE skeleton.auth_permission SET name = name || ' (changed)'"
+    ),
+}
+
+
+@pytest.mark.parametrize("change", sorted(SEEDED_CHANGES))
+def test_seeded_rows_a_test_changed_or_deleted_are_put_back(reuse, change):
+    pair, template, state = reuse
+    _write_like_a_test()
+    with psycopg.connect(pair.owner, autocommit=True) as owner:
+        owner.execute(SEEDED_CHANGES[change])
+        _probe(owner)
+    assert idb.schema_fingerprint(pair) != template.fingerprint, "The change must be one the fingerprint sees."
+
+    assert idb.reuse_schema(state, template, verify=True), state.reason
+
+    # The fingerprint compares every row of the seeded tables with the rows the migrations wrote.
+    assert _differences(idb.schema_fingerprint(pair), template.fingerprint) == {}
+    assert idb.rows_outside_template(state) == []
+
+
+def test_seeded_rows_that_cannot_be_put_back_exactly_recreate_the_schema(reuse):
+    pair, template, state = reuse
+    _write_like_a_test()
+    with psycopg.connect(pair.owner, autocommit=True) as owner:
+        last = owner.execute("SELECT max(id) FROM skeleton.django_migrations").fetchone()[0]
+        owner.execute("DELETE FROM skeleton.django_migrations WHERE id = %s", (last,))
+        # The copy of the template rows is the only source of a seeded row: an incomplete or
+        # inexact copy must never pass as the template.
+        columns, rows = state.seed_rows["django_migrations"]
+        state.seed_rows["django_migrations"] = (
+            columns,
+            json.dumps([row for row in json.loads(rows) if row["id"] != last]),
+        )
+
+        assert not idb.reuse_schema(state, template)
+        assert "could not be put back (django_migrations)" in state.reason
+        # Refused as a whole: the rows of the test are still there, nothing was half cleaned.
+        assert _rows_without_rls(owner, Organization._meta.db_table) == 1
+
+    assert idb.template_schema(pair, template) == "restore"
+    assert _differences(idb.schema_fingerprint(pair), template.fingerprint) == {}
 
 
 def test_a_lock_of_another_connection_refuses_the_reuse_and_leaves_nothing_half_clean(reuse):

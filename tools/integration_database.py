@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # The barriers of a destructive reset (#334), the worker databases and the schema template
@@ -353,6 +353,11 @@ _REUSE_SIZES = f"""
     SELECT c.relname::text, pg_relation_size(c.oid) FROM pg_class c
     WHERE c.relnamespace = {_NAMESPACE} AND c.relkind = 'r' AND pg_relation_size(c.oid) > 0
     ORDER BY 1"""  # noqa: S608 - constants
+_REUSE_COLUMNS = f"""
+    SELECT a.attname::text FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
+    WHERE c.relnamespace = {_NAMESPACE} AND c.relname = %s
+      AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated = ''
+    ORDER BY a.attnum"""  # noqa: S608 - constants
 _REUSE_SEQUENCES = f"""
     SELECT c.relname::text FROM pg_class c
     WHERE c.relnamespace = {_NAMESPACE} AND c.relkind = 'S'
@@ -397,6 +402,8 @@ class SchemaReuse:
     lock_timeout: str = REUSE_LOCK_TIMEOUT
     reused: int = 0
     reason: str = ""
+    # table -> (columns that can be written, the template rows as JSON), to put seeded rows back
+    seed_rows: dict = field(default_factory=dict)
 
 
 def _table(name):
@@ -462,7 +469,7 @@ def begin_schema_reuse(pair):
             return None
         _REUSE_UNSUPPORTED.pop(pair.database, None)
         forced = frozenset(name for name, _, _, force, _, _ in tables if force)
-        seeded = {}
+        seeded, seed_rows = {}, {}
         # Rows are read with FORCE ROW LEVEL SECURITY lifted in a transaction that is rolled back.
         with connection.transaction(force_rollback=True):
             names = [name for name, _, _, _, size, _ in tables if size > 0]
@@ -477,6 +484,13 @@ def begin_schema_reuse(pair):
                         )
                     ]
                     seeded[name] = (key, keys, digests[name], size)
+                    columns = [row[0] for row in connection.execute(_REUSE_COLUMNS, [name])]
+                    rows = connection.execute(
+                        sql.SQL("SELECT coalesce(jsonb_agg(to_jsonb(t)), '[]'::jsonb)::text FROM {} AS t").format(
+                            _table(name)
+                        )
+                    ).fetchone()[0]
+                    seed_rows[name] = (columns, rows)
         sequences = [row[0] for row in connection.execute(_REUSE_SEQUENCES)]
         setvals = []
         for name in sequences:
@@ -498,6 +512,7 @@ def begin_schema_reuse(pair):
             flags=flags,
             stable=connection.execute(_REUSE_STABLE).fetchall(),
             volatile=connection.execute(_REUSE_VOLATILE).fetchall(),
+            seed_rows=seed_rows,
         )
     except BaseException:
         connection.close()
@@ -526,6 +541,35 @@ def rows_outside_template(state):
     )
 
 
+def _put_seeded_rows_back(state, names):
+    """Inside the transaction: write the template rows a test changed or deleted, and only those."""
+    from psycopg import sql
+
+    for name in names:
+        key = sql.Identifier(state.seeded[name][0])
+        columns, rows = state.seed_rows[name]
+        others = [sql.Identifier(column) for column in columns if column != state.seeded[name][0]]
+        action = (
+            sql.SQL("UPDATE SET ")
+            + sql.SQL(", ").join(sql.SQL("{0} = EXCLUDED.{0}").format(column) for column in others)
+            if others
+            else sql.SQL("NOTHING")
+        )
+        state.connection.execute(
+            sql.SQL(
+                "INSERT INTO {table} ({columns}) SELECT {columns} FROM jsonb_populate_recordset(NULL::{table}, %s::jsonb) AS seed "
+                "WHERE NOT EXISTS (SELECT 1 FROM {table} AS kept WHERE kept.{key} = seed.{key} AND kept::text = seed::text) "
+                "ON CONFLICT ({key}) DO {action}"
+            ).format(
+                table=_table(name),
+                columns=sql.SQL(", ").join(sql.Identifier(column) for column in columns),
+                key=key,
+                action=action,
+            ),
+            [rows],
+        )
+
+
 def _delete_written_rows(state, dirty):
     """Inside the transaction: delete what is not of the template and put the sequences back."""
     from psycopg import sql
@@ -546,11 +590,16 @@ def _delete_written_rows(state, dirty):
         # One statement: a foreign key that is not deferrable is checked when all rows are gone.
         connection.execute(sql.SQL("WITH {} SELECT 1").format(sql.SQL(", ").join(deletes)), parameters)
     connection.execute(state.setvals)
+    seeded = {name: value[2] for name, value in state.seeded.items()}
+    changed = sorted(name for name, value in _rows_digest(connection, list(seeded)).items() if value != seeded[name])
+    if changed:
+        # A test changed or deleted rows the migrations seeded: the template rows go back, and
+        # what the tables hold is compared again. Only an exact result is accepted.
+        _put_seeded_rows_back(state, changed)
+        if any(value != seeded[name] for name, value in _rows_digest(connection, changed).items()):
+            raise _NotReusable(f"rows seeded by the migrations could not be put back ({', '.join(changed[:3])})")
     # Deferred foreign key checks run now: ALTER TABLE refuses a table with pending trigger events.
     connection.execute("SET CONSTRAINTS ALL IMMEDIATE")
-    seeded = {name: value[2] for name, value in state.seeded.items()}
-    if _rows_digest(connection, list(seeded)) != seeded:
-        raise _NotReusable("a row seeded by the migrations changed")
     _alter_tables(connection, "ALTER TABLE {} ENABLE TRIGGER USER;", dirty)
     _alter_tables(connection, "ALTER TABLE {} FORCE ROW LEVEL SECURITY;", forced)
 
