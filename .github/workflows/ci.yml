@@ -91,23 +91,25 @@ jobs:
   tests:
     name: Testes em PostgreSQL (Python ${{ matrix.python }}, ${{ matrix.suite }}, role runtime)
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
         python: ["3.12", "3.14"]
-        # A suíte do núcleo é dividida em fatias de arquivos (tools/suite_shards.py): juntas, as
-        # fatias são a suíte inteira. Para mudar o número de fatias, troque N aqui em todas elas.
-        suite: ["núcleo 1/2", "núcleo 2/2", "agenda e livro contábil"]
+        # Cada suíte é dividida em fatias de arquivos equilibradas pelo custo dos testes
+        # (tools/suite_shards.py, #757): juntas, as fatias de uma suíte são a suíte inteira. Para
+        # mudar o número de fatias, acrescente ou remova itens e troque N em todas as da suíte.
+        slug: [core-1, core-2, core-3, core-4, core-5, core-6, apps-1, apps-2]
         include:
-          - suite: "núcleo 1/2"
-            shard: "1/2"
-            slug: core-1
-          - suite: "núcleo 2/2"
-            shard: "2/2"
-            slug: core-2
-          - suite: "agenda e livro contábil"
-            slug: calendar
+          - { slug: core-1, suite: "núcleo 1/6", paths: tests, shard: "1/6" }
+          - { slug: core-2, suite: "núcleo 2/6", paths: tests, shard: "2/6" }
+          - { slug: core-3, suite: "núcleo 3/6", paths: tests, shard: "3/6" }
+          - { slug: core-4, suite: "núcleo 4/6", paths: tests, shard: "4/6" }
+          - { slug: core-5, suite: "núcleo 5/6", paths: tests, shard: "5/6" }
+          - { slug: core-6, suite: "núcleo 6/6", paths: tests, shard: "6/6" }
+          # The first-party apps: their own suites, with the apps installed.
+          - { slug: apps-1, suite: "agenda e livro contábil 1/2", paths: tests/contrib, shard: "1/2", bundled: "calendar,ledger" }
+          - { slug: apps-2, suite: "agenda e livro contábil 2/2", paths: tests/contrib, shard: "2/2", bundled: "calendar,ledger" }
     services:
       postgres:
         image: postgres:16.15
@@ -128,10 +130,8 @@ jobs:
       # Tests marked needs_example_app fail instead of skipping without the example app (#264).
       SKELETON_TEST_REQUIRE_EXAMPLE_APP: "1"
       # The core suite runs without first-party apps (#66); each one adds its own suite.
-      SKELETON_BUNDLED_APPS: ${{ matrix.slug == 'calendar' && 'calendar,ledger' || '' }}
+      SKELETON_BUNDLED_APPS: ${{ matrix.bundled || '' }}
       SKELETON_TEST_ALLOW_SCHEMA_RESET: "1"
-      # Sem o cache local do template (#350): cada execução do CI aplica as migrations de verdade.
-      SKELETON_TEST_TEMPLATE_CACHE: "0"
       # As assertions usam skeleton_runtime (NOSUPERUSER, NOBYPASSRLS); o owner só migra.
       # Com pytest -n, cada worker deriva o seu banco: ci_gw0_skeleton_test, ci_gw1_...
       TEST_DATABASE_URL: postgres://skeleton_runtime:ci-runtime@127.0.0.1:5432/ci_skeleton_test
@@ -177,39 +177,28 @@ jobs:
           .venv/bin/python -m pip install --require-hashes -r requirements-dev.txt
           .venv/bin/python -m pip check
       - name: Django checks
-        # Uma vez por Python e por conjunto de apps: na primeira fatia do núcleo e na agenda.
-        if: matrix.slug != 'core-2'
+        # Uma vez por Python e por conjunto de apps: na primeira fatia do núcleo e na das apps.
+        if: matrix.slug == 'core-1' || matrix.slug == 'apps-1'
         run: |
           .venv/bin/python manage.py check --fail-level WARNING
           .venv/bin/python manage.py makemigrations --check --dry-run
-      - name: Fatia ${{ matrix.shard }} da suíte com cobertura
-        if: matrix.shard
+      - name: Fatia ${{ matrix.shard }} de ${{ matrix.paths }} com cobertura
         env:
           COVERAGE_FILE: coverage-data/coverage.py${{ matrix.python }}.${{ matrix.slug }}
+          # One real migration per job (#757): the first worker migrates and the others restore its
+          # template. The directory is the runner's own, empty at every run (#350): no template of
+          # another run or of another job is ever reused.
+          SKELETON_TEST_TEMPLATE_CACHE: ${{ runner.temp }}/template-cache
         run: |
           mkdir -p coverage-data
           # A slice covers only part of the code: the floor (fail_under) applies to the combined
-          # report of the "coverage" job, never to a slice (#329).
-          .venv/bin/python -m pytest tests -q -n "$TEST_WORKERS" --shard "${{ matrix.shard }}" --cov --cov-report= --cov-fail-under=0
-      - name: Agenda (app first-party, SKELETON_BUNDLED_APPS=calendar)
-        # Its own suite and checks with the app installed; the core slices run without it. The
-        # first-party suites add to the slice's coverage data: their code is part of the package.
-        if: matrix.slug == 'calendar'
-        env:
-          COVERAGE_FILE: coverage-data/coverage.py${{ matrix.python }}.${{ matrix.slug }}
-        run: |
-          mkdir -p coverage-data
-          .venv/bin/python -m pytest tests/contrib/calendar -q -n "$TEST_WORKERS" --cov --cov-append --cov-report= --cov-fail-under=0
-      - name: Livro contábil (app first-party, SKELETON_BUNDLED_APPS=calendar,ledger)
-        if: matrix.slug == 'calendar'
-        env:
-          COVERAGE_FILE: coverage-data/coverage.py${{ matrix.python }}.${{ matrix.slug }}
-        run: .venv/bin/python -m pytest tests/contrib/ledger -q -n "$TEST_WORKERS" --cov --cov-append --cov-report= --cov-fail-under=0
+          # report of the "coverage" job, never to a slice (#329). The slices of the first-party
+          # apps add to the same report: their code is part of the package.
+          .venv/bin/python -m pytest "${{ matrix.paths }}" -q -n "$TEST_WORKERS" --shard "${{ matrix.shard }}" --cov --cov-report= --cov-fail-under=0
       - name: Smoke de segurança do runtime
         if: matrix.python == '3.14' && matrix.slug == 'core-1'
         run: .venv/bin/python tools/smoke_postgres.py
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        if: matrix.shard || matrix.slug == 'calendar'
         with:
           name: coverage-data-py${{ matrix.python }}-${{ matrix.slug }}
           path: coverage-data/

@@ -41,7 +41,8 @@ def pytest_addoption(parser):
         "--shard",
         metavar="I/N",
         default=None,
-        help="Run only slice I of N of the test files (tools/suite_shards.py); the N slices are the whole suite.",
+        help="Run only slice I of N of the test files, balanced by cost (tools/suite_shards.py); "
+        "the N slices are the whole suite.",
     )
 
 
@@ -97,10 +98,12 @@ def _require_worker_databases(count):
 
 def _keep_shard(config, items):
     """--shard I/N: keep the files of one slice; the other slices run them, none is skipped."""
-    from tools.suite_shards import parse_shard, split_shard
+    from tools.suite_shards import DATABASE_COST, parse_shard, split_shard
 
     index, total = parse_shard(config.getoption("shard"))
-    selected, _ = split_shard([item.nodeid for item in items], index, total)
+    # A test that recreates the schema weighs more: the slices take the same time, not the same files.
+    costs = {item.nodeid: DATABASE_COST if "skeleton_db" in getattr(item, "fixturenames", ()) else 1 for item in items}
+    selected, _ = split_shard([item.nodeid for item in items], index, total, costs)
     keep = set(selected)
     deselected = [item for item in items if item.nodeid not in keep]
     if deselected:
