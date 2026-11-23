@@ -337,6 +337,14 @@ def organizations(request):
     queryset = _model("sk_tenancy.Organization").objects.order_by("name")
     if query:
         queryset = queryset.filter(Q(name__icontains=query) | Q(slug__icontains=query))
+    from skeleton.tenancy import signup
+    from skeleton.tenancy.models import OrganizationSignup
+
+    by_signup = request.GET.get("signup") == "1"
+    if by_signup:
+        # Created by the self-service signup (#715).
+        queryset = queryset.filter(pk__in=OrganizationSignup.objects.values("signup_organization_id"))
+        filters = {**filters, "signup": "1"}
     return render(
         request,
         "skeleton/web/platform/organizations.html",
@@ -344,6 +352,9 @@ def organizations(request):
             "platform_section": "organizations",
             "rows": pagination(request, queryset, validated_filters=filters),
             "q": query,
+            "by_signup": by_signup,
+            "signup_enabled": signup.enabled(),
+            "signup_blocked": signup.enabled() and signup.unavailable_reason() is not None,
         },
     )
 
@@ -459,6 +470,7 @@ def _organization_page(
             "identity_providers": organization_providers(organization),
             "platform_configurable": _platform_configurable(),
             "storage_location": _storage_location(organization),
+            "bundle": _bundle_choices(organization),
             "site_address": _site_address(organization),
             "apps": _organization_apps(overview),
             "apps_error": apps_error,
@@ -466,6 +478,17 @@ def _organization_page(
         },
         status=status,
     )
+
+
+def _bundle_choices(organization):
+    """The organization's bundle (#714) and the active bundles to change to."""
+    from skeleton.system.bundles import bundle_of
+    from skeleton.system.models import AppBundle
+
+    return {
+        "current": bundle_of(organization.pk),
+        "choices": list(AppBundle.objects.filter(is_active=True).order_by("position", "label")),
+    }
 
 
 def _storage_location(organization):

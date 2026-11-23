@@ -58,7 +58,12 @@ _ANONYMOUS_JOIN_REASONS = frozenset({"join:link", "join:domain"})
 # Admitted only when the request runs with the scope ``platform.billing:read`` (never a session).
 PLATFORM_CLIENT_REASONS = frozenset({"platform:api"})
 PLATFORM_CLIENT_SCOPES = frozenset({"platform.billing:read", "platform.billing_contacts:read"})
-HTTP_SYSTEM_REASONS = VALIDATED_IDENTITY_REASONS | PLATFORM_ADMIN_REASONS | JOIN_REASONS | PLATFORM_CLIENT_REASONS
+# The self-service signup of an organization (#715): opened only by ``skeleton.tenancy.signup``
+# for the authenticated person, after its own checks; never for an anonymous request.
+SIGNUP_REASONS = frozenset({"organization:signup"})
+HTTP_SYSTEM_REASONS = (
+    VALIDATED_IDENTITY_REASONS | PLATFORM_ADMIN_REASONS | JOIN_REASONS | PLATFORM_CLIENT_REASONS | SIGNUP_REASONS
+)
 
 _selected: ContextVar[UUID | None] = ContextVar("skeleton_selected_tenant", default=None)
 # Per-request memo (#24): created by request_context, gone when the request ends. Never an
@@ -304,6 +309,7 @@ def system_context(*, reason: str, organization_id: IdentityRef = None, using: s
         reason in VALIDATED_IDENTITY_REASONS
         or bool(prior and prior.platform_admin and reason in PLATFORM_ADMIN_REASONS)
         or bool(prior and reason in JOIN_REASONS and (prior.actor is not None or reason in _ANONYMOUS_JOIN_REASONS))
+        or bool(prior and reason in SIGNUP_REASONS and prior.actor is not None)
         or bool(
             prior
             and reason in PLATFORM_CLIENT_REASONS

@@ -283,3 +283,8 @@ Depois do login, a **sessão Django** permite reconhecer a conta nas requisiçõ
 Testes locais com JWT assinado ou Keycloak real não são **homologação gov.br**. Homologar exige credenciais, URLs autorizadas, ambiente governamental e aprovação do fluxo real. HTTPS, SMTP e infraestrutura produtiva também precisam de provas próprias.
 
 Veja [autenticação e SSO](authentication-sso.md) e [testes e evidências](testing.md).
+
+## Instância de produto
+
+Uma **instância de produto** vende um produto: cada cliente é uma organização, e os **níveis** do produto são **pacotes de apps** (`AppBundle`), conjuntos de apps que a organização recebe juntos, com o limite de membros acompanhando o que cada app acrescenta. A plataforma define a **política das organizações novas**, **trava** configurações e escolhe o **local de armazenamento** de cada cliente; o cliente pode se **cadastrar** e escolher um nível. Uma **instância central**, do mesmo dono, lê as demais pela **API de gestão**, com um token de plataforma por instância ([montar uma instância de produto](product-instances.md)).
+

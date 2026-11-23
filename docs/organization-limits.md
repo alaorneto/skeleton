@@ -65,7 +65,7 @@ Na página da organização (`/platform/organizations/<id>/`), a seção "Aplica
 - **Atribuir** (`skeleton.system.applications.assign_app`) concede a app e as dependências que ainda não estão disponíveis para a organização (no modo `selected`) e as ativa, dependências primeiro, com as mesmas verificações da ativação pela organização. Uma app paga sem direito na cobrança é recusada ("App paga: use a cobrança da organização") e nada é gravado. Uma app já em uso não muda.
 - **Retirar** (`unassign_app`) desativa a app, guardando a configuração e os dados, e, no modo `selected`, revoga a concessão. Uma app dependente ainda ativa bloqueia, e a mensagem diz qual.
 
-As duas abrem o contexto de sistema `platform:apps` só para aquela organização, a partir da requisição do administrador da plataforma. Depois da ação, a página mostra a mudança do limite de membros ("Limite de membros: 3 → 10").
+Um **pacote de apps** (#714) faz o mesmo para um nível inteiro: atribuir o pacote ativa as apps dele e desativa as do pacote anterior que ele não mantém, com a pré-visualização do limite de membros ([instância de produto](product-instances.md#4-pacotes-de-apps-e-com-cobrança-preços-e-ofertas)). As duas abrem o contexto de sistema `platform:apps` só para aquela organização, a partir da requisição do administrador da plataforma. Depois da ação, a página mostra a mudança do limite de membros ("Limite de membros: 3 → 10").
 
 ## Onde é conferido
 

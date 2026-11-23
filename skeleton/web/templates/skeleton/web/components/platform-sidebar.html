@@ -19,6 +19,7 @@
       <li><a class="sidebar-link" href="{% url 'platform:domains' %}"{% if platform_section == "domains" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="key" %}{% translate "Domínios verificados" %}</a></li>
       <li><a class="sidebar-link" href="{% url 'platform:api-clients' %}"{% if platform_section == "api-clients" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="key" %}{% translate "Clientes da API" %}</a></li>
       <li><a class="sidebar-link" href="{% url 'platform:remote-instances' %}"{% if platform_section == "remote-instances" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="building" %}{% translate "Instâncias remotas" %}</a></li>
+      <li><a class="sidebar-link" href="{% url 'platform:bundles' %}"{% if platform_section == "bundles" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="cube" %}{% translate "Pacotes de apps" %}</a></li>
       <li><a class="sidebar-link" href="{% url 'platform:storage' %}"{% if platform_section == "storage" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="cube" %}{% translate "Armazenamento" %}</a></li>
       <li><a class="sidebar-link" href="{% url 'platform:identity-providers' %}"{% if platform_section == "identity-providers" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="key" %}{% translate "Provedores de identidade" %}</a></li>
     </ul>

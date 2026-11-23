@@ -51,6 +51,11 @@
     <p class="mt-4 text-sm/6 text-body-subtle">{% translate "Reative a organização para designar administradores." %}</p>
     {% endif %}
   </section>
+  {% if bundle.choices %}<section class="card lg:col-span-2" aria-labelledby="organization-bundle">
+    <h2 id="organization-bundle">{% translate "Pacote de apps" %}</h2>
+    <p class="mt-1 text-sm/6 text-body-subtle">{% translate "Atual:" %} <strong>{% if bundle.current %}{{ bundle.current.label }}{% else %}{% translate "nenhum" %}{% endif %}</strong>. {% translate "Trocar ativa as apps do pacote novo e desativa as do anterior que ele não mantém; a pré-visualização mostra o efeito no limite de membros." %}</p>
+    <form method="get" action="{% url 'platform:organization-bundle' subject.pk %}" class="mt-4 toolbar"><label class="sr-only" for="bundle-choice">{% translate "Pacote" %}</label><select id="bundle-choice" name="bundle">{% for choice in bundle.choices %}<option value="{{ choice.code }}"{% if bundle.current.pk == choice.pk %} selected{% endif %}>{{ choice.label }}</option>{% endfor %}</select><button type="submit" class="btn btn-secondary btn-sm">{% translate "Pré-visualizar" %}</button></form>
+  </section>{% endif %}
   <section class="card lg:col-span-2" aria-labelledby="organization-applications">
     <h2 id="organization-applications">Aplicativos</h2>
     <p class="mt-1 text-sm/6 text-body-subtle">A disponibilidade é decidida pela plataforma; a ativação, pela própria organização ou pela plataforma ao atribuir. Esta leitura não mostra parâmetros nem dados de negócio. Limite de membros atual: <strong>{% if member_limit is None %}ilimitado{% else %}{{ member_limit }}{% endif %}</strong>.</p>

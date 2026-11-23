@@ -324,8 +324,16 @@ def home(request):
                 for item in suggestions(request.user)
             ],
             "join_directory": bool(directory(request.user)),
+            # The self-service signup (#715): only when on and below the person's ceiling.
+            "can_signup": _can_signup(request.user),
         },
     )
+
+
+def _can_signup(user):
+    from skeleton.tenancy import signup
+
+    return signup.eligible(user)
 
 
 @never_cache

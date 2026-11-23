@@ -1,6 +1,6 @@
 {% extends 'skeleton/web/base.html' %}{% load i18n %}{% block title %}{% translate "Organizações" %} · {{ site_name }}{% endblock %}
 {% block content %}
-<div class="page-header"><div class="min-w-0"><h1>{% translate "Minhas organizações" %}</h1><p class="page-description">{% translate "Escolha uma organização para consultar registros e administrar o acesso." %}</p></div></div>
+<div class="page-header"><div class="min-w-0"><h1>{% translate "Minhas organizações" %}</h1><p class="page-description">{% translate "Escolha uma organização para consultar registros e administrar o acesso." %}</p></div>{% if can_signup %}<nav class="toolbar" aria-label="{% translate "Ações" %}"><a class="btn btn-primary" href="{% url 'web:organization-signup' %}">{% include "skeleton/web/components/icon.html" with name="plus" %}{% translate "Criar organização" %}</a></nav>{% endif %}</div>
 {% comment %}Join paths (#25). Each block renders only with content: the pending invitation comes from this
 session; join requests (#26) and suggested organizations (#28) plug into the same blocks.{% endcomment %}
 {% if pending_invitation %}<section class="card mb-6" aria-labelledby="home-invitation">

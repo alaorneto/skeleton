@@ -255,5 +255,49 @@ class InstanceIdentity(SystemRecord):
         return str(self.instance_id)
 
 
+class AppBundle(SystemRecord):
+    """A tier of the product (#714): a named set of apps an organization receives together.
+
+    Written only by the platform administrator (``skeleton.system.bundles``). ``apps`` are
+    installed app labels, sorted and unique; at most one live bundle is the default and only
+    ``signup_visible`` ones are offered at the self-service signup (#715).
+    """
+
+    code = models.SlugField(max_length=64, unique=True)
+    label = models.CharField(max_length=200)
+    description = models.TextField(blank=True, default="")
+    apps = models.JSONField(default=list, blank=True)
+    position = models.PositiveIntegerField(default=0)
+    is_default = models.BooleanField(default=False)
+    signup_visible = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    immutable_fields = ("code",)
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("is_default",),
+                condition=models.Q(is_default=True, deleted_at__isnull=True),
+                name="sk_system_appbundle_one_default",
+                violation_error_code="unique",
+            ),
+        ]
+
+    def __str__(self):
+        return self.label
+
+
+class OrganizationBundle(SystemRecord):
+    """The bundle (tier) of one organization (#714)."""
+
+    # Not named ``organization``: that name turns on tenant semantics for SystemRecord models (E017).
+    bundled_organization = models.OneToOneField("sk_tenancy.Organization", on_delete=models.PROTECT, related_name="+")
+    bundle = models.ForeignKey(AppBundle, on_delete=models.PROTECT, related_name="organizations")
+    immutable_fields = ("bundled_organization_id",)
+
+    def __str__(self):
+        return f"{self.bundled_organization_id} → {self.bundle_id}"
+
+
 # Native client distribution (#606): defined next to their services, registered in this app.
 from .native_clients.models import NativeClientChannel, NativeClientRelease, NativeClientSync  # noqa: E402, F401
