@@ -2,7 +2,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
-from django.utils.translation import gettext
+from django.utils.translation import gettext, gettext_lazy
 
 from skeleton.accounts.emails import normalize_email
 from skeleton.common.models import OrganizationRecord, SystemRecord
@@ -703,3 +703,68 @@ class ExternalInvitation(OrganizationRecord):
 
     def __str__(self):
         return self.email
+
+
+class OrganizationSettingLock(SystemRecord):
+    """A setting of one organization fixed by the platform (#701): the organization cannot change it.
+
+    ``key`` names the setting (``organization.brand_color``, ``admission.discoverable``,
+    ``apps.<label>.enabled``, ``apps.<label>.<field>``); ``value`` is the value written to the
+    organization when it was locked. Unlocking is a soft delete; locking again restores the row.
+    Written only by ``skeleton.tenancy.setting_locks`` (platform administrator).
+    """
+
+    # Not named ``organization``: that name turns on tenant semantics for SystemRecord models (E017).
+    locked_organization = models.ForeignKey(Organization, on_delete=models.PROTECT, related_name="setting_locks")
+    key = models.CharField(max_length=200)
+    value = models.JSONField(null=True, blank=True)
+    reason = models.CharField(max_length=500)
+    immutable_fields = ("locked_organization_id", "key")
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("locked_organization", "key"),
+                name="sk_tenancy_organizationsettinglock_unique",
+                violation_error_code="unique",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.locked_organization_id} {self.key}"
+
+
+class OrganizationProvisioningRule(SystemRecord):
+    """What every new organization receives (#703): an initial value, optionally locked, or a required one.
+
+    ``key`` is a lockable setting (#701) or a platform field of an app (#702). ``default``
+    applies ``value``; ``required`` takes the value the platform gives at creation. With
+    ``locked`` the setting is also locked with ``reason``. Removing is a soft delete; saving
+    the same key again restores the row. Written only by ``skeleton.tenancy.provisioning``.
+    """
+
+    class Mode(models.TextChoices):
+        DEFAULT = "default", gettext_lazy("Valor inicial")
+        REQUIRED = "required", gettext_lazy("Informado na criação")
+
+    key = models.CharField(max_length=200, unique=True)
+    mode = models.CharField(max_length=16, choices=Mode.choices)
+    value = models.JSONField(null=True, blank=True)
+    locked = models.BooleanField(default=False)
+    reason = models.CharField(max_length=500, blank=True)
+    immutable_fields = ("key",)
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.CheckConstraint(
+                condition=models.Q(mode__in=("default", "required")),
+                name="sk_tenancy_organizationprovisioningrule_mode",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(locked=False) | ~models.Q(reason=""),
+                name="sk_tenancy_organizationprovisioningrule_reason",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.key}: {self.mode}"

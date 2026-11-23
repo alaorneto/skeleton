@@ -10,6 +10,12 @@ class TenancyConfig(AppConfig):
 
     def ready(self):
         from . import checks  # noqa: F401 - registers the organization site checks (#477)
+        from .setting_locks import register_tenancy_providers
+
+        register_tenancy_providers()  # Settings the platform may lock (#701).
+        from .provisioning import register_provisioning_jobs
+
+        register_provisioning_jobs()  # Provisioning rules applied to existing organizations (#703).
         from .limit_notices import register_limit_notices
 
         register_limit_notices()

@@ -236,6 +236,11 @@ FILE_UPLOAD_HANDLERS = [
 # SKELETON_FILES_ROOT is a volume shared by every node (NFS, EFS, CephFS); checked in cluster mode (#673).
 SKELETON_FILES_SHARED = env.bool("SKELETON_FILES_SHARED", default=False)
 SKELETON_FILES_ORG_QUOTA_BYTES = env.int("SKELETON_FILES_ORG_QUOTA_BYTES", default=0) or None
+# Secrets of the platform's storage locations (#704): Fernet keys, the first encrypts.
+FILES_STORAGE_ENCRYPTION_KEYS = env.list("FILES_STORAGE_ENCRYPTION_KEYS", default=[])
+# Root of the ``filesystem`` storage locations; only the development and test profiles allow them (#704).
+SKELETON_FILES_DIRECTORY_LOCATIONS = False
+SKELETON_FILES_LOCATIONS_ROOT = env("SKELETON_FILES_LOCATIONS_ROOT", default=str(BASE_DIR / "var" / "file-locations"))
 # Default member limit of every organization (empty or 0: no default, unlimited); apps, the plan and
 # the platform add to it (#695, docs/organization-limits.md).
 SKELETON_ORGANIZATION_MEMBER_LIMIT = env.int("SKELETON_ORGANIZATION_MEMBER_LIMIT", default=0) or None

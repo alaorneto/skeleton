@@ -335,6 +335,7 @@ def test_system_reasons_open_to_http_are_a_closed_list():
         "organization:designate-admin",
         "platform:organization-inspect",
         "platform:billing",
+        "platform:setting-lock",
         "platform:apps",
     }
     assert JOIN_REASONS == {"join:request", "join:link", "join:domain"}

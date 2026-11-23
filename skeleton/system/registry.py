@@ -236,6 +236,18 @@ def register_core_specs():
             "global",
             ("logo_key", "icon_key"),
         ),
+        "sk_tenancy.organizationsettinglock": (
+            "Travas de configuração",
+            "Configuração de uma organização fixada pela plataforma, com o valor e o motivo; a organização não a muda.",
+            "global",
+            (),
+        ),
+        "sk_tenancy.organizationprovisioningrule": (
+            "Política das organizações novas",
+            "Valor inicial, travado ou exigido na criação, que a plataforma define para toda organização nova.",
+            "global",
+            (),
+        ),
         "sk_tenancy.organizationpage": (
             gettext_lazy("Páginas da organização"),
             gettext_lazy(
@@ -447,6 +459,18 @@ def register_core_specs():
         "sk_files.storagequota": (
             gettext_lazy("Cotas de armazenamento"),
             gettext_lazy("Cota de anexos definida pela plataforma para uma organização; sem ela vale o padrão."),
+            "global",
+            (),
+        ),
+        "sk_files.storagelocation": (
+            gettext_lazy("Locais de armazenamento"),
+            gettext_lazy("Bucket S3 (ou diretório de teste) da plataforma; a chave secreta é cifrada e nunca exibida."),
+            "global",
+            ("access_key_id", "secret_access_key"),
+        ),
+        "sk_files.organizationstorage": (
+            gettext_lazy("Armazenamento das organizações"),
+            gettext_lazy("Local de armazenamento que guarda os arquivos de uma organização; sem ele, o da instância."),
             "global",
             (),
         ),

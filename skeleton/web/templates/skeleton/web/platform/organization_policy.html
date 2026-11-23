@@ -1,0 +1,37 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% load i18n %}{% block page_title %}{% translate "Política das organizações novas" %}{% endblock %}
+{% block content %}
+<div class="max-w-5xl">
+<div class="page-header">
+  <div class="min-w-0">
+    <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'platform:organizations' %}">{% translate "Organizações" %}</a></li><li><span aria-current="page">{% translate "Política" %}</span></li></ol></nav>
+    <h1>{% translate "Política das organizações novas" %}</h1>
+    <p class="page-description">{% translate "O que toda organização criada a partir de agora recebe: um valor inicial (que pode ser travado) ou um valor informado na criação. Uma regra de valor inicial também pode ser aplicada às organizações existentes; as que já têm a configuração travada ficam como estão." %}</p>
+  </div>
+</div>
+{% if error %}<p class="errorlist nonfield mb-4" role="alert">{{ error }}</p>{% endif %}
+<section class="card mb-5" aria-labelledby="policy-rules">
+  <h2 id="policy-rules">{% translate "Regras" %}</h2>
+  <div class="table-scroll mt-4"><table><thead><tr><th scope="col">{% translate "Configuração" %}</th><th scope="col">{% translate "Regra" %}</th><th scope="col">{% translate "Valor" %}</th><th scope="col">{% translate "Trava" %}</th><th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
+  {% for row in rows %}{% with rule=row.rule %}<tr>
+    <td>{% if row.target %}<span class="cell-primary">{{ row.target.group }} · {{ row.target.label }}</span>{% else %}<span class="cell-primary">{{ rule.key }}</span><span class="badge badge-warning">{% translate "configuração indisponível: ignorada" %}</span>{% endif %}<span class="cell-secondary"><code>{{ rule.key }}</code></span></td>
+    <td>{{ rule.get_mode_display }}</td>
+    <td class="col-text">{% if rule.mode == "required" %}{% translate "informado na criação" %}{% else %}{{ row.value }}{% endif %}</td>
+    <td>{% if rule.locked %}<span class="badge badge-warning">{% translate "Travada" %}</span> <span class="cell-secondary">{{ rule.reason }}</span>{% else %}—{% endif %}</td>
+    <td class="col-actions"><div class="row-actions"><a class="btn btn-secondary btn-sm" href="?key={{ rule.key|urlencode }}#rule-form">{% translate "Editar" %}</a>
+      {% if rule.mode == "default" and row.target %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="apply"><input type="hidden" name="key" value="{{ rule.key }}"><input type="hidden" name="expected_revision" value="{{ rule.revision }}"><button type="submit" class="btn btn-secondary btn-sm">{% translate "Aplicar às existentes" %}</button></form>{% endif %}
+      <form method="post">{% csrf_token %}<input type="hidden" name="action" value="remove"><input type="hidden" name="key" value="{{ rule.key }}"><input type="hidden" name="expected_revision" value="{{ rule.revision }}"><button type="submit" class="btn btn-danger-outline btn-sm">{% translate "Remover" %}</button></form></div></td>
+  </tr>{% endwith %}{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=5 message=_("Nenhuma regra: as organizações nascem com os padrões da instância.") %}{% endfor %}
+  </tbody></table></div>
+</section>
+<section class="card" id="rule-form" aria-labelledby="rule-form-title">
+  <h2 id="rule-form-title">{% translate "Definir uma regra" %}</h2>
+  <form method="post" class="mt-5">
+    {% csrf_token %}
+    {% include "skeleton/web/components/form-errors.html" %}
+    {% include "skeleton/web/components/form-fields.html" %}
+    <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Salvar regra" %}</button><a class="btn btn-secondary" href="{% url 'platform:organizations' %}">{% translate "Voltar" %}</a></div>
+  </form>
+</section>
+</div>
+{% endblock %}
