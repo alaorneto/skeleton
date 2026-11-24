@@ -7,7 +7,7 @@
       <h2 id="available-check">{% translate "Consultar fontes de releases" %}</h2>
       <p class="mt-1 text-sm/6 text-body">{% translate "Última consulta:" %} {{ checked_at|default:_("nunca consultado")|moment }}. {% translate "Nada é baixado sem a sua escolha; cada passo é preparado e confirmado depois de você ver o plano." %}</p>
     </div>
-    <form method="post" action="{% url 'platform:updates-available' %}">{% csrf_token %}<button type="submit" class="btn btn-primary">{% include "skeleton/web/components/icon.html" with name="refresh" %}{% translate "Verificar agora" %}</button></form>
+    <form method="post" action="{% url 'platform:updates-available' %}">{% csrf_token %}<button type="submit" class="btn btn-primary" data-busy-label="{% translate "Verificando…" %}">{% include "skeleton/web/components/icon.html" with name="refresh" %}{% translate "Verificar agora" %}</button></form>
   </div>
   {% if loaded %}<ul class="mt-4 flex flex-wrap gap-2">{% for source in sources %}<li class="flex flex-wrap items-center gap-2 text-sm"><span class="font-medium text-heading">{{ source.id }}</span>{{ source.state|status_badge:"sources" }}{% if source.error %}<span class="text-body-subtle">{{ source.error }}</span>{% elif source.error_code %}<code>{{ source.error_code }}</code>{% endif %}</li>{% empty %}<li class="text-sm text-body-subtle">{% translate "Nenhuma fonte consultada ainda." %} <a href="{% url 'platform:updates-sources' %}">{% translate "Cadastre ou confira as fontes" %}</a>.</li>{% endfor %}</ul>{% endif %}
 </section>
