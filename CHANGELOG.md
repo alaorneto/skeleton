@@ -2,6 +2,30 @@
 
 As versões a partir da primeira, `v0.1.0`, são escritas pelo workflow de release (`release.py run`, skill dev-workflow): não edite este arquivo à mão. O nível de cada versão e os PRs e issues incluídos seguem [docs/workflow.md](docs/workflow.md#versão).
 
+## [0.8.0](https://github.com/alaorneto/skeleton/compare/v0.7.0...v0.8.0) — 2026-11-24
+
+### Funcionalidades
+
+- Permitir trocar o identificador da organização, com verificação de conflito durante a digitação ([#765](https://github.com/alaorneto/skeleton/issues/765)) — PR [#801](https://github.com/alaorneto/skeleton/pull/801)
+- Incluir marcadores de quem recebe, gerais e de datas nos textos de aviso ([#806](https://github.com/alaorneto/skeleton/issues/806)) — PR [#809](https://github.com/alaorneto/skeleton/pull/809)
+
+### Melhorias
+
+- Reorganizar os grupos do menu da administração da plataforma ([#799](https://github.com/alaorneto/skeleton/issues/799)) — PR [#800](https://github.com/alaorneto/skeleton/pull/800)
+- Fazer as telas usarem toda a largura do grid ([#803](https://github.com/alaorneto/skeleton/issues/803)) — PR [#805](https://github.com/alaorneto/skeleton/pull/805)
+- Unificar os cards de aplicativos e bibliotecas na plataforma ([#807](https://github.com/alaorneto/skeleton/issues/807)) — PR [#810](https://github.com/alaorneto/skeleton/pull/810)
+- Atualizar o agente ao preparar o passo do núcleo e seguir sozinho para o plano ([#773](https://github.com/alaorneto/skeleton/issues/773)) — PR [#802](https://github.com/alaorneto/skeleton/pull/802)
+- Atualização manual do agente com o comando exato da migração para agent_root ([#775](https://github.com/alaorneto/skeleton/issues/775)) — PR [#802](https://github.com/alaorneto/skeleton/pull/802)
+
+### Correções
+
+- Igualar a altura dos cartões de link numa grade ([#804](https://github.com/alaorneto/skeleton/issues/804)) — PR [#800](https://github.com/alaorneto/skeleton/pull/800)
+
+### Manutenção
+
+- Tornar estável o teste do erro na própria linha da configuração da instância ([#808](https://github.com/alaorneto/skeleton/issues/808)) — PR [#811](https://github.com/alaorneto/skeleton/pull/811)
+- Tornar determinística a asserção de test_pages dos locais de armazenamento ([#812](https://github.com/alaorneto/skeleton/issues/812)) — PR [#813](https://github.com/alaorneto/skeleton/pull/813)
+
 ## [0.7.0](https://github.com/alaorneto/skeleton/compare/v0.6.0...v0.7.0) — 2026-11-24
 
 ### ⚠ Mudanças incompatíveis
