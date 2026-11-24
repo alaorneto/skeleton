@@ -1,7 +1,7 @@
 {% extends "skeleton/web/platform/updates/base.html" %}
 {% load i18n %}{% block step_title %}{% translate "Atualize o agente primeiro" %}{% endblock %}
 {% block step %}
-<section class="card max-w-3xl" aria-labelledby="agent-first">
+<section class="card" aria-labelledby="agent-first">
   <h2 id="agent-first">{% translate "Atualize o agente primeiro" %}</h2>
   <p class="mt-1 text-sm/6 text-body">{% blocktranslate with required=artifact.agent.version|default:artifact.manifest.version installed=agent.version %}Este passo exige o agente de deployment na versão {{ required }}. O agente instalado é {{ installed }}.{% endblocktranslate %}</p>
   {% if agent.self_update %}<form class="mt-4" method="post" action="{% url 'platform:updates-agent' %}">{% csrf_token %}<input type="hidden" name="release" value="{{ artifact.digest }}"><button type="submit" class="btn btn-primary">{% translate "Atualizar agente" %}</button></form>

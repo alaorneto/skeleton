@@ -1,6 +1,6 @@
 {% extends "skeleton/web/base.html" %}{% load i18n skeleton_format %}{% block title %}{% translate "Calendários · Agenda" %} · {{ site_name }}{% endblock %}
 {% block content %}
-<div class="max-w-3xl">
+<div>
 <div class="page-header"><div class="min-w-0"><nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'skeleton_calendar:home' organization_id %}">{% translate "Agenda" %}</a></li><li><span aria-current="page">{% translate "Calendários" %}</span></li></ol></nav><h1>{% translate "Calendários" %}</h1><p class="page-description">{% translate "Os calendários que você lê nesta organização. Um calendário gerenciado por outra app muda só nela." %}</p></div></div>
 <section class="card" aria-labelledby="calendars-list">
   <h2 id="calendars-list">{% translate "Seus calendários" %}</h2>

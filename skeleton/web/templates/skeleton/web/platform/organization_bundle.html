@@ -1,7 +1,7 @@
 {% extends "skeleton/web/platform/base.html" %}
 {% load i18n %}{% block page_title %}{{ bundle.label }} · {{ subject.name }}{% endblock %}
 {% block content %}
-<div class="max-w-3xl">
+<div>
 <div class="page-header"><div class="min-w-0">
   <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'platform:organizations' %}">{% translate "Organizações" %}</a></li><li><a href="{% url 'platform:organization' subject.pk %}">{{ subject.name }}</a></li><li><span aria-current="page">{% translate "Pacote" %}</span></li></ol></nav>
   <h1>{% blocktranslate with bundle=bundle.label %}Atribuir o pacote {{ bundle }}{% endblocktranslate %}</h1>

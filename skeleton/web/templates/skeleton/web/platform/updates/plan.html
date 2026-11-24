@@ -25,7 +25,7 @@
   </li>{% endfor %}</ul>
 </section>
 {% endif %}
-<form method="post" action="{% url 'platform:updates-plan' %}" class="card max-w-3xl">
+<form method="post" action="{% url 'platform:updates-plan' %}" class="card">
   {% csrf_token %}
   <h2>{% translate "Plano" %}</h2>
   <p class="mt-1 mb-5 text-sm/6 text-body">{% translate 'Escolha a operação e os pacotes. "Visualizar impacto" pede ao agente uma prévia; o agente a prepara em segundo plano e, quando ficar pronta, a aprovação acontece na tela da operação.' %}</p>

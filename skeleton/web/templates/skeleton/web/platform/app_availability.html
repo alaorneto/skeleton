@@ -1,7 +1,7 @@
 {% extends "skeleton/web/platform/base.html" %}{% load i18n skeleton_format %}
 {% block page_title %}Disponibilidade · {{ application.label }}{% endblock %}
 {% block content %}
-<div class="max-w-5xl">
+<div>
 <div class="page-header">
   <div class="min-w-0">
     <nav class="breadcrumbs" aria-label="Caminho"><ol><li><a href="{% url 'platform:apps' %}">Aplicativos instalados</a></li><li><a href="{% url 'platform:app' application.app_label %}">{{ application.label }}</a></li><li><span aria-current="page">Disponibilidade</span></li></ol></nav>

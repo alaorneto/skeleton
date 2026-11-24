@@ -1,7 +1,7 @@
 {% extends 'skeleton/web/base.html' %}
 {% load i18n %}{% block title %}{% translate "Sair de" %} {{ organization.name }} · {{ site_name }}{% endblock %}
 {% block content %}
-<div class="max-w-3xl">
+<div>
 <div class="page-header">
   <div class="min-w-0">
     <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'web:dashboard' organization_id %}">{{ organization.name }}</a></li><li><span aria-current="page">{% translate "Sair da organização" %}</span></li></ol></nav>

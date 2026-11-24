@@ -23,13 +23,13 @@
   {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=7 message=_("Nenhuma baixa.") %}{% endfor %}</tbody>
 </table></div>
 {% if can_settle %}
-<section class="card max-w-3xl mb-6" aria-labelledby="settle-heading"><h2 id="settle-heading">{% if title.direction == "receivable" %}{% translate "Receber" %}{% else %}{% translate "Pagar" %}{% endif %}</h2>
+<section class="card mb-6" aria-labelledby="settle-heading"><h2 id="settle-heading">{% if title.direction == "receivable" %}{% translate "Receber" %}{% else %}{% translate "Pagar" %}{% endif %}</h2>
   <form method="post" class="mt-3">{% csrf_token %}<input type="hidden" name="revision" value="{{ title.revision }}"><input type="hidden" name="idempotency_key" value="{{ idempotency_key }}">
   {% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" %}
   <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Registrar baixa" %}</button></div></form></section>
 {% endif %}
 {% if book.writable and title.status == "open" %}
-<section class="card max-w-xl" aria-labelledby="cancel-heading"><h2 id="cancel-heading">{% translate "Cancelar título" %}</h2>
+<section class="card" aria-labelledby="cancel-heading"><h2 id="cancel-heading">{% translate "Cancelar título" %}</h2>
   <form method="post" action="{% url 'skeleton_ledger:title-cancel' organization_id title.sysid %}" class="mt-3 flex flex-col gap-3">{% csrf_token %}<input type="hidden" name="revision" value="{{ title.revision }}">
   <div class="field"><label for="cancel-reason">{% translate "Motivo" %}</label><input id="cancel-reason" name="reason" maxlength="300"></div>
   <div><button type="submit" class="btn btn-danger-outline">{% translate "Cancelar título" %}</button></div></form></section>

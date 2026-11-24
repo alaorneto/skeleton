@@ -1,7 +1,7 @@
 {% extends 'skeleton/web/base.html' %}
 {% load i18n skeleton_format %}{% block title %}Entrar numa organização · {{ site_name }}{% endblock %}
 {% block content %}
-<div class="max-w-5xl">
+<div>
 <div class="page-header"><div class="min-w-0"><h1>Entrar numa organização</h1><p class="page-description">Organizações que aceitam pedidos de ingresso. Quem as administra decide; você recebe um email com a resposta.</p></div></div>
 {% if not verified %}
 <div class="card"><p class="font-medium text-heading">Confirme seu email para pedir ingresso.</p><p class="mt-1">Só contas com email verificado enviam pedidos. <a href="{% url 'account_email' %}">Gerencie seus emails</a>.</p></div>

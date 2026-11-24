@@ -13,7 +13,7 @@
 <form method="post" action="{% url 'skeleton_ledger:recurrence-toggle' organization_id rule.sysid %}" class="mb-6">{% csrf_token %}<input type="hidden" name="revision" value="{{ rule.revision }}">
   {% if rule.is_active %}<input type="hidden" name="action" value="pause"><button type="submit" class="btn btn-secondary">{% translate "Pausar" %}</button>{% else %}<input type="hidden" name="action" value="resume"><button type="submit" class="btn btn-secondary">{% translate "Retomar" %}</button>{% endif %}
 </form>
-<form method="post" class="card max-w-3xl">{% csrf_token %}<input type="hidden" name="revision" value="{{ rule.revision }}">
+<form method="post" class="card">{% csrf_token %}<input type="hidden" name="revision" value="{{ rule.revision }}">
   {% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" %}
   <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Salvar alterações" %}</button><a class="btn btn-secondary" href="{% url 'skeleton_ledger:recurrences' organization_id %}">{% translate "Voltar" %}</a></div>
 </form>

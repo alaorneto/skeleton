@@ -1,7 +1,7 @@
 {% extends "skeleton/web/platform/base.html" %}
 {% load skeleton_format %}{% block page_title %}{{ row.name }}{% endblock %}
 {% block content %}
-<div class="max-w-5xl">
+<div>
 <div class="page-header">
   <div class="min-w-0">
     <nav class="breadcrumbs" aria-label="Caminho"><ol><li><a href="{% url 'platform:identity-providers' %}">Provedores de identidade</a></li><li><span aria-current="page">{{ row.name }}</span></li></ol></nav>

@@ -1,7 +1,7 @@
 {% extends "skeleton/web/platform/base.html" %}
 {% load i18n skeleton_format %}{% block page_title %}{{ subject.name }}{% endblock %}
 {% block content %}
-<div class="max-w-5xl">
+<div>
 <div class="page-header">
   <div class="min-w-0">
     <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'platform:organizations' %}">{% translate "Organizações" %}</a></li><li><span aria-current="page">{{ subject.name }}</span></li></ol></nav>
