@@ -67,13 +67,19 @@ Detalhes em [checks](checks.md).
 
 ### Nomes reservados e organizações antigas
 
-Uma organização nova recebe um slug que é rótulo DNS (1 a 63 caracteres `a-z`, `0-9` e `-`, sem hífen nas pontas, sem `xn--`) e que não está na lista de reservados de `skeleton/common/hostnames.py` (`www`, `api`, `app`, `admin`, `platform`, `login`, `static`, `mail`, `o`, `site`, entre outros). Organizações antigas com slug fora da regra continuam funcionando em `/o/<uuid>/`, mas não ganham endereço por slug (o slug é imutável).
+Uma organização nova recebe um slug que é rótulo DNS (1 a 63 caracteres `a-z`, `0-9` e `-`, sem hífen nas pontas, sem `xn--`) e que não está na lista de reservados de `skeleton/common/hostnames.py` (`www`, `api`, `app`, `admin`, `platform`, `login`, `static`, `mail`, `o`, `site`, entre outros). Organizações antigas com slug fora da regra continuam funcionando em `/o/<uuid>/`, mas não ganham endereço por slug enquanto o slug não for trocado por um que siga a regra ([trocar o identificador](#trocar-o-identificador)).
 
 ## Para quem administra a organização
 
 ### Ligar e desligar
 
 Em **Configurações** (`/o/<org>/settings/`), a seção "Endereço próprio" mostra o endereço (`https://acme.skeleton.com`) e a caixa "Ativar endereço próprio". Ao ativar, **o nome de exibição, a cor, o logo e o ícone ficam visíveis para qualquer pessoa que abra o endereço, mesmo sem login** ([privacidade](privacy.md#endereço-próprio-da-organização)). Desligado, o endereço responde como endereço inexistente (404).
+
+### Trocar o identificador
+
+O identificador (slug) forma o endereço `<slug>.<domínio base>` e é único entre todas as organizações, inclusive as excluídas ([#765](https://github.com/alaorneto/skeleton/issues/765)). O administrador da organização troca o identificador em **Configurações** (`/o/<org>/settings/`, seção "Identificador"), e o administrador da plataforma no detalhe da organização (`/platform/organizations/<id>/`). Enquanto a pessoa digita, a página diz se o identificador está disponível, já está em uso, é reservado ou tem formato inválido; isso só orienta, e ao salvar o servidor confere tudo de novo na transação, com a organização travada, a revisão (CAS) e a restrição `unique` do banco: de duas trocas simultâneas para o mesmo identificador, uma vence e a outra recebe "já está em uso". A troca entra na auditoria como `update` da organização.
+
+Ao trocar, **o endereço antigo deixa de responder** (sem redirecionamento) e o identificador antigo fica livre para outra organização; links e favoritos com o endereço antigo param de funcionar. Domínios próprios e `/o/<uuid>/` não mudam. Uma organização com provedor de identidade preso a ela (no banco ou no arquivo) não troca o identificador: a impressão digital do vínculo inclui o slug ([provedores no banco](authentication-sso.md#provedores-no-banco-29)).
 
 ### Página pública
 
@@ -131,7 +137,8 @@ Além disso: o `next` absoluto pós-login só é aceito para o endereço de uma 
 
 - A API continua em `/api/v1/o/<uuid>/…` também no host da organização.
 - Convite e pedido de entrada mantêm o UUID no caminho (`/invite/<uuid>/…`, `/join/<uuid>/`).
-- Slug antigo que não é rótulo DNS não ganha endereço por slug.
+- Slug antigo que não é rótulo DNS não ganha endereço por slug até ser trocado.
+- Trocar o identificador não redireciona o endereço antigo, que pode ser tomado por outra organização.
 - Em domínio próprio a sessão é local e OIDC/SAML não é oferecido.
 - O SSO iniciado no host da organização passa pela página de confirmação do allauth no domínio principal (a URL da plataforma fica visível nesse passo).
 - O push do navegador é por origem: quem aceitou no domínio principal e no endereço da organização recebe duas vezes.

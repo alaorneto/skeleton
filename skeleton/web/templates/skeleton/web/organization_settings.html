@@ -26,6 +26,14 @@
 {% endif %}
 <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Salvar" %}</button><a class="btn btn-secondary" href="{{ cancel_url }}">{% translate "Cancelar" %}</a></div>
 </form>
+<section aria-labelledby="slug-heading" class="mt-8">
+  <h2 id="slug-heading" class="section-heading">{% translate "Identificador" %}</h2>
+  <p class="mb-4 text-body-subtle">{% translate "O identificador é único entre todas as organizações e forma o endereço próprio. Ao trocá-lo, o endereço antigo deixa de funcionar e pode ser escolhido por outra organização." %}</p>
+  <form method="post" action="{% url 'web:organization-slug' organization_id %}">{% csrf_token %}
+    {% with form=slug_form hide_marks=True %}{% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" %}{% endwith %}
+    <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Trocar identificador" %}</button></div>
+  </form>
+</section>
 {% if not site_form %}
 {# Nothing to save here: the notice stays out of the settings form, like the logo and icon sections (#749). #}
 <section aria-labelledby="site-heading" class="mt-8">

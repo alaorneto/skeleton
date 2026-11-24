@@ -198,3 +198,64 @@ window.addEventListener("pageshow", () => {
     }
   }
 });
+
+// Organization identifier availability while the person types (#765). Only guidance: the server
+// checks again when the form is saved, and without JavaScript the form works the same. One request
+// per pause in typing; a newer request aborts the previous one.
+for (const input of document.querySelectorAll("input[data-slug-check]")) {
+  const status = document.createElement("p");
+  status.id = input.id + "_availability";
+  status.className = "helptext";
+  status.setAttribute("aria-live", "polite");
+  const field = input.closest(".form-field");
+  const help = field ? field.querySelector(".helptext") : null;
+  (help || input).after(status);
+  input.setAttribute("aria-describedby", [input.getAttribute("aria-describedby"), status.id].filter(Boolean).join(" "));
+  const refused = new Set(["taken", "format", "reserved"]);
+  const show = (state, text) => {
+    status.dataset.state = state;
+    status.textContent = text;
+    status.classList.toggle("text-fg-success", state === "available");
+    status.classList.toggle("text-fg-danger", refused.has(state));
+    if (refused.has(state)) input.setAttribute("aria-invalid", "true");
+    else if (!field || !field.querySelector(".errorlist")) input.removeAttribute("aria-invalid");
+  };
+  let timer = 0;
+  let controller = null;
+  let last = input.value.trim();
+  const check = async () => {
+    const value = input.value.trim();
+    if (value === last) return;
+    last = value;
+    if (controller) controller.abort();
+    controller = null;
+    if (!value) {
+      show("", "");
+      return;
+    }
+    controller = new AbortController();
+    show("checking", input.dataset.slugChecking || "");
+    try {
+      const url = new URL(input.dataset.slugCheck, window.location.origin);
+      url.searchParams.set("slug", value);
+      const response = await fetch(url, {
+        headers: { Accept: "application/json" },
+        credentials: "same-origin",
+        signal: controller.signal,
+      });
+      const body = await response.json();
+      if (value !== input.value.trim()) return;
+      show(response.ok ? body.status : "", response.ok || response.status === 429 ? body.message : "");
+    } catch (error) {
+      if (error.name !== "AbortError") show("", "");
+    }
+  };
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(check, 350);
+  });
+  input.addEventListener("change", () => {
+    clearTimeout(timer);
+    check();
+  });
+}

@@ -324,8 +324,7 @@ class InstallRecordInfrastructure(Operation):
         names = {"sysid"} | set(self.specification.get("immutable_fields", getattr(model, "immutable_fields", ())))
         if is_tenant_model(model):
             names.add("organization_id")
-        if model._meta.label_lower == "sk_tenancy.organization":
-            names.add("slug")
+        # The organization slug was frozen here until #765: its frozen specifications list it when immutable.
         if model._meta.label_lower == "sk_tenancy.membership":
             names.add("user_id")
         return sorted(names)

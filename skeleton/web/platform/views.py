@@ -500,8 +500,10 @@ def organization_create(request):
 def _organization_form(organization, data=None):
     return OrganizationForm(
         data,
+        organization=organization,
         initial={
             "name": organization.name,
+            "slug": organization.slug,
             "is_active": organization.is_active,
             "expected_revision": organization.revision,
         },
@@ -613,6 +615,21 @@ def _site_address(organization):
         return None
     origin = organization_origin(organization.slug)
     return urlsplit(origin).netloc if origin else ""
+
+
+@platform_page
+@require_safe
+def organization_slug(request):
+    """Whether the typed identifier is free (#765); ``?organization=`` names the one being edited."""
+    import uuid
+
+    from skeleton.web.slug_check import slug_check_response
+
+    try:
+        organization_id = uuid.UUID(request.GET["organization"]) if request.GET.get("organization") else None
+    except ValueError:
+        organization_id = None
+    return slug_check_response(request, organization_id=organization_id)
 
 
 @platform_page

@@ -9,9 +9,11 @@ from django.http import Http404
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext, gettext_lazy
-from django.views.decorators.http import require_http_methods
+from django.views.decorators.http import require_http_methods, require_safe
 
 from skeleton.tenancy import signup
+
+from .slug_check import slug_check_attrs, slug_check_response
 
 
 class SignupForm(forms.Form):
@@ -19,7 +21,9 @@ class SignupForm(forms.Form):
     slug = forms.SlugField(
         label=gettext_lazy("Identificador"),
         max_length=63,
-        help_text=gettext_lazy("Letras minúsculas, dígitos e hífen; aparece no endereço e não muda depois."),
+        help_text=gettext_lazy(
+            "Letras minúsculas, dígitos e hífen; aparece no endereço. O administrador pode trocá-lo depois."
+        ),
     )
     bundle = forms.ChoiceField(label=gettext_lazy("Pacote"), choices=(), widget=forms.RadioSelect)
     accept_terms = forms.BooleanField(
@@ -29,6 +33,7 @@ class SignupForm(forms.Form):
     def __init__(self, *args, bundles=(), **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["bundle"].choices = [(item.code, item.label) for item in bundles]
+        slug_check_attrs(self.fields["slug"], url=reverse("web:organization-signup-slug"))
 
 
 def _members_line(bundle) -> str:
@@ -98,6 +103,15 @@ def organization_signup(request):
         },
         status=status,
     )
+
+
+@login_required
+@require_safe
+def organization_signup_slug(request):
+    """Whether the typed identifier is free (#765); closed like the signup page."""
+    if not signup.enabled():
+        raise Http404
+    return slug_check_response(request)
 
 
 def _checkout(request, result, home):
