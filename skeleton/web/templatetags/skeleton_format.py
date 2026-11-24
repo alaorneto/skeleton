@@ -15,6 +15,8 @@ from django.utils import formats, timezone
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
+from skeleton.web.vocabulary import app_markers, app_states
+
 register = template.Library()
 EMPTY = "—"
 
@@ -48,7 +50,6 @@ def moment(value, kind="datetime"):
     return format_html('<time datetime="{}">{}</time>', iso, text)
 
 
-TONES = {"success", "warning", "danger", "brand", "neutral"}
 # State code -> (label, tone) for every *Status/*State TextChoices of the core (#469). Tone rule:
 # done/active/paid/delivered -> success; running/queued/waiting -> brand; needs action/late/trial ->
 # warning; failed/dead/refused/suspended -> danger; cancelled/expired/draft/archived -> neutral.
@@ -231,7 +232,6 @@ STATUS = {
 }
 DOMAINS = {key.split(":", 1)[0] for key in STATUS if ":" in key}
 
-MARKER_TONES = {"brand", "warning", "danger", "neutral"}
 # Marker code -> (label, tone): a fixed property that changes behaviour or access (#767). A marker
 # is a pill without the dot; a state (status_badge) keeps the dot. The argument replaces the label
 # when the text depends on data: {{ "managed"|marker:label }}.
@@ -321,12 +321,17 @@ CODE_LABELS = {
 def status_badge(code, label=None):
     """A translated, coloured badge for a state code; unknown codes render neutral.
 
-    The argument is a domain of the map (``"flows"``, ``"invoice"``...) or a label that replaces
-    the one of the map (``{{ job.state|status_badge:job.get_state_display }}``). Never raises.
+    The argument is a domain of the map (``"flows"``, ``"invoice"``...), a domain an app registered
+    (``"med_scheduling.appointment"``, #833) or a label that replaces the one of the map
+    (``{{ job.state|status_badge:job.get_state_display }}``). Never raises.
     """
     if code is None or code == "":
         return EMPTY
     key = str(code)
+    states = app_states(str(label)) if label is not None else None
+    if states is not None:  # An app's domain stands alone: an unknown code is neutral, never the core's.
+        text, tone = states.get(key) or (key, "neutral")
+        return format_html('<span class="badge badge-{} badge-dot">{}</span>', tone, text)
     domain = str(label) if label is not None and str(label) in DOMAINS else None
     text, tone = STATUS.get(f"{domain}:{key}") or STATUS.get(key) or (key, "neutral")
     if label is not None and domain is None:
@@ -336,9 +341,17 @@ def status_badge(code, label=None):
 
 @register.filter(is_safe=True)
 def marker(code, label=None):
-    """A pill without the dot for a fixed property (#767); unknown codes render neutral."""
+    """A pill without the dot for a fixed property (#767); unknown codes render neutral.
+
+    The argument is a domain an app registered (``"med_scheduling.appointment"``, #833) or a label
+    that replaces the one of the map (``{{ "managed"|marker:label }}``).
+    """
     if code is None or code == "":
         return ""
+    markers = app_markers(str(label)) if label is not None else None
+    if markers is not None:
+        text, tone = markers.get(str(code)) or (str(code), "neutral")
+        return format_html('<span class="badge badge-{}">{}</span>', tone, text)
     text, tone = MARKERS.get(str(code)) or (str(code), "neutral")
     return format_html('<span class="badge badge-{}">{}</span>', tone, text if label is None else label)
 

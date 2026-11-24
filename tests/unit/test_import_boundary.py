@@ -195,6 +195,9 @@ def test_providers_from_inventory_manifests():
         ("skeleton.common.models", "OperationalRecord"),
         ("skeleton.web.views", "outro_nome"),
         ("skeleton.api.views", "outro_nome"),
+        # Only registration is public (#833): the filters read the maps, an app never does.
+        ("skeleton.web.vocabulary", "app_states"),
+        ("skeleton.web.vocabulary", "unregister"),
     ],
 )
 def test_names_outside_the_public_list_are_warnings(module, name):

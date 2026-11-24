@@ -57,6 +57,8 @@ PUBLIC_CORE_NAMES: dict[str, frozenset[str] | None] = {
     "skeleton.web.views": frozenset({"tenant_page"}),
     # The form widget of formatted text (#825), with the Markdown editor.
     "skeleton.web.markdown_widget": frozenset({"MarkdownTextarea"}),
+    # States and markers of an app in the visual vocabulary (#833): registration in AppConfig.ready().
+    "skeleton.web.vocabulary": frozenset({"register_marker", "register_status"}),
     # The confirmation step of an irreversible action (#769): the same page and authorization as the core.
     "skeleton.web.confirm": frozenset({"Confirmation", "confirmation_step"}),
     # Metrics of an app in the management figures of the instance (#710).

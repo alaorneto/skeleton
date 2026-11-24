@@ -87,7 +87,8 @@ def test_every_core_state_code_has_a_badge():
     from django.apps import apps
     from django.db import models
 
-    from skeleton.web.templatetags.skeleton_format import STATUS, TONES
+    from skeleton.web.templatetags.skeleton_format import STATUS
+    from skeleton.web.vocabulary import TONES
 
     assert {tone for _, tone in STATUS.values()} <= TONES
     known = {key.rsplit(":", 1)[-1] for key in STATUS}

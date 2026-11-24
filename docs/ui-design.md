@@ -172,6 +172,37 @@ Os tons têm um sentido só: `success` funcionando ou concluído; `brand` em and
 - Estado novo, marcador novo ou código novo entram no mapa, nunca como `<span class="badge …">` no template: `tests/unit/test_ui_vocabulary.py` recusa a classe `badge` escrita à mão (a única exceção é `allauth/elements/badge.html`, que traduz as tags do allauth para o mesmo vocabulário) e confere os tons.
 - Nunca um código cru na tela (`succeeded`, `bundled`, `third_party`): ele passa por `status_badge` ou por `code_label`.
 
+#### Estados e marcadores de apps
+
+Uma app com estados ou marcadores próprios não usa códigos do núcleo só pela cor nem escreve a classe `badge`: ela registra os dela em `AppConfig.ready()` ([#833](https://github.com/alaorneto/skeleton/issues/833)), por `skeleton.web.vocabulary` ([superfície pública](service-api.md#superfícies-públicas-do-núcleo-para-apps)), e usa os mesmos filtros com o domínio como argumento:
+
+```python
+from django.utils.translation import gettext_lazy as _
+
+from skeleton.web.vocabulary import register_marker, register_status
+
+register_status(
+    "med_scheduling.appointment",
+    {
+        "scheduled": (_("Agendada"), "neutral"),
+        "arrived": (_("Paciente chegou"), "warning"),
+        "in_progress": (_("Em atendimento"), "brand"),
+        "done": (_("Atendida"), "success"),
+        "no_show": (_("Falta"), "danger"),
+    },
+)
+register_marker("med_scheduling.appointment", {"fit_in": (_("Encaixe"), "brand")})
+```
+
+```django
+{% load skeleton_format %}
+{{ appointment.state|status_badge:"med_scheduling.appointment" }} {{ "fit_in"|marker:"med_scheduling.appointment" }}
+```
+
+- O domínio é `<app_label>.<nome>`, com o rótulo de uma app instalada e `nome` em `[a-z0-9_]{1,40}`; os domínios do núcleo (`flows`, `invoice`…) não têm ponto e não se misturam com os das apps.
+- Cada código tem `(rótulo, tom)`. O tom de um estado é um de `success`, `brand`, `warning`, `danger` e `neutral`, com o sentido acima; o de um marcador não tem `success`. Tom fora da lista, domínio sem o prefixo, mapa vazio e o mesmo domínio registrado de novo com outro conteúdo são recusados (`ImproperlyConfigured`) já no `ready()`; a mesma declaração carregada outra vez é aceita.
+- O domínio de uma app vale sozinho: um código que ela não declarou sai neutro, com o próprio valor, e nunca com o tom do mapa do núcleo para o mesmo código. Os mapas do núcleo não mudam.
+
 ### Ações pela intenção
 
 A cor de um botão diz o que ele faz, nunca a posição dele na tela ([#769](https://github.com/alaorneto/skeleton/issues/769)).
@@ -214,7 +245,7 @@ Toda lista é `<div class="table-scroll table-stack"><table>…</table></div>` (
 | `cell-truncate` | `span` | Texto cortado com reticências numa linha. |
 | `row-actions` | `div` | Grupo de botões da coluna de ações. |
 
-- `{% load skeleton_format %}{{ estado|status_badge }}` mostra o código de estado como badge traduzido e colorido (sucesso, em andamento, atenção, falha, neutro). O argumento é um domínio do mapa (`"flows"`, `"invoice"`, `"jobs"`…) quando o mesmo código muda de sentido, ou um rótulo que substitui o do mapa (`{{ job.state|status_badge:job.get_state_display }}`). Um código desconhecido sai neutro, com o próprio texto. Todo `TextChoices` `*Status`/`*State` do núcleo tem entrada no mapa (teste em `tests/unit/test_format_filters.py`).
+- `{% load skeleton_format %}{{ estado|status_badge }}` mostra o código de estado como badge traduzido e colorido (sucesso, em andamento, atenção, falha, neutro). O argumento é um domínio do mapa (`"flows"`, `"invoice"`, `"jobs"`…) quando o mesmo código muda de sentido, o domínio que uma app registrou ([estados e marcadores de apps](#estados-e-marcadores-de-apps)), ou um rótulo que substitui o do mapa (`{{ job.state|status_badge:job.get_state_display }}`). Um código desconhecido sai neutro, com o próprio texto. Todo `TextChoices` `*Status`/`*State` do núcleo tem entrada no mapa (teste em `tests/unit/test_format_filters.py`).
 - Pessoas pelo nome: a view junta os identificadores da página e chama `skeleton.web.people.people_labels(ids, actor=request.user)` **uma vez** (que usa `IdentityService.people`, só membros ativos da organização atual); o template usa `{{ row.actor_sysid|person:people }}`, que mostra o nome, "Sistema" para vazio e "Pessoa indisponível" com os 8 primeiros caracteres do UUID para quem não é membro ativo. Assim um nome nunca vaza de outra organização. A auditoria global (`/platform/audit/`) continua com o UUID completo ([#475](https://github.com/alaorneto/skeleton/issues/475)).
 - Lista vazia: `{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhum token.") hint=_("Crie um token para integrar.") icon="api_tokens"|concept_icon %}`. A lista vazia não mostra paginação, e uma página só mostra o resumo sem "Anterior"/"Próxima" (`skeleton/web/pagination.html`).
 - A tabela genérica de registros (`components/record-table.html`) é a referência: `list_context` devolve cada célula como `{"text", "kind"}` e cada cabeçalho como `{"label", "kind"}`, com `kind` em `text`, `num`, `date` ou `bool` pelo tipo do campo, e corta na lista textos com mais de 160 caracteres (o detalhe mostra tudo). Um template derivado que copiou a versão anterior (com `{{ cell }}` e `{{ heading }}`) passa a usar `{{ cell.text }}` e `{{ heading.label }}`.

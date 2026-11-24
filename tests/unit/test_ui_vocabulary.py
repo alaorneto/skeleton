@@ -9,6 +9,8 @@ another, so the templates of the core never write the ``badge`` class themselves
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 SOURCES = [ROOT / "skeleton", ROOT / "examples"]
 # The allauth element maps allauth's own tags (verified, unverified, primary) to the vocabulary.
@@ -34,7 +36,8 @@ def test_templates_never_write_a_badge_by_hand():
 
 
 def test_tones_keep_one_meaning():
-    from skeleton.web.templatetags.skeleton_format import CODE_LABELS, MARKER_TONES, MARKERS, STATUS, TONES
+    from skeleton.web.templatetags.skeleton_format import CODE_LABELS, MARKERS, STATUS
+    from skeleton.web.vocabulary import MARKER_TONES, TONES
 
     assert {tone for _, tone in STATUS.values()} <= TONES
     assert {tone for _, tone in MARKERS.values()} <= MARKER_TONES
@@ -136,3 +139,95 @@ def test_feedback_uses_one_vocabulary():
         if relative not in EMPTY_STATE_ALLOWED and re.search(r"""class=["'][^"']*\bempty-state\b""", text):
             offenders.append(f"{relative}: empty-state (use components/empty-row.html or empty-state.html)")
     assert offenders == []
+
+
+# States and markers of apps (#833). Any installed label stands for the app that registers.
+APP_DOMAIN = "sk_audit.visit"
+
+
+@pytest.fixture
+def app_vocabulary():
+    from django.utils.translation import gettext_lazy
+
+    from skeleton.web.vocabulary import register_marker, register_status, unregister
+
+    register_status(
+        APP_DOMAIN,
+        {
+            "arrived": (gettext_lazy("Paciente chegou"), "warning"),
+            "in_progress": ("Em atendimento", "brand"),
+            "no_show": ("<b>Falta</b>", "danger"),
+        },
+    )
+    register_marker(APP_DOMAIN, {"urgent": ("Urgente", "danger")})
+    yield
+    unregister(APP_DOMAIN)
+
+
+def test_an_app_domain_gives_its_own_label_and_tone(app_vocabulary, subtests):
+    from django.template import Context, Template
+
+    def render(source):
+        return Template("{% load skeleton_format %}" + source).render(Context())
+
+    cases = (
+        (
+            '{{ "arrived"|status_badge:"sk_audit.visit" }}',
+            '<span class="badge badge-warning badge-dot">Paciente chegou</span>',
+        ),
+        (
+            '{{ "in_progress"|status_badge:"sk_audit.visit" }}',
+            '<span class="badge badge-brand badge-dot">Em atendimento</span>',
+        ),
+        (
+            '{{ "no_show"|status_badge:"sk_audit.visit" }}',
+            '<span class="badge badge-danger badge-dot">&lt;b&gt;Falta&lt;/b&gt;</span>',
+        ),
+        # A code the app did not declare is neutral, never the core's state of the same code.
+        ('{{ "failed"|status_badge:"sk_audit.visit" }}', '<span class="badge badge-neutral badge-dot">failed</span>'),
+        ('{{ "urgent"|marker:"sk_audit.visit" }}', '<span class="badge badge-danger">Urgente</span>'),
+        ('{{ "other"|marker:"sk_audit.visit" }}', '<span class="badge badge-neutral">other</span>'),
+        # The core maps are unchanged, and a domain nobody registered is still a label.
+        ('{{ "failed"|status_badge }}', '<span class="badge badge-danger badge-dot">Falhou</span>'),
+        (
+            '{{ "arrived"|status_badge:"sk_audit.other" }}',
+            '<span class="badge badge-neutral badge-dot">sk_audit.other</span>',
+        ),
+    )
+    for source, expected in cases:
+        with subtests.test(source=source):
+            assert render(source) == expected
+
+
+def test_app_vocabulary_refuses_what_breaks_the_meaning(app_vocabulary, subtests):
+    from django.core.exceptions import ImproperlyConfigured
+
+    from skeleton.web.vocabulary import register_marker, register_status
+
+    refused = (
+        ("a tone outside the vocabulary", register_status, "sk_audit.tones", {"x": ("X", "info")}),
+        ("success on a marker", register_marker, "sk_audit.tones", {"x": ("X", "success")}),
+        ("a domain without the app prefix", register_status, "visit", {"x": ("X", "neutral")}),
+        ("a domain of an app not installed", register_status, "not_installed.visit", {"x": ("X", "neutral")}),
+        ("a core domain", register_status, "flows", {"x": ("X", "neutral")}),
+        ("no codes", register_status, "sk_audit.empty", {}),
+        ("an entry without a tone", register_status, "sk_audit.bad", {"x": ("X",)}),
+        ("an empty label", register_status, "sk_audit.bad", {"x": (" ", "neutral")}),
+        ("a duplicated domain", register_status, APP_DOMAIN, {"arrived": ("Chegou", "success")}),
+        ("a duplicated marker domain", register_marker, APP_DOMAIN, {"urgent": ("Urgente", "warning")}),
+    )
+    for case, register, domain, entries in refused:
+        with subtests.test(case):
+            with pytest.raises(ImproperlyConfigured):
+                register(domain, entries)
+    from skeleton.web.vocabulary import app_states
+
+    assert app_states("sk_audit.tones") is None and app_states("sk_audit.bad") is None
+    assert app_states(APP_DOMAIN)["arrived"][1] == "warning"
+
+
+def test_the_same_declaration_loaded_again_is_accepted(app_vocabulary):
+    from skeleton.web.vocabulary import app_markers, register_marker
+
+    register_marker(APP_DOMAIN, {"urgent": ("Urgente", "danger")})  # A second ready().
+    assert dict(app_markers(APP_DOMAIN)) == {"urgent": ("Urgente", "danger")}
