@@ -168,15 +168,16 @@ def test_platform_sidebar_groups_by_subject_and_hides_empty_groups(setup):
     """The menu order of #799; each link keeps its visibility, and a role never sees an empty heading."""
     admin_menu = sidebar(login(setup["admin"]), reverse("platform:overview"))
     assert admin_menu == [
-        (None, ["", "instance", "organizations", "remote-instances", "notifications"]),
+        (None, ["", "instance", "organizations", "api-clients", "remote-instances", "notifications"]),
         ("Identidade", ["users", "identity-providers", "privacy"]),
         ("Aplicativos", ["apps", "bundles", "updates", "native-clients"]),
-        ("Dados", ["catalog", "storage", "insights", "audit"]),
-        ("Operação", ["domains", "api-clients", "billing", "appearance", "jobs"]),
+        ("Dados", ["catalog", "storage", "audit"]),
+        ("Operação", ["insights", "domains", "billing", "appearance", "jobs"]),
     ]
     assert sidebar(login(setup["auditor"]), reverse("platform:notifications")) == [
         (None, ["notifications"]),
-        ("Dados", ["catalog", "insights", "audit"]),
+        ("Dados", ["catalog", "audit"]),
+        ("Operação", ["insights"]),
     ]
     assert sidebar(login(setup["operator"]), reverse("platform:notifications")) == [
         (None, ["notifications"]),
