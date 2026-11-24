@@ -1,0 +1,34 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% load i18n %}{% block page_title %}{% if record %}{% translate "Editar comunicado" %}{% else %}{% translate "Novo comunicado" %}{% endif %}{% endblock %}
+{% block content %}
+<div class="max-w-4xl">
+<div class="page-header">
+  <div class="min-w-0">
+    {% include "skeleton/web/components/breadcrumbs.html" %}
+    <h1>{% if record %}{% translate "Editar comunicado" %}{% else %}{% translate "Novo comunicado" %}{% endif %}</h1>
+    <p class="page-description">{% translate "O comunicado chega na caixa de notificações de quem você escolher e, para quem não desligou, por email." %}</p>
+  </div>
+</div>
+{% include "skeleton/web/components/error-summary.html" with title=_("Verifique os dados informados") errors=error_list extra_class="mb-6" %}
+<form method="post" class="card">
+  {% csrf_token %}<input type="hidden" name="revision" value="{% if record %}{{ record.revision }}{% endif %}">
+  <p class="text-sm text-body-subtle">{% translate "Campos com * são obrigatórios." %}</p>
+  <div class="form-stack mt-3">
+    <div class="form-field"><label for="announcement-title">{% translate "Título" %} <span class="required">*</span></label><input id="announcement-title" name="title" maxlength="150" required value="{{ data.title }}"></div>
+    <div class="form-field"><label for="announcement-body">{% translate "Texto" %} <span class="optional">{% translate "(opcional)" %}</span></label><textarea id="announcement-body" name="body" rows="6" maxlength="2000">{{ data.body }}</textarea><p class="helptext">{% translate "Texto simples: sem formatação nem links clicáveis. Até 2000 caracteres." %}</p></div>
+    <fieldset class="form-field"><legend>{% translate "Quem recebe" %}</legend>
+      {% for value, label in audiences %}<label class="flex items-center gap-2"><input type="radio" name="audience" value="{{ value }}"{% if data.audience == value %} checked{% endif %}>{{ label }}</label>{% endfor %}
+    </fieldset>
+    <fieldset class="form-field"><legend>{% translate "Organizações" %}</legend>
+      <label class="flex items-center gap-2"><input type="radio" name="scope" value="all"{% if data.scope != "list" %} checked{% endif %}>{% translate "Todas as organizações ativas" %}</label>
+      <label class="flex items-center gap-2"><input type="radio" name="scope" value="list"{% if data.scope == "list" %} checked{% endif %}>{% translate "Só estas" %}</label>
+      <label class="sr-only" for="announcement-organizations">{% translate "Organizações escolhidas" %}</label>
+      <textarea id="announcement-organizations" name="organizations" rows="4" aria-describedby="announcement-organizations-help">{{ data.organizations_text }}</textarea>
+      <p class="helptext" id="announcement-organizations-help">{% translate "Um identificador de organização por linha. Vale só com “Só estas”." %}</p>
+    </fieldset>
+  </div>
+  <div class="mt-4 rounded-base border border-default p-4" aria-label="{% translate "Prévia" %}"><p class="text-xs font-medium text-body-subtle">{% translate "Prévia" %}</p><p class="mt-1 font-semibold text-heading">{{ data.title|default:_("Título do comunicado") }}</p>{% if data.body %}<p class="mt-1 text-sm/6 text-body">{{ preview_body }}</p>{% endif %}</div>
+  <div class="form-actions"><button type="submit" name="action" value="review" class="btn btn-primary">{% translate "Revisar e enviar" %}</button><button type="submit" name="action" value="save" class="btn btn-secondary">{% translate "Salvar rascunho" %}</button>{% if record %}<a class="btn btn-danger-outline" href="{% url 'platform:announcement-delete' record.pk %}">{% translate "Excluir rascunho" %}</a>{% endif %}</div>
+</form>
+</div>
+{% endblock %}

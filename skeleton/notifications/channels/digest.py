@@ -89,13 +89,17 @@ def run_digest(*, window: str | None = None, now: datetime | None = None) -> int
     zones = dict(UserProfile.objects.filter(user_id__in=people).values_list("user_id", "timezone"))
     # A blank profile zone follows the organization, then the instance (#170).
     fallback = organization_preferences()[1] or instance_preferences().timezone
+    from ..instance_settings import instance_state
+
     kinds = all_notification_types()
+    instance = instance_state()
     created = 0
     for user_id in people:
         local = _local(now, zones.get(user_id) or fallback)
         types = []
         for kind in kinds:
-            effective = resolve(kind, "email", rows.get(user_id, {}))
+            chosen = instance.get(kind.code)
+            effective = resolve(kind, "email", rows.get(user_id, {}), chosen.default_channels if chosen else None)
             if due(effective.mode, effective.digest_hour, local):
                 types.append(kind.code)
         if not types:
@@ -133,6 +137,7 @@ def digest_message(delivery: Any, user: Any) -> Any | None:
     """The digest email, or ``None`` when every item was read, archived or left the digest."""
     from django.urls import reverse
 
+    from ..instance_settings import instance_state
     from ..models import NotificationRecipient
     from ..preferences import DIGEST_MODES, known_type, own_rows, resolve
     from ..registry import get_notification_type
@@ -140,12 +145,15 @@ def digest_message(delivery: Any, user: Any) -> Any | None:
     from .email import build_message
 
     preferences = own_rows(user)
+    instance = instance_state()
     entries = []
     for row in NotificationRecipient.objects.filter(
         pk__in=delivery.items, user_id=user.pk, read_at__isnull=True, archived_at__isnull=True
     ).order_by("-updated_at", "sysid"):
         kind = known_type(row.type_code)
-        if kind is None or resolve(kind, "email", preferences).mode not in DIGEST_MODES:
+        chosen = instance.get(row.type_code)
+        channels = chosen.default_channels if chosen else None
+        if kind is None or resolve(kind, "email", preferences, channels).mode not in DIGEST_MODES:
             continue
         if not target_readable(row, user):
             # Reauthorized at send time, as the immediate email and push are (#276).
@@ -153,6 +161,10 @@ def digest_message(delivery: Any, user: Any) -> Any | None:
         entries.append(
             {
                 "label": get_notification_type(row.type_code).label,
+                "title": row.title or str(get_notification_type(row.type_code).label),
+                "body": row.body
+                if row.title
+                else " · ".join(str(v) for v in row.snapshot.values() if v not in (None, "")),
                 "snapshot": dict(row.snapshot),
                 "count": row.count,
                 "updated_at": row.updated_at,

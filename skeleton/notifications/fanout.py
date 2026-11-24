@@ -129,6 +129,58 @@ def _display(notification) -> dict:
     }
 
 
+def delivery_enabled(type_code: str) -> bool:
+    """Whether ``type_code`` may still be delivered: a mandatory type always; another unless turned off
+    by the platform (#784) or, inside its tenant, by the organization (#785)."""
+    from .instance_settings import enabled_in_instance
+    from .organization_settings import organization_disabled
+    from .registry import get_notification_type
+
+    try:
+        kind = get_notification_type(type_code)
+    except KeyError:
+        return False
+    return enabled_in_instance(kind) and not organization_disabled(kind)
+
+
+def _log_skipped(notification, reason: str) -> None:
+    import logging
+
+    logging.getLogger("skeleton.notifications").info(
+        "notification.skipped",
+        extra={"event": "notification.skipped", "reason_code": reason, "type_code": notification.type_code},
+    )
+
+
+def _text(rendered) -> dict:
+    if rendered is None:
+        return {}
+    return {"title": rendered.title, "body": rendered.body, "subject_people": list(rendered.subject_people)}
+
+
+def rendered_texts(notification, people: list[UUID]) -> dict:
+    """``{user_id: Rendered}`` for ``people``, in each one's language and time zone (#783)."""
+    from skeleton.accounts.models import User
+
+    from .registry import get_notification_type
+    from .rendering import organization_name, render_for_people
+
+    if not people:
+        return {}
+    try:
+        kind = get_notification_type(notification.type_code)
+    except KeyError:
+        return {}
+    users = User.objects.filter(pk__in=people).select_related("profile")
+    return render_for_people(
+        kind,
+        payload=notification.payload,
+        snapshot=notification.snapshot,
+        users=users,
+        organization_name=organization_name(),
+    )
+
+
 def fan_out(*, notification_id: str, offset: int) -> int:
     """Job handler (system context of the organization): one batch of at most BATCH_SIZE people."""
     from skeleton.jobs.services import enqueue
@@ -138,6 +190,12 @@ def fan_out(*, notification_id: str, offset: int) -> int:
     notification = Notification.objects.filter(pk=notification_id).first()
     if notification is None or notification.fanned_out_at is not None:
         return 0
+    if not delivery_enabled(notification.type_code):
+        # Turned off by the platform (or by the organization, #785) since notify(): nobody receives it.
+        _log_skipped(notification, "disabled")
+        notification.fanned_out_at = timezone.now()
+        notification.save(update_fields={"fanned_out_at"})
+        return 0
     people = resolve_people(notification)
     authorized = _authorized(people[offset : offset + BATCH_SIZE], _target(notification))
     authorized = _type_authorized(notification, authorized)
@@ -146,6 +204,7 @@ def fan_out(*, notification_id: str, offset: int) -> int:
         batch, channels = [], {"email": authorized}
     else:
         batch, channels = _channels(notification, authorized)
+    texts = rendered_texts(notification, batch)
     grouped = {}
     if notification.group_key:
         grouped = dict(
@@ -153,9 +212,13 @@ def fan_out(*, notification_id: str, offset: int) -> int:
                 user_id__in=batch, group_key=notification.group_key, read_at__isnull=True, archived_at__isnull=True
             ).values_list("user_id", "pk")
         )
-    if grouped:
-        NotificationRecipient.objects.filter(pk__in=grouped.values()).update(
-            count=F("count") + 1, notification=notification, **_display(notification)
+    # One UPDATE per distinct text (language and time zone), never one per person.
+    by_text: dict = {}
+    for user, row_id in grouped.items():
+        by_text.setdefault(texts.get(user), []).append(row_id)
+    for rendered, row_ids in by_text.items():
+        NotificationRecipient.objects.filter(pk__in=row_ids).update(
+            count=F("count") + 1, notification=notification, **_display(notification), **_text(rendered)
         )
     NotificationRecipient.objects.bulk_create(
         [
@@ -165,6 +228,7 @@ def fan_out(*, notification_id: str, offset: int) -> int:
                 user_id=user,
                 group_key=notification.group_key,
                 **_display(notification),
+                **_text(texts.get(user)),
             )
             for user in batch
             if user not in grouped
@@ -194,13 +258,17 @@ def _channels(notification, people: list[UUID]) -> tuple[list[UUID], dict[str, l
         kind = get_notification_type(notification.type_code)
     except KeyError:
         return people, {}
+    from .instance_settings import state_of
+
     rows = rows_by_user(people)
-    inbox = [user for user in people if wants(user, kind, "in_app", rows) != "off"]
+    chosen = state_of(kind.code).default_channels
+    inbox = [user for user in people if wants(user, kind, "in_app", rows, chosen) != "off"]
     from .channels.push import push_configured
 
     names = ("email", "push") if push_configured() else ("email",)
     channels = {
-        channel: [user for user in people if wants(user, kind, channel, rows) == "immediate"] for channel in names
+        channel: [user for user in people if wants(user, kind, channel, rows, chosen) == "immediate"]
+        for channel in names
     }
     return inbox, channels
 

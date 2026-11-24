@@ -36,7 +36,7 @@ A exportação é montada na própria requisição. Ela é uma rota agregada que
 
 ## Eliminação da identidade
 
-Os acessos externos ao portal (#536) são desativados pelo job de cada organização e ficam como histórico, como os vínculos; um convite posterior exige um novo aceite, que reativa a mesma linha.
+Os acessos externos ao portal (#536) são desativados pelo job de cada organização e ficam como histórico, como os vínculos; um convite posterior exige um novo aceite, que reativa a mesma linha. Ao abrir o pedido, os administradores da plataforma recebem um aviso, sem nenhum dado da pessoa ([alertas da plataforma](notifications.md#alertas-da-plataforma)).
 
 A pessoa pede a eliminação na mesma página, `/profile/privacy/` ([#191](https://github.com/alaorneto/skeleton/issues/191)). O pedido exige autenticação recente e só cria um `ErasureRequest` (`sk_accounts.erasurerequest`, global e auditado) em `pending`: nada mais muda. Enquanto está pendente, a pessoa pode retirá-lo. Há no máximo um pedido pendente por pessoa, e contas de serviço são recusadas (elas se desativam pela organização).
 
@@ -46,11 +46,11 @@ Um administrador da plataforma decide em `/platform/privacy/`, por POST com CSRF
 - `auth_version` incrementado, então toda sessão aberta termina na próxima requisição;
 - perfil de volta ao padrão (nome de exibição, idioma, fuso e tema vazios);
 - emails, contas sociais e autenticadores MFA da allauth apagados;
-- tokens de API revogados e excluídos, preferências de notificação e inscrições de push excluídas.
+- tokens de API revogados e excluídos, preferências de notificação e inscrições de push excluídas, e as linhas da caixa da plataforma apagadas ([avisos da plataforma](notifications.md#avisos-da-plataforma)).
 
 A aprovação passa pela mesma guarda da desativação (`skeleton.assert_user_deactivation`): quem é o último administrador ativo de alguma organização não é anonimizado, e a mensagem pede que outro administrador seja designado antes. A guarda mantém as travas das organizações até o commit, então ninguém torna a pessoa a última administradora no meio da operação. Qualquer recusa desfaz a transação inteira e o pedido continua pendente.
 
-A mesma transação enfileira um job `accounts.forget_in_organization` por organização. Cada um roda no contexto da própria organização, porque as linhas de tenant só são alcançáveis ali, e apaga as linhas de caixa de entrada e as entregas de notificação da pessoa (`forget_person`, ao lado da retenção) e desativa os webhooks que agem como ela. Nos fluxos de processo, ele remove dos formulários que a pessoa enviou os campos declarados `personal=True`, e também dos dados da instância enquanto eles guardam o valor que ela enviou ([#422](https://github.com/alaorneto/skeleton/issues/422)); os outros campos e os envios de outras pessoas ficam. O job é idempotente: rodar de novo não encontra mais nada.
+A mesma transação enfileira um job `accounts.forget_in_organization` por organização. Cada um roda no contexto da própria organização, porque as linhas de tenant só são alcançáveis ali, e apaga as linhas de caixa de entrada e as entregas de notificação da pessoa (`forget_person`, ao lado da retenção), deixa só o rótulo do tipo nas linhas de outras pessoas que a citam pelo nome, e desativa os webhooks que agem como ela. Nos fluxos de processo, ele remove dos formulários que a pessoa enviou os campos declarados `personal=True`, e também dos dados da instância enquanto eles guardam o valor que ela enviou ([#422](https://github.com/alaorneto/skeleton/issues/422)); os outros campos e os envios de outras pessoas ficam. O job é idempotente: rodar de novo não encontra mais nada.
 
 Os registros de negócio das organizações não mudam: continuam apontando para a mesma identidade, agora anônima (as relações são `PROTECT`), e os vínculos ficam como histórico. A auditoria antiga também fica; os `personal_fields` já saem `[REDACTED]` nos eventos novos e o comando `redact_audit_personal_data` (#189) redige os antigos. A eliminação não tem volta: a aprovação é a salvaguarda.
 

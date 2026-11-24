@@ -9,10 +9,11 @@
       <p class="page-eyebrow">{% translate "Plataforma" %}</p>
       <p class="truncate text-sm font-semibold text-heading">{% translate "Administração" %}</p>
     </div>
-{% if platform_admin %}    <ul class="sidebar-list">
-      <li><a class="sidebar-link" href="{% url 'platform:overview' %}"{% if platform_section == "overview" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="overview"|concept_icon %}{% translate "Visão geral" %}</a></li>
+    <ul class="sidebar-list">
+{% if platform_admin %}      <li><a class="sidebar-link" href="{% url 'platform:overview' %}"{% if platform_section == "overview" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="overview"|concept_icon %}{% translate "Visão geral" %}</a></li>
+{% endif %}      <li><a class="sidebar-link" href="{% url 'platform:notifications' %}"{% if platform_section == "notifications" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="notifications"|concept_icon %}{% translate "Notificações" %}{% if platform_unread %} <span class="counter ms-auto" aria-label="{{ platform_unread }} {% translate "avisos não lidos" %}">{{ platform_unread_label }}</span>{% endif %}</a></li>
     </ul>
-{% endif %}{% if platform_admin %}    <p class="sidebar-heading" id="platform-identity">{% translate "Identidade" %}</p>
+{% if platform_admin %}    <p class="sidebar-heading" id="platform-identity">{% translate "Identidade" %}</p>
     <ul class="sidebar-list" aria-labelledby="platform-identity">
       <li><a class="sidebar-link" href="{% url 'platform:users' %}"{% if platform_section == "users" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="people"|concept_icon %}{% translate "Usuários" %}</a></li>
       <li><a class="sidebar-link" href="{% url 'platform:organizations' %}"{% if platform_section == "organizations" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="organization"|concept_icon %}{% translate "Organizações" %}</a></li>

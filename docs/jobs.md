@@ -145,7 +145,7 @@ A administração da plataforma tem uma tela da fila (#40), com contagens por es
 | Proteções | POST com CSRF, autenticação recente e o `updated_at` que a pessoa viu (CAS): um segundo envio ou uma mudança concorrente não reenvia de novo, e a tela avisa que o job mudou |
 | Registro | `job.resent` e `job.discarded` em `security_event`, com o UUID do job e a origem `platform:<usuário>` |
 
-As operações ficam em `skeleton.jobs.operations` (`resend_dead_job`, `discard_dead_job`, `queue_health`), e o probe `manage.py check_jobs` usa as mesmas contagens. Enquanto uma manutenção pausa os jobs, `check_jobs` não acusa `queue_lag` (a fila espera de propósito) e acrescenta `paused=1` à linha de contagens; os jobs esgotados e a falta de worker continuam valendo. Veja [deployment](deployment.md#worker-de-jobs-e-agendador) para o serviço do worker e a drenagem pelo agente.
+As operações ficam em `skeleton.jobs.operations` (`resend_dead_job`, `discard_dead_job`, `queue_health`), e o probe `manage.py check_jobs` usa as mesmas contagens. O vigia `notifications.platform_watch` usa as mesmas contagens para avisar os administradores, na caixa e por email, de jobs esgotados e da fila atrasada ([alertas da plataforma](notifications.md#alertas-da-plataforma)). Enquanto uma manutenção pausa os jobs, `check_jobs` não acusa `queue_lag` (a fila espera de propósito) e acrescenta `paused=1` à linha de contagens; os jobs esgotados e a falta de worker continuam valendo. Veja [deployment](deployment.md#worker-de-jobs-e-agendador) para o serviço do worker e a drenagem pelo agente.
 
 ## Métricas da fila
 
@@ -154,7 +154,7 @@ Com o extra `[metrics]` e `SKELETON_METRICS_TOKEN` definidos (#175), `/metrics` 
 | Métrica | O que mede |
 |---|---|
 | `skeleton_jobs{job_type,state}` | Jobs por tipo registrado e estado, todas as organizações juntas; tipos não registrados entram como `other` |
-| `skeleton_delivery_jobs{channel,state}` | Entregas: `webhooks.deliver` (`webhook`), `notifications.email` (`email`) e `notifications.push` (`push`) |
+| `skeleton_delivery_jobs{channel,state}` | Entregas: `webhooks.deliver` (`webhook`), `notifications.email` e `notifications.platform_email` (`email`) e `notifications.push` (`push`) |
 | `skeleton_jobs_due` | Jobs `queued` com `run_after` vencido |
 | `skeleton_jobs_oldest_due_lag_seconds` | Atraso do job vencido mais antigo |
 | `skeleton_jobs_dead` | Jobs esgotados |

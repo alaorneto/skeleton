@@ -140,6 +140,7 @@ def world(skeleton_db, monkeypatch):
     assert flows.flow_problems() == []
     fixture = build_security_fixture()
     fixture.handlers = handlers
+    run_pending_jobs()  # The setup's own jobs (the notices of the new members, #786) are not under test.
     return fixture
 
 

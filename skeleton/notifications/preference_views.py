@@ -9,7 +9,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.http import Http404
 from django.shortcuts import redirect, render
-from django.utils.translation import gettext, gettext_lazy
+from django.utils.translation import gettext
 from django.views.decorators.http import require_http_methods
 from rest_framework.response import Response
 
@@ -23,41 +23,31 @@ from .channels.push import public_key as push_public_key
 from .models import DEFAULT_TYPE
 
 HOURS = tuple(range(24))
-# Areas of the preferences page (#778), by the prefix of the type code: presentation only. A
-# prefix not listed here (an app's own types) goes to "Outros", after the known areas.
-AREAS = (
-    ("billing", gettext_lazy("Cobrança")),
-    ("flows", gettext_lazy("Processos e tarefas")),
-    ("comments", gettext_lazy("Comentários")),
-    ("calendar", gettext_lazy("Agenda")),
-    ("organization", gettext_lazy("Organização")),
-    ("webhooks", gettext_lazy("Integrações")),
-    ("transfer", gettext_lazy("Importação e exportação")),
-)
-OTHERS = gettext_lazy("Outros")
 
 
 def group_rows(rows):
-    """``(default_row, [{"label", "rows"}])``: the row for every type apart, the others by area."""
-    default, buckets = None, {}
-    for row in rows:
-        if row["type_code"] == DEFAULT_TYPE:
-            default = row
-            continue
-        prefix = row["type_code"].split(".", 1)[0]
-        buckets.setdefault(prefix, []).append(row)
-    groups = [{"label": label, "rows": buckets.pop(prefix)} for prefix, label in AREAS if prefix in buckets]
-    others = [row for prefix in sorted(buckets) for row in buckets[prefix]]
-    if others:
-        groups.append({"label": OTHERS, "rows": others})
-    return default, groups
+    """``(default_row, [{"label", "rows"}])``: the row for every type apart, the others by context.
+
+    The cards of the page (#778) follow the context each type declares (#790): the platform's,
+    the organization's, then one card per app, by name (``skeleton.notifications.catalog``).
+    """
+    from .catalog import group_types
+
+    default = next((row for row in rows if row["type_code"] == DEFAULT_TYPE), None)
+    others = [row for row in rows if row["type_code"] != DEFAULT_TYPE]
+    groups = group_types(others, kind_of=lambda row: row["kind"])
+    return default, [{"label": group.label, "rows": group.items} for group in groups]
 
 
 def _item(line, channel):
+    from .registry import type_context
+
     state, row = line.channels[channel]
     return {
         "type_code": line.type_code,
         "label": line.label,
+        "context": type_context(line.kind) if line.kind is not None and line.type_code != DEFAULT_TYPE else "",
+        "description": str(getattr(line.kind, "description", "") or ""),
         "mandatory": line.mandatory,
         "channel": channel,
         "mode": state.mode,
@@ -79,6 +69,8 @@ PREFERENCE = obj(
     {
         "type_code": string(),
         "label": string(),
+        "context": string(),
+        "description": string(),
         "mandatory": BOOLEAN,
         "channel": string(enum=list(preferences.CHANNELS)),
         "mode": string(),
@@ -123,19 +115,21 @@ class PreferenceAPI(SessionAPI):
             response["ETag"] = f'"{item["revision"]}"'
         return response
 
-    def _channel(self, type_code, channel):
+    def _channel(self, type_code, channel, user=None):
         if channel not in preferences.CHANNELS:
             raise Http404
         if type_code != DEFAULT_TYPE and preferences.known_type(type_code) is None:
             raise Http404
+        if user is not None:
+            _line(user, type_code)  # A type the person cannot receive answers like an unknown one (#790).
 
     def get(self, request, type_code, channel):
-        self._channel(type_code, channel)
+        self._channel(type_code, channel, request.user)
         return self._respond(request, type_code, channel)
 
     @transaction.atomic
     def put(self, request, type_code, channel):
-        self._channel(type_code, channel)
+        self._channel(type_code, channel, request.user)
         data = request_fields(request)
         if set(data) - {"mode", "digest_hour"} or "mode" not in data:
             raise BoundaryError("invalid_request", gettext("Envie mode e, opcionalmente, digest_hour."))
@@ -161,7 +155,7 @@ class PreferenceAPI(SessionAPI):
 
     @transaction.atomic
     def delete(self, request, type_code, channel):
-        self._channel(type_code, channel)
+        self._channel(type_code, channel, request.user)
         expected = parse_revision(request.headers.get("If-Match"))
         try:
             preferences.clear_preference(request.user, type_code=type_code, channel=channel, expected_revision=expected)
@@ -237,6 +231,8 @@ def preferences_page(request):
         {
             "type_code": line.type_code,
             "label": line.label,
+            "description": getattr(line.kind, "description", "") if line.type_code != DEFAULT_TYPE else "",
+            "kind": line.kind,
             "mandatory": line.mandatory,
             "cells": [
                 {
@@ -250,6 +246,7 @@ def preferences_page(request):
                     "options": [(mode, dict(preferences.MODE_LABELS)[mode]) for mode in preferences.MODES[channel]],
                     "digest": line.channels[channel][0].mode in ("daily", "weekly"),
                     "locked": line.mandatory and channel == "in_app",
+                    "unavailable": channel in line.unavailable,
                     "mode_name": _field("mode", line.type_code, channel),
                     "hour_name": _field("hour", line.type_code, channel),
                     "revision_name": _field("revision", line.type_code, channel),

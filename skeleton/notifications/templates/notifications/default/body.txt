@@ -1,7 +1,7 @@
-{% autoescape off %}{% load i18n %}{{ label }}
-{% for key, value in snapshot.items %}
-{{ value }}{% endfor %}
-
+{% autoescape off %}{% load i18n %}{{ title|default:label }}
+{% if body %}
+{{ body }}
+{% endif %}
 {% translate "Abrir:" %} {{ open_url }}
 {% translate "Recebido em" %} {{ created_at|date:"d/m/Y H:i" }}.
 

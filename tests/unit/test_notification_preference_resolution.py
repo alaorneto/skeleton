@@ -33,3 +33,12 @@ def test_mandatory_type_always_reaches_the_inbox():
     effective = resolve(MANDATORY, "in_app", rows)
     assert (effective.mode, effective.source) == ("immediate", "mandatory")
     assert resolve(MANDATORY, "email", rows).mode == "off"
+
+
+def test_the_instance_defaults_come_between_the_person_and_the_type():
+    rows = {}
+    assert resolve(KIND, "email", rows, ("in_app",)).mode == "off"
+    assert resolve(KIND, "push", rows, ("push",)).source == "instance"
+    assert resolve(KIND, "email", {("*", "email"): row("weekly")}, ("in_app",)).mode == "weekly"
+    assert resolve(KIND, "email", {("tasks.assigned", "email"): row("off")}, ("email",)).mode == "off"
+    assert resolve(MANDATORY, "in_app", rows, ()).source == "mandatory"

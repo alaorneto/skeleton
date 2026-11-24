@@ -17,7 +17,7 @@
     <colgroup><col class="pref-col-type">{% for channel, label in channel_labels.items %}<col class="pref-col-channel">{% endfor %}</colgroup>
     <thead><tr><th scope="col">{% translate "Aviso" %}</th>{% for channel, label in channel_labels.items %}<th scope="col">{{ label }}</th>{% endfor %}</tr></thead>
     <tbody>{% for row in group.rows %}<tr>
-      <th scope="row"><span class="pref-type">{{ row.label }}</span>{% if row.mandatory %} {{ "mandatory"|marker }}{% endif %}</th>
+      <th scope="row"><span class="pref-type">{{ row.label }}</span>{% if row.mandatory %} {{ "mandatory"|marker }}{% endif %}{% if row.description %}<span class="cell-secondary">{{ row.description }}</span>{% endif %}</th>
       {% for cell in row.cells %}<td data-label="{{ cell.channel_label }}">{% include "account/notification_preference_cell.html" %}</td>{% endfor %}
     </tr>{% endfor %}</tbody>
   </table>

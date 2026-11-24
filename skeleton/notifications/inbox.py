@@ -146,12 +146,18 @@ def row_data(row) -> dict:
         label = get_notification_type(row.type_code).label
     except KeyError:
         label = row.type_code
+    snapshot = dict(row.snapshot)
+    # A row written before #783 has no text: its title is the label and its body the snapshot.
+    title = row.title or str(label)
+    body = row.body if row.title else " · ".join(str(value) for value in snapshot.values() if value not in (None, ""))
     return {
         "sysid": row.pk,
         "organization_id": row.organization_id,
         "type_code": row.type_code,
         "label": label,
-        "snapshot": dict(row.snapshot),
+        "title": title,
+        "body": body,
+        "snapshot": snapshot,
         "payload": dict(row.payload),
         "count": row.count,
         "read": row.read_at is not None,

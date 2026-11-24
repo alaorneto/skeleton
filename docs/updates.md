@@ -119,7 +119,7 @@ Apps continuam em pacotes de componente. Uma app publica o próprio índice no p
 
 ## Avisos
 
-O agente consulta as fontes sozinho a cada `update_check_interval` segundos (padrão 6 horas; `0` desliga; a primeira consulta, 2 minutos depois de subir). Quem tem `updates.operate` vê nas páginas de `/platform/` uma faixa com o link "Ver o passo a passo"; o atraso máximo é o intervalo do agente mais 5 minutos de cache. Nada é baixado nem aplicado sozinho.
+O agente consulta as fontes sozinho a cada `update_check_interval` segundos (padrão 6 horas; `0` desliga; a primeira consulta, 2 minutos depois de subir). Quem tem `updates.operate` vê nas páginas de `/platform/` uma faixa com o link "Ver o passo a passo"; o atraso máximo é o intervalo do agente mais 5 minutos de cache. Nada é baixado nem aplicado sozinho. Quem tem `updates.operate` também recebe na caixa da plataforma o aviso de versão nova e o de uma operação que não terminou ([alertas da plataforma](notifications.md#alertas-da-plataforma)).
 
 Todo deployment roda o agente (#649), que mostra as versões em "Novas versões". Fora dele (só desenvolvimento local), com o opt-in `SKELETON_UPDATE_REPOSITORY`, o job `system.update_check` consulta o release mais recente e mostra um aviso **só informativo** com o link para o release ([aviso sem agente](deployment.md#sandbox-no-coolify-369)).
 

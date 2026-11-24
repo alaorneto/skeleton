@@ -7,7 +7,7 @@ from typing import Any
 from uuid import UUID
 
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.utils.translation import gettext
+from django.utils.translation import gettext, gettext_lazy
 
 from .models import EventAttendee
 
@@ -162,13 +162,37 @@ def notify_attendees(event: Any, type_code: str, *, users: tuple[UUID, ...] | No
 
 
 def register_attendee_notifications() -> None:
-    from skeleton.notifications.registry import NotificationType, register_notification_type
+    from skeleton.notifications.registry import NotificationField, NotificationType, register_notification_type
 
-    for code, label in (
-        (INVITED, gettext("Convite para evento")),
-        (UPDATED, gettext("Evento alterado")),
-        (CANCELLED, gettext("Evento cancelado")),
+    for code, label, description, title in (
+        (
+            INVITED,
+            gettext_lazy("Convite para evento"),
+            gettext_lazy("Quando você é convidado para um evento"),
+            gettext_lazy("Convite para {title}"),
+        ),
+        (
+            UPDATED,
+            gettext_lazy("Evento alterado"),
+            gettext_lazy("Quando um evento em que você está muda"),
+            gettext_lazy("O evento {title} mudou"),
+        ),
+        (
+            CANCELLED,
+            gettext_lazy("Evento cancelado"),
+            gettext_lazy("Quando um evento em que você está é cancelado"),
+            gettext_lazy("O evento {title} foi cancelado"),
+        ),
     ):
         register_notification_type(
-            NotificationType(code, label, payload_fields=("title", "event"), owner_app="skeleton_calendar")
+            NotificationType(
+                code,
+                label,
+                payload_fields=("title", "event"),
+                owner_app="skeleton_calendar",
+                context="app",
+                description=description,
+                fields=(NotificationField("title", gettext_lazy("Título do evento")),),
+                title=title,
+            )
         )

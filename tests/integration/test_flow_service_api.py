@@ -80,6 +80,7 @@ def scenario(skeleton_db, monkeypatch):
     built.note = built.create(built.a, code="own", title="Own")
     built.other = built.create(built.a, code="other", title="Other")
     built.foreign = built.create(built.b, code="foreign-code", title="Foreign title")
+    run_pending_jobs()  # The setup's own jobs (the notices of the new members, #786) are not under test.
     return built
 
 

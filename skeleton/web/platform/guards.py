@@ -21,26 +21,28 @@ __all__ = ["platform_page"]
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
-def platform_page(view=None, *, capability=None, writes=False):
+def platform_page(view=None, *, capability=None, writes=False, any_role=False):
     """Anonymous → login; not allowed → 403; pending MFA → enrolment; global context only.
 
     Without ``capability`` only the platform administrator passes. With it, a limited
     platform role holding that capability (#34) also passes: for reads only, unless
     ``writes`` says the capability itself is about changing things (release operations).
+    ``any_role`` lets in whoever holds any platform role, for every method: pages about the
+    person's own rows only, such as the platform's inbox (#787).
     """
 
     def decorator(view):
         @never_cache
         @wraps(view)
         def guarded(request, *args, **kwargs):
-            from skeleton.accounts.platform import has_platform_capability
+            from skeleton.accounts.platform import has_platform_capability, platform_capabilities
 
             user = request.user
             if not user.is_authenticated:
                 return redirect_to_login(request.get_full_path())
             delegated = bool(
                 capability and (writes or request.method in SAFE_METHODS) and has_platform_capability(user, capability)
-            )
+            ) or bool(any_role and platform_capabilities(user))
             if not (is_platform_admin(user) or delegated):
                 raise PermissionDenied("Platform administration required.")
             if mfa_required(user):

@@ -134,6 +134,8 @@ register_consumer("membership.created", "tasks.welcome_member", welcome)  # welc
 
 Use o código do evento como texto (primeira coluna da tabela acima); o módulo `skeleton.events.core_events` é interno.
 
+Os [avisos padrão da organização](notifications.md#avisos-padrão-da-organização) (#786) saem no mesmo ponto em que esses dois eventos são publicados, na transação, e não por um consumidor.
+
 ## Eventos da cobrança
 
 A [cobrança](billing.md#eventos) publica `billing.invoice_finalized` e `billing.invoice_paid` sobre `sk_billing.invoice` (`number`, `status`, `currency`, `total`) e `billing.subscription_changed` sobre `sk_billing.subscription` (`status`), na transação do motor. Dados de contato da conta nunca entram no payload. Esses tipos não vão para webhooks; um emissor fiscal externo consome `billing.invoice_paid` em processo (`register_consumer`).

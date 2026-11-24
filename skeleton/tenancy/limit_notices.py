@@ -35,17 +35,25 @@ def _open_url(user: Any, row: Any) -> str | None:
 
 
 def register_limit_notices() -> None:
-    from skeleton.notifications.registry import NotificationType, register_notification_type
+    from skeleton.notifications.registry import NotificationField, NotificationType, register_notification_type
 
     register_notification_type(
         NotificationType(
             MEMBER_LIMIT_REACHED,
-            str(gettext_lazy("Limite de membros atingido")),
+            gettext_lazy("Limite de membros atingido"),
             payload_fields=FIELDS,
             default_channels=("in_app", "email"),
             owner_app="sk_tenancy",
             open_url=_open_url,
             authorize=_authorize,
+            context="platform",
+            description=gettext_lazy("Quando a organização ocupa a última vaga de membro"),
+            fields=(
+                NotificationField("limit", gettext_lazy("Limite"), kind="number"),
+                NotificationField("used", gettext_lazy("Membros"), kind="number"),
+            ),
+            title=gettext_lazy("{organizacao} chegou ao limite de {limit} membros"),
+            body=gettext_lazy("Para admitir mais pessoas, aumente o limite do plano ou remova vínculos."),
         )
     )
 

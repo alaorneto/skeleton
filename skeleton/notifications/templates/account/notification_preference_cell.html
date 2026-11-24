@@ -1,9 +1,10 @@
 {% load i18n %}{% comment %}Um canal de um aviso nas preferências (#778). O canal travado de um aviso obrigatório não tem campo: o POST não o envia, como antes com o select desabilitado.{% endcomment %}<div class="pref-cell{% if cell.channel == "email" %} pref-email{% endif %}">
   {% if show_label %}<span class="pref-cell-label">{{ cell.channel_label }}</span>{% endif %}
-  {% if cell.locked %}<p class="pref-locked">{% translate "Sempre ligado" %}</p>
+  {% if cell.unavailable %}<p class="pref-source">{% translate "Não disponível" %}</p>
+  {% elif cell.locked %}<p class="pref-locked">{% translate "Sempre ligado" %}</p>
   {% else %}<label class="sr-only" for="{{ cell.mode_name }}">{{ row.label }}: {{ cell.channel_label }}</label>
   <select id="{{ cell.mode_name }}" name="{{ cell.mode_name }}" class="pref-mode">{% for mode, label in cell.options %}<option value="{{ mode }}"{% if mode == cell.mode %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
   {% if cell.channel == "email" %}<div class="pref-hour"><label for="{{ cell.hour_name }}">{% translate "Hora do resumo" %}</label><select id="{{ cell.hour_name }}" name="{{ cell.hour_name }}">{% for hour in hours %}<option value="{{ hour }}"{% if hour == cell.hour %} selected{% endif %}>{{ hour|stringformat:"02d" }}:00</option>{% endfor %}</select></div>{% endif %}
   <input type="hidden" name="{{ cell.revision_name }}" value="{{ cell.revision }}">
-  {% if cell.source != "own" %}<p class="pref-source">{% if cell.source == "default" %}{% translate "Seu padrão" %}{% else %}{% translate "Padrão do aviso" %}{% endif %}</p>{% endif %}{% endif %}
+  {% if cell.source != "own" %}<p class="pref-source">{% if cell.source == "default" %}{% translate "Seu padrão" %}{% elif cell.source == "instance" %}{% translate "Padrão da plataforma" %}{% else %}{% translate "Padrão do aviso" %}{% endif %}</p>{% endif %}{% endif %}
 </div>

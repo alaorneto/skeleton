@@ -190,6 +190,7 @@ O estado de acesso da organização é **derivado**, nunca digitado: da fatura e
 | a partir daí, ou uma fatura `uncollectible` | `suspended` | Só a cobrança, para o administrador |
 
 - Um pagamento ainda compensando (`pending`, criado nos últimos `SKELETON_BILLING_PENDING_PAYMENT_HOLD_DAYS`, 3) segura o estado em `past_due`: um boleto ou Pix em trânsito não bloqueia quem pagou.
+- Uma organização `suspended` é avisada a quem tem `billing.operate` na caixa da plataforma, uma vez por dia ([alertas da plataforma](notifications.md#alertas-da-plataforma)).
 - A prorrogação da plataforma (`access_override_until`, com motivo) mantém `active` até expirar.
 - Depois de `SKELETON_BILLING_CANCEL_AFTER_DAYS` (60), a assinatura é cancelada e as faturas vencidas viram `uncollectible`; a organização continua suspensa e **nenhum dado é apagado**. Pagar uma fatura incobrável (baixa manual da plataforma) a quita e reativa.
 - Assinaturas `auto_charge` têm novas tentativas `SKELETON_BILLING_RETRY_SCHEDULE_DAYS` dias depois do vencimento (`1,3,5`), pelos cobradores que o provedor registra (`dunning.register_collector`, [#400](https://github.com/alaorneto/skeleton/issues/400)).

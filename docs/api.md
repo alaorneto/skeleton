@@ -49,6 +49,7 @@ Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do coo
 | `o/<org>/webhooks/`, `<id>/`, `<id>/rotate/`, `<id>/ping/`, `<id>/deliveries/`, `<id>/deliveries/<delivery_id>/`, `.../resend/` | GET, POST na coleção; GET, PATCH, DELETE no detalhe; POST em `rotate`, `ping` e `resend`; GET nas entregas | Endpoints, segredo, teste e log de entregas; [webhooks](webhooks.md) |
 | `notifications/`, `o/<org>/notifications/actions/` | GET; POST | Caixa de notificações do ator e ações sobre ela; [notificações](notifications.md) (`skeleton/notifications/urls.py`) |
 | `me/notification-preferences/`, `me/notification-preferences/<type_code>/<channel>/` | GET; GET, PUT, DELETE | Preferências por tipo e canal; [notificações](notifications.md#preferências) |
+| `o/<org>/notification-settings/`, `.../<type_code>/`, `.../<type_code>/texts/<idioma>/` | GET; GET, PUT; PUT, DELETE | Avisos da organização: ligar, desligar e texto, com `notifications.manage`; [notificações](notifications.md#configuração-da-organização) |
 | `me/push-subscriptions/`, `me/push-subscriptions/unsubscribe/` | POST; POST | Assinaturas de web push do navegador; [notificações](notifications.md#web-push) |
 | `o/<org>/tables/<table_key>/records/<sysid>/attachments/`, `<attachment_id>/`, `<attachment_id>/restore/` | GET, POST; DELETE; POST | Anexos do registro, com autorização derivada dele; [arquivos](files.md#anexos) (`skeleton/api/urls.py`, views em `skeleton/files/api_views.py`) |
 

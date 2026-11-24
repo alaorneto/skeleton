@@ -72,6 +72,10 @@ def request_erasure(user: User) -> ErasureRequest:
             raise ValidationError(gettext("Já existe um pedido de eliminação em andamento."))
         record = ErasureRequest(user_id=user.pk)
         record.save()
+        # The platform's administrators are told now, in this transaction (#788).
+        from skeleton.notifications.platform_alerts import erasure_requested
+
+        erasure_requested(record.pk)
     security_event("privacy.erasure_requested", target_sysid=str(user.pk), outcome="success")
     return record
 
@@ -192,6 +196,10 @@ def _anonymize(person: User, *, using: str, now: Any) -> None:
     for model in (UserNotificationPreference, WebPushSubscription):
         for row in model.objects.filter(user_id=person.pk).order_by("sysid"):
             row.delete()
+    # The person's platform inbox (#787): global, so it goes here and not in an organization's job.
+    from skeleton.notifications.platform import forget_platform_person
+
+    forget_platform_person(person.pk)
 
 
 def _enqueue_forgetting(user_id: UUID, request_id: UUID) -> None:

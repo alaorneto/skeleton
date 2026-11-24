@@ -16,6 +16,7 @@ from django.template import TemplateDoesNotExist
 from django.template.loader import render_to_string
 from django.utils import timezone, translation
 
+from ..texts import plain_html
 from .delivery import OPEN_STATES, active_recipient, failed_attempt, finish, open_url, preferences_url, target_readable
 
 
@@ -87,8 +88,12 @@ def _notification_context(delivery: Any, notification: Any) -> dict[str, Any]:
         label = get_notification_type(notification.type_code).label
     except KeyError:
         label = notification.type_code
+    title, body = notification_text(notification, delivery.user_id, label=label)
     return {
         "label": label,
+        "title": title,
+        "body": body,
+        "body_html": plain_html(body),
         "type_code": notification.type_code,
         "snapshot": dict(notification.snapshot),
         "payload": dict(notification.payload),
@@ -97,11 +102,30 @@ def _notification_context(delivery: Any, notification: Any) -> dict[str, Any]:
     }
 
 
+def notification_text(notification: Any, user_id: Any, *, label: Any) -> tuple[str, str]:
+    """The person's title and body (#783): their inbox row, or rendered now when they have none."""
+    from ..fanout import rendered_texts
+    from ..models import NotificationRecipient
+
+    row = (
+        NotificationRecipient.objects.filter(notification_id=notification.pk, user_id=user_id)
+        .only("title", "body")
+        .first()
+    )
+    if row is not None and row.title:
+        return row.title, row.body
+    rendered = rendered_texts(notification, [user_id]).get(user_id)
+    if rendered is None:
+        return str(label), ""
+    return rendered.title, rendered.body
+
+
 def _still_wanted(user: Any, type_code: str) -> bool:
+    from ..fanout import delivery_enabled
     from ..preferences import effective, known_type
     from .delivery import _external_type
 
-    if known_type(type_code) is None:
+    if known_type(type_code) is None or not delivery_enabled(type_code):
         return False
     if _external_type(type_code):
         return True  # An external person has no preference page: the type sends by email (#535).

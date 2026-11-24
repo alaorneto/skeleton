@@ -482,6 +482,48 @@ def register_core_specs():
             "global",
             (),
         ),
+        "sk_notifications.instancenotificationsetting": (
+            gettext_lazy("Avisos da instância"),
+            gettext_lazy("Escolha da plataforma para cada tipo de notificação: ligado e canais padrão."),
+            "global",
+            (),
+        ),
+        "sk_notifications.instancenotificationtext": (
+            gettext_lazy("Textos dos avisos da instância"),
+            gettext_lazy("Título e corpo de um tipo de notificação num idioma, escritos pela plataforma."),
+            "global",
+            (),
+        ),
+        "sk_notifications.organizationnotificationsetting": (
+            gettext_lazy("Avisos da organização"),
+            gettext_lazy("Escolha da organização para cada tipo de notificação não obrigatório: ligado ou não."),
+            "organization",
+            (),
+        ),
+        "sk_notifications.organizationnotificationtext": (
+            gettext_lazy("Textos dos avisos da organização"),
+            gettext_lazy("Título e corpo de um tipo de notificação num idioma, escritos pela organização."),
+            "organization",
+            (),
+        ),
+        "sk_notifications.platformnotification": (
+            gettext_lazy("Avisos da plataforma"),
+            gettext_lazy("Aviso da plataforma aos seus administradores, sem organização; só números e códigos."),
+            "global",
+            (),
+        ),
+        "sk_notifications.platformnotificationrecipient": (
+            gettext_lazy("Caixa da plataforma"),
+            gettext_lazy("Cópia de um aviso da plataforma para cada administrador, com lida, arquivada e o email."),
+            "global",
+            (),
+        ),
+        "sk_notifications.platformannouncement": (
+            gettext_lazy("Comunicados da plataforma"),
+            gettext_lazy("Aviso escrito pelo administrador da plataforma às organizações; enviado, não muda."),
+            "global",
+            (),
+        ),
         "sk_notifications.notificationdelivery": (
             gettext_lazy("Entregas de notificação"),
             gettext_lazy("Email, resumo ou push de uma notificação a uma pessoa, com tentativas e último resultado."),

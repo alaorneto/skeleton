@@ -57,5 +57,8 @@ def register_transfer_jobs() -> None:
             gettext_lazy("Exportação ou importação concluída"),
             payload_fields=("transfer",),
             owner_app="sk_transfer",
+            context="organization",
+            description=gettext_lazy("Quando uma exportação ou importação termina"),
+            title=gettext_lazy("Sua exportação ou importação terminou"),
         )
     )

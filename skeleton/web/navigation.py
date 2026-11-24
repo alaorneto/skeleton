@@ -117,6 +117,20 @@ SETTINGS_GROUPS: tuple[tuple[str, Any, tuple[SettingsItem, ...]], ...] = (
                 "organization_admin",
                 editor_route_names("organization-page-home", "web"),
             ),
+            # Which notices the organization sends and how they are written (#785).
+            SettingsItem(
+                "notifications:organization-settings",
+                gettext_lazy("Notificações"),
+                "notifications",
+                "notifications.manage",
+                (
+                    "notifications:organization-settings",
+                    "notifications:organization-setting",
+                    "notifications:organization-setting-text",
+                    "notifications:organization-setting-text-restore",
+                    "notifications:organization-setting-switch",
+                ),
+            ),
         ),
     ),
     (

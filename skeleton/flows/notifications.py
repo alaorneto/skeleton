@@ -19,6 +19,20 @@ TYPES = {
     "flows.task_reminder": gettext_lazy("Lembrete de tarefa de fluxo"),
     "flows.task_overdue": gettext_lazy("Tarefa de fluxo atrasada"),
 }
+TEXTS = {
+    "flows.task_assigned": (
+        gettext_lazy("Quando uma tarefa de processo é atribuída a você"),
+        gettext_lazy("Nova tarefa: {step}"),
+    ),
+    "flows.task_reminder": (
+        gettext_lazy("Lembrete de uma tarefa de processo pendente"),
+        gettext_lazy("Lembrete: {step}"),
+    ),
+    "flows.task_overdue": (
+        gettext_lazy("Quando uma tarefa de processo passa do prazo"),
+        gettext_lazy("Tarefa atrasada: {step}"),
+    ),
+}
 PAYLOAD = ("flow", "step", "number", "task")
 
 
@@ -39,9 +53,15 @@ def task_url(user: Any, row: Any) -> str | None:
 
 
 def register_flow_notification_types() -> None:
-    from skeleton.notifications.registry import NotificationType, register_notification_type
+    from skeleton.notifications.registry import NotificationField, NotificationType, register_notification_type
 
+    fields = (
+        NotificationField("flow", gettext_lazy("Processo")),
+        NotificationField("step", gettext_lazy("Etapa")),
+        NotificationField("number", gettext_lazy("Número do processo")),
+    )
     for code, label in TYPES.items():
+        description, title = TEXTS[code]
         register_notification_type(
             NotificationType(
                 code,
@@ -50,6 +70,11 @@ def register_flow_notification_types() -> None:
                 group_key="flow-task:{task}",
                 owner_app="sk_flows",
                 open_url=task_url,
+                context="organization",
+                description=description,
+                fields=fields,
+                title=title,
+                body=gettext_lazy("Processo {flow} nº {number}."),
             )
         )
 

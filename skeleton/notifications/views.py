@@ -106,11 +106,20 @@ def _inbox_row():
             "updated_at": "updated_at",
         },
         label=string(),
+        title=string(),
+        text=string(),
         snapshot=OBJECT,
         payload=OBJECT,
         read=BOOLEAN,
         archived=BOOLEAN,
     )
+
+
+def _api_row(row) -> dict:
+    """The REST shape of an inbox row: the rendered body is ``text`` (#783)."""
+    data = inbox.row_data(row)
+    data["text"] = data.pop("body")
+    return data
 
 
 class InboxAPI(SessionAPI):
@@ -134,7 +143,7 @@ class InboxAPI(SessionAPI):
         archived = request.query_params.get("archived", "0")
         if archived not in {"0", "1"}:
             raise BoundaryError("invalid_filter", gettext("Filtro inválido."))
-        response = page(inbox.inbox_queryset(request.user, include_archived=archived == "1"), request, inbox.row_data)
+        response = page(inbox.inbox_queryset(request.user, include_archived=archived == "1"), request, _api_row)
         response.data["unread"] = inbox.unread_count(request.user)
         return response
 

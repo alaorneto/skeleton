@@ -97,7 +97,7 @@ Uma **capacidade** é um direito administrativo da organização, como gerir pes
 
 | Papel interno | Capacidades |
 |---|---|
-| `organization_admin` | todas: `members.view`, `members.manage`, `invitations.manage`, `admission.decide`, `admission.configure`, `apps.manage`, `access.manage`, `identity.configure`, `integrations.manage`, `flows.manage` |
+| `organization_admin` | todas: `members.view`, `members.manage`, `invitations.manage`, `admission.decide`, `admission.configure`, `apps.manage`, `access.manage`, `identity.configure`, `integrations.manage`, `flows.manage`, `notifications.manage` (os avisos da organização, [#785](https://github.com/alaorneto/skeleton/issues/785)) |
 | `people_manager` (gestor de pessoas) | `members.view`, `members.manage`, `invitations.manage`, `admission.decide` |
 | `app_manager` (gestor de apps) | `apps.manage` |
 | `process_manager` (gestor de processos) | `flows.manage`: administra os [fluxos de processo](flows.md#autorização) como o administrador, e nada fora deles ([#407](https://github.com/alaorneto/skeleton/issues/407)) |

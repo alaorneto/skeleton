@@ -115,6 +115,12 @@ STATUS = {
     "hard_delete": (_("Exclusão física"), "danger"),
     # Jobs.
     "jobs:running": (_("Executando"), "brand"),
+    # Notification types turned on or off by the platform or the organization (#784, #785).
+    "enabled": (_("Ligado"), "success"),
+    "notifications:enabled": (_("Ligado"), "success"),
+    "notifications:disabled": (_("Desligado"), "neutral"),
+    # Announcements of the platform (#789): masculine in Portuguese.
+    "announcement:sent": (_("Enviado"), "success"),
     # Notification and webhook deliveries.
     "deliveries:pending": (_("Na fila"), "brand"),
     "deliveries:succeeded": (_("Entregue"), "success"),
@@ -229,6 +235,8 @@ MARKERS = {
     "personal": (_("Pessoal"), "warning"),
     # An app with no availability of its own: active while an app that depends on it is (#792).
     "library": (_("Biblioteca"), "neutral"),
+    # A notification type the organization cannot change: the platform's or locked by it (#785).
+    "platform_defined": (_("Definido pela plataforma"), "neutral"),
 }
 
 # Code -> translated text of a value or category shown as plain text (#767): never a pill.

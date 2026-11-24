@@ -29,4 +29,9 @@ def test_metric_channels_come_from_the_job_registry():
     from skeleton.observability.metrics import _job_labels
 
     _, _, channels = _job_labels()
-    assert channels == {"webhooks.deliver": "webhook", "notifications.email": "email", "notifications.push": "push"}
+    assert channels == {
+        "webhooks.deliver": "webhook",
+        "notifications.email": "email",
+        "notifications.platform_email": "email",
+        "notifications.push": "push",
+    }

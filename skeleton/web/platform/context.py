@@ -17,3 +17,26 @@ def platform_update_notice(request):
     from skeleton.system.releases import update_notice
 
     return {"platform_update_notice": SimpleLazyObject(lambda: update_notice() or {})}
+
+
+def platform_notifications(request):
+    """Lazy unread count of the platform's inbox (#787): read only when a template shows it."""
+    user = getattr(request, "user", None)
+    if not getattr(user, "is_authenticated", False):
+        return {}
+
+    memo: dict[str, int] = {}
+
+    def count():
+        if "n" not in memo:
+            from skeleton.notifications.platform import unread_count
+
+            memo["n"] = unread_count(user)
+        return memo["n"]
+
+    def label():
+        from skeleton.notifications.inbox import counter_label
+
+        return counter_label(count())
+
+    return {"platform_unread": SimpleLazyObject(count), "platform_unread_label": SimpleLazyObject(label)}

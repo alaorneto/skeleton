@@ -4,7 +4,7 @@ from django.db.models import Q
 from django.utils.translation import gettext_lazy
 
 from skeleton.common.crypto import EncryptedTextField
-from skeleton.common.models import OperationalRecord, SystemRecord
+from skeleton.common.models import OperationalRecord, OrganizationRecord, SystemRecord
 
 INTEGRATION_KEYS = "INTEGRATION_ENCRYPTION_KEYS"
 
@@ -83,6 +83,12 @@ class NotificationRecipient(OperationalRecord):
     archived_at = models.DateTimeField(null=True, blank=True)
     # Set when the row joins a daily or weekly digest (#55): it never joins another one.
     digest_sent_at = models.DateTimeField(null=True, blank=True)
+    # The text rendered at fan-out in the person's language (#783): the global inbox has no tenant
+    # and cannot read the organization's texts, and a later edit never rewrites what was delivered.
+    title = models.CharField(max_length=150, blank=True, default="")
+    body = models.TextField(blank=True, default="")
+    # The people named by ``person`` fields (UUID strings): erasing one redacts this text (#191).
+    subject_people = models.JSONField(default=list)
     immutable_fields = ("user_id",)
     # Frozen as self_discovery_column: a person lists their own rows of every organization.
     self_discovery_field = "user"
@@ -233,3 +239,196 @@ class WebPushSubscription(SystemRecord):
 
     def __str__(self):
         return f"{self.user_id} push"
+
+
+class InstanceNotificationSetting(SystemRecord):
+    """The platform's choice for one notification type in the whole instance (#784).
+
+    ``enabled=False`` stops every delivery of a type that is not mandatory, in every organization;
+    ``default_channels`` replaces the type's own default for whoever has not chosen otherwise.
+    """
+
+    type_code = models.CharField(max_length=100)
+    enabled = models.BooleanField(default=True)
+    default_channels = models.JSONField(default=list)
+    immutable_fields = ("type_code",)
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("type_code",),
+                condition=Q(deleted_at__isnull=True),
+                name="sk_notif_instance_setting_live",
+                violation_error_code="unique",
+            ),
+        ]
+
+    def __str__(self):
+        return self.type_code
+
+
+class InstanceNotificationText(SystemRecord):
+    """The platform's text of one notification type in one language (#784)."""
+
+    type_code = models.CharField(max_length=100)
+    language = models.CharField(max_length=16)
+    title = models.CharField(max_length=150)
+    body = models.TextField(blank=True, default="")
+    immutable_fields = ("type_code", "language")
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("type_code", "language"),
+                condition=Q(deleted_at__isnull=True),
+                name="sk_notif_instance_text_live",
+                violation_error_code="unique",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.type_code} {self.language}"
+
+
+class OrganizationNotificationSetting(OrganizationRecord):
+    """The organization's choice for one notification type (#785): ``enabled=False`` stops it for everyone.
+
+    Only types of the organization and app contexts that are not mandatory; the platform's types
+    and mandatory ones are never turned off by the organization.
+    """
+
+    type_code = models.CharField(max_length=100)
+    enabled = models.BooleanField(default=True)
+    immutable_fields = ("type_code",)
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("organization", "type_code"),
+                condition=Q(deleted_at__isnull=True),
+                name="sk_notif_org_setting_live",
+                violation_error_code="unique",
+            ),
+        ]
+
+    def __str__(self):
+        return self.type_code
+
+
+class OrganizationNotificationText(OrganizationRecord):
+    """The organization's text of one notification type in one language (#785)."""
+
+    type_code = models.CharField(max_length=100)
+    language = models.CharField(max_length=16)
+    title = models.CharField(max_length=150)
+    body = models.TextField(blank=True, default="")
+    immutable_fields = ("type_code", "language")
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("organization", "type_code", "language"),
+                condition=Q(deleted_at__isnull=True),
+                name="sk_notif_org_text_live",
+                violation_error_code="unique",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.type_code} {self.language}"
+
+
+class PlatformNotification(OperationalRecord):
+    """A notice of the platform to its own administrators (#787): global, without an organization.
+
+    Written only by ``notify_platform``; the payload carries numbers, codes and identifiers only.
+    """
+
+    type_code = models.CharField(max_length=100)
+    payload = models.JSONField(default=dict)
+    group_key = models.CharField(max_length=200, blank=True, default="")
+    dedupe_key = models.CharField(max_length=200, null=True, blank=True)  # noqa: DJ001 - NULL means "no key"
+    fanned_out_at = models.DateTimeField(null=True, blank=True)
+    immutable_fields = ("type_code", "payload", "group_key", "dedupe_key")
+
+    class Meta(OperationalRecord.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                fields=("type_code", "dedupe_key"),
+                condition=Q(dedupe_key__isnull=False),
+                name="sk_notif_platform_dedupe",
+                violation_error_code="unique",
+            ),
+        ]
+
+    def __str__(self):
+        return self.type_code
+
+
+class PlatformNotificationRecipient(OperationalRecord):
+    """A platform administrator's copy of a platform notice: the inbox row and its email (#787).
+
+    Global like the notice; only code reads it, always filtered by the person of the request.
+    """
+
+    notification = models.ForeignKey(PlatformNotification, on_delete=models.PROTECT, related_name="recipients")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    type_code = models.CharField(max_length=100)
+    payload = models.JSONField(default=dict)
+    title = models.CharField(max_length=150, blank=True, default="")
+    body = models.TextField(blank=True, default="")
+    group_key = models.CharField(max_length=200, blank=True, default="")
+    count = models.PositiveIntegerField(default=1)
+    # False: only the email (the person turned the inbox off for this notice).
+    in_app = models.BooleanField(default=True)
+    read_at = models.DateTimeField(null=True, blank=True)
+    archived_at = models.DateTimeField(null=True, blank=True)
+    # "" (no email), then the states of NotificationDelivery: pending, retrying, sent, skipped, dead.
+    email_state = models.CharField(max_length=16, blank=True, default="")
+    email_attempts = models.PositiveIntegerField(default=0)
+    email_next_attempt_at = models.DateTimeField(null=True, blank=True)
+    email_sent_at = models.DateTimeField(null=True, blank=True)
+    email_error_code = models.CharField(max_length=64, blank=True, default="")
+    immutable_fields = ("notification_id", "user_id")
+
+    class Meta(OperationalRecord.Meta):
+        indexes = [
+            models.Index(
+                fields=("user",),
+                condition=Q(in_app=True, read_at__isnull=True, archived_at__isnull=True),
+                name="sk_notif_platform_unread",
+            ),
+            models.Index(fields=("user", "updated_at"), name="sk_notif_platform_inbox"),
+        ]
+
+    def __str__(self):
+        return f"{self.user_id} {self.notification_id}"
+
+
+class PlatformAnnouncement(SystemRecord):
+    """A notice the platform administrator sends to the organizations (#789).
+
+    A draft is edited with CAS; once sent it never changes. ``organizations`` are the UUIDs chosen
+    (empty: every active organization at the time of sending); ``audience`` says who receives it in
+    each organization: its administrators or every member.
+    """
+
+    class Audience(models.TextChoices):
+        ADMINS = "admins", gettext_lazy("Administradores das organizações")
+        MEMBERS = "members", gettext_lazy("Todos os membros")
+
+    class State(models.TextChoices):
+        DRAFT = "draft", gettext_lazy("Rascunho")
+        SENT = "sent", gettext_lazy("Enviado")
+
+    title = models.CharField(max_length=150)
+    body = models.TextField(blank=True, default="")
+    audience = models.CharField(max_length=16, choices=Audience.choices, default=Audience.ADMINS)
+    organizations = models.JSONField(default=list, blank=True)
+    state = models.CharField(max_length=16, choices=State.choices, default=State.DRAFT)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    sent_by = models.UUIDField(null=True, blank=True)
+    organization_count = models.PositiveIntegerField(default=0)
+
+    def __str__(self):
+        return self.title
