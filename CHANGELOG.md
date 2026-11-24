@@ -2,6 +2,27 @@
 
 As versões a partir da primeira, `v0.1.0`, são escritas pelo workflow de release (`release.py run`, skill dev-workflow): não edite este arquivo à mão. O nível de cada versão e os PRs e issues incluídos seguem [docs/workflow.md](docs/workflow.md#versão).
 
+## [0.10.0](https://github.com/alaorneto/skeleton/compare/v0.9.0...v0.10.0) — 2026-11-24
+
+### Funcionalidades
+
+- Permitir que uma app registre estados e marcadores com tom ([#833](https://github.com/alaorneto/skeleton/issues/833)) — PR [#839](https://github.com/alaorneto/skeleton/pull/839)
+- Dar a cada app o próprio ícone e a marcação de atual no menu lateral ([#842](https://github.com/alaorneto/skeleton/issues/842)) — PR [#844](https://github.com/alaorneto/skeleton/pull/844)
+
+### Melhorias
+
+- Abrir os detalhes da auditoria num painel abaixo da linha ([#834](https://github.com/alaorneto/skeleton/issues/834)) — PR [#836](https://github.com/alaorneto/skeleton/pull/836)
+- Encurtar os itens de menu de atualização para "Atualizações" ([#838](https://github.com/alaorneto/skeleton/issues/838)) — PR [#840](https://github.com/alaorneto/skeleton/pull/840)
+- Compactar a pílula de atividade do cabeçalho em ícones e contagem fixa ([#843](https://github.com/alaorneto/skeleton/issues/843)) — PR [#844](https://github.com/alaorneto/skeleton/pull/844)
+
+### Correções
+
+- Alinhar o valor e mostrar o badge na última coluna das chaves somente leitura da instância ([#835](https://github.com/alaorneto/skeleton/issues/835)) — PR [#837](https://github.com/alaorneto/skeleton/pull/837)
+
+### Manutenção
+
+- Usar o widget markdown no corpo do exemplo notes ([#830](https://github.com/alaorneto/skeleton/issues/830)) — PR [#841](https://github.com/alaorneto/skeleton/pull/841)
+
 ## [0.9.0](https://github.com/alaorneto/skeleton/compare/v0.8.0...v0.9.0) — 2026-11-24
 
 ### Funcionalidades
