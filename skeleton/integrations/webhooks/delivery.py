@@ -27,7 +27,7 @@ from typing import Any
 
 from django.core.exceptions import PermissionDenied
 from django.utils import timezone
-from django.utils.translation import gettext
+from django.utils.translation import gettext_lazy
 
 from skeleton.jobs.delivery import RetrySchedule
 
@@ -259,7 +259,7 @@ def register_webhook_delivery() -> None:
     """Job, consumer and notification type of the delivery pipeline; called by the app's ``ready``."""
     from skeleton.events.registry import WILDCARD, register_consumer
     from skeleton.jobs.registry import JobType, register_job_type
-    from skeleton.notifications.registry import NotificationType, register_notification_type
+    from skeleton.notifications.registry import NotificationField, NotificationType, register_notification_type
 
     register_job_type(
         JobType(
@@ -292,8 +292,13 @@ def register_webhook_delivery() -> None:
     register_notification_type(
         NotificationType(
             DISABLED_NOTIFICATION,
-            gettext("Webhook desativado"),
+            gettext_lazy("Webhook desativado"),
             payload_fields=("endpoint", "failures", "reason"),
             owner_app="sk_integrations",
+            context="organization",
+            description=gettext_lazy("Quando um webhook é desativado por falhas"),
+            fields=(NotificationField("failures", gettext_lazy("Falhas seguidas"), kind="number"),),
+            title=gettext_lazy("Um webhook foi desativado"),
+            body=gettext_lazy("Depois de {failures} falhas seguidas, os envios foram interrompidos."),
         )
     )

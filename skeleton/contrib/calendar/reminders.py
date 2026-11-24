@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 from django.core.exceptions import ValidationError
 from django.utils import timezone
-from django.utils.translation import gettext
+from django.utils.translation import gettext, gettext_lazy
 
 from .models import EventReminder
 
@@ -181,15 +181,23 @@ def send_due_reminders(*, now: Any = None) -> int:
 def register_reminders() -> None:
     from skeleton.jobs.periodic import register_periodic
     from skeleton.jobs.registry import JobType, register_job_type
-    from skeleton.notifications.registry import NotificationType, register_notification_type
+    from skeleton.notifications.registry import NotificationField, NotificationType, register_notification_type
 
     register_notification_type(
         NotificationType(
             NOTIFICATION,
-            gettext("Lembrete de evento"),
+            gettext_lazy("Lembrete de evento"),
             payload_fields=("title", "starts_at", "event"),
             default_channels=("in_app", "email"),
             owner_app="skeleton_calendar",
+            context="app",
+            description=gettext_lazy("Lembrete antes do início de um evento"),
+            fields=(
+                NotificationField("title", gettext_lazy("Título do evento")),
+                NotificationField("starts_at", gettext_lazy("Início"), kind="datetime"),
+            ),
+            title=gettext_lazy("Lembrete: {title}"),
+            body=gettext_lazy("Começa em {starts_at}."),
         )
     )
     register_job_type(JobType(JOB, send_due_reminders, {}, owner_app="skeleton_calendar", max_attempts=3))

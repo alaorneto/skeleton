@@ -172,5 +172,8 @@ def register_mention_type() -> None:
             owner_app="sk_comments",
             open_url=open_url,
             authorize=authorize,
+            context="organization",
+            description=gettext_lazy("Quando alguém menciona você num comentário"),
+            title=gettext_lazy("Você foi mencionado em um comentário"),
         )
     )

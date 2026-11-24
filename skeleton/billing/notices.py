@@ -19,14 +19,72 @@ USAGE_THRESHOLD = "billing.usage_threshold"
 USAGE_FIELDS = ("meter", "used", "limit", "threshold", "period_start")
 THRESHOLDS = (80, 100)
 TYPES = {
-    "billing.trial_ending": gettext_lazy("Período de avaliação terminando"),
-    "billing.invoice_issued": gettext_lazy("Nova fatura"),
-    "billing.invoice_overdue": gettext_lazy("Fatura em atraso"),
-    "billing.payment_failed": gettext_lazy("Pagamento recusado"),
-    "billing.payment_received": gettext_lazy("Pagamento confirmado"),
-    "billing.access_restricted": gettext_lazy("Organização em modo somente leitura"),
-    "billing.access_suspended": gettext_lazy("Organização suspensa"),
+    "billing.trial_ending": (
+        gettext_lazy("Período de avaliação terminando"),
+        gettext_lazy("Quando o período de avaliação está perto do fim"),
+        gettext_lazy("Seu período de avaliação termina em {trial_end}"),
+        gettext_lazy("Escolha um plano antes do fim da avaliação para continuar usando {organizacao}."),
+    ),
+    "billing.invoice_issued": (
+        gettext_lazy("Nova fatura"),
+        gettext_lazy("Quando uma fatura é emitida"),
+        gettext_lazy("Nova fatura {number}"),
+        gettext_lazy("Valor: {total}. Vencimento: {due_at}."),
+    ),
+    "billing.invoice_overdue": (
+        gettext_lazy("Fatura em atraso"),
+        gettext_lazy("Quando uma fatura vence sem pagamento"),
+        gettext_lazy("A fatura {number} está em atraso"),
+        gettext_lazy("Valor: {total}, vencida em {due_at}. Regularize para evitar restrições."),
+    ),
+    "billing.payment_failed": (
+        gettext_lazy("Pagamento recusado"),
+        gettext_lazy("Quando uma cobrança é recusada"),
+        gettext_lazy("Pagamento da fatura {number} recusado"),
+        gettext_lazy("Valor: {total}. Confira a forma de pagamento."),
+    ),
+    "billing.payment_received": (
+        gettext_lazy("Pagamento confirmado"),
+        gettext_lazy("Quando um pagamento é confirmado"),
+        gettext_lazy("Pagamento da fatura {number} confirmado"),
+        gettext_lazy("Valor: {total}."),
+    ),
+    "billing.access_restricted": (
+        gettext_lazy("Organização em modo somente leitura"),
+        gettext_lazy("Quando a falta de pagamento restringe a organização"),
+        gettext_lazy("{organizacao} está em modo somente leitura"),
+        gettext_lazy("Há faturas em atraso. Regularize o pagamento para voltar a editar."),
+    ),
+    "billing.access_suspended": (
+        gettext_lazy("Organização suspensa"),
+        gettext_lazy("Quando a falta de pagamento suspende a organização"),
+        gettext_lazy("{organizacao} foi suspensa"),
+        gettext_lazy("O acesso foi suspenso por falta de pagamento."),
+    ),
 }
+
+
+def _fields():
+    from skeleton.notifications.registry import NotificationField
+
+    return (
+        NotificationField("number", gettext_lazy("Número da fatura")),
+        NotificationField("total", gettext_lazy("Valor"), kind="money", currency_field="currency"),
+        NotificationField("due_at", gettext_lazy("Vencimento"), kind="date"),
+        NotificationField("trial_end", gettext_lazy("Fim da avaliação"), kind="date"),
+    )
+
+
+def _usage_fields():
+    from skeleton.notifications.registry import NotificationField
+
+    return (
+        NotificationField("meter", gettext_lazy("Medidor")),
+        NotificationField("used", gettext_lazy("Uso"), kind="number"),
+        NotificationField("limit", gettext_lazy("Limite"), kind="number"),
+        NotificationField("threshold", gettext_lazy("Percentual"), kind="number"),
+        NotificationField("period_start", gettext_lazy("Início do período"), kind="date"),
+    )
 
 
 def _authorize(user: Any, notification: Any) -> bool:
@@ -60,25 +118,35 @@ def register_notices() -> None:
     register_notification_type(
         NotificationType(
             USAGE_THRESHOLD,
-            str(gettext_lazy("Uso de medidor perto do limite")),
+            gettext_lazy("Uso de medidor perto do limite"),
             payload_fields=USAGE_FIELDS,
             default_channels=("in_app", "email"),
             owner_app="sk_billing",
             open_url=_open_url,
             authorize=_authorize,
+            context="platform",
+            description=gettext_lazy("Quando um medidor de uso chega a 80% ou 100% do limite"),
+            fields=_usage_fields(),
+            title=gettext_lazy("O uso de {meter} chegou a {threshold}% do limite"),
+            body=gettext_lazy("{used} de {limit} no período iniciado em {period_start}."),
         )
     )
-    for code, label in TYPES.items():
+    for code, (label, description, title, body) in TYPES.items():
         register_notification_type(
             NotificationType(
                 code,
-                str(label),
+                label,
                 payload_fields=FIELDS,
                 default_channels=("in_app", "email"),
                 mandatory=True,
                 owner_app="sk_billing",
                 open_url=_open_url,
                 authorize=_authorize,
+                context="platform",
+                description=description,
+                fields=_fields(),
+                title=title,
+                body=body,
             )
         )
 

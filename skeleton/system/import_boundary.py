@@ -52,7 +52,9 @@ PUBLIC_CORE_NAMES: dict[str, frozenset[str] | None] = {
     "skeleton.jobs.registry": frozenset({"JobType", "register_job_type"}),
     "skeleton.jobs.periodic": frozenset({"register_periodic"}),
     "skeleton.events.registry": frozenset({"EventType", "register_event_type", "register_consumer"}),
-    "skeleton.notifications.registry": frozenset({"NotificationType", "register_notification_type"}),
+    "skeleton.notifications.registry": frozenset(
+        {"NotificationField", "NotificationType", "register_notification_type"}
+    ),
     "skeleton.sequences.registry": frozenset({"SequenceSpec", "register_sequence"}),
     # Flow declarations (docs/flows.md): specification builders and register_flow*.
     "skeleton.flows.registry": None,

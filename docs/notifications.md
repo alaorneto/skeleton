@@ -11,25 +11,66 @@ O núcleo oferece notificações in-app como infraestrutura (`skeleton/notificat
 
 Nenhuma das duas entra no gateway, e a exclusão física fica para o serviço de retenção.
 
+## Contextos
+
+Todo tipo diz de onde vem ([#782](https://github.com/alaorneto/skeleton/issues/782)), e isso decide quem pode configurá-lo:
+
+| Contexto | O que é | Exemplos | Quem configura |
+|---|---|---|---|
+| `platform` | A plataforma falando: com os próprios administradores, com as organizações (comunicados) e com os membros sobre o que é dela (cobrança, limites do plano) | `billing.*`, `organization.member_limit_reached` | Só a plataforma: a organização não desliga nem reescreve |
+| `organization` | O que acontece dentro da organização, sem depender de app | `comments.mention`, `flows.*`, `webhooks.endpoint_disabled`, `transfer.ready` | A plataforma e a organização |
+| `app` | Avisos de uma app instalada; só existem onde a app está ativa | `calendar.*` | A plataforma e a organização, salvo `org_editable=False` |
+
+Um tipo do núcleo (`owner_app` com prefixo `sk_`) declara `context`; o de uma app que não declara é `app`, e uma app não pode declarar `platform` nem `organization`. Cada pessoa continua escolhendo, nas [preferências](#preferências), como recebe cada aviso.
+
 ## Registrar um tipo
 
 ```python
-from skeleton.notifications.registry import NotificationType, register_notification_type
+from django.utils.translation import gettext_lazy
+
+from skeleton.notifications.registry import NotificationField, NotificationType, register_notification_type
 
 register_notification_type(
     NotificationType(
         "tasks.assigned",
-        "Tarefa atribuída",
+        gettext_lazy("Tarefa atribuída"),
         payload_fields=("message",),
         snapshot_fields=("code", "title"),
         target_table_key="tasks.task",
         group_key="task:{target}",
         owner_app="tasks",
+        description=gettext_lazy("Quando uma tarefa é atribuída a você"),
+        fields=(
+            NotificationField("code", gettext_lazy("Código da tarefa")),
+            NotificationField("title", gettext_lazy("Título da tarefa")),
+        ),
+        title=gettext_lazy("Nova tarefa: {title}"),
+        body=gettext_lazy("Código {code}."),
     )
 )
 ```
 
-O check `skeleton.E023` reprova tipo duplicado, tabela-alvo desconhecida e campo de snapshot fora de `read_fields`, e também reprova campo de snapshot ou de payload que esteja em `sensitive_fields`.
+| Campo | Para quê |
+|---|---|
+| `label`, `description` | O nome do aviso e uma frase do que ele significa, nas telas de configuração e de preferências. Use `gettext_lazy`: o texto sai no idioma de quem lê |
+| `context` | `platform`, `organization` ou `app` (acima) |
+| `audience` | `members` (padrão), `external` (pessoas do [portal](#fan-out)) ou `platform` (os administradores da plataforma) |
+| `platform_capability` | Com `audience="platform"`: quem tem essa capacidade da plataforma (por exemplo `updates.operate`) também recebe |
+| `fields` | Os marcadores do texto: nome (um campo do payload ou do snapshot), rótulo e formato (`text`, `number`, `date`, `datetime`, `money` com `currency_field`, `person`) |
+| `title`, `body` | O texto de fábrica, com marcadores; sem título vale o comportamento antigo (rótulo e valores do snapshot) |
+| `org_editable` | `False` impede a organização de reescrever o texto de um aviso de app |
+| `fixed_text` | O texto é o conteúdo de cada aviso (os comunicados da plataforma): ninguém o edita |
+
+O check `skeleton.E023` reprova tipo duplicado, tabela-alvo desconhecida e campo de snapshot fora de `read_fields`, e também reprova campo de snapshot ou de payload que esteja em `sensitive_fields`. Ele também reprova: tipo do núcleo sem `context`; tipo de app com contexto `platform` ou `organization`; `audience="platform"` fora do contexto `platform`, com alvo, snapshot ou canal que não seja `in_app`/`email`; `platform_capability` desconhecida ou sem a audiência `platform`; campo de texto fora do payload e do snapshot, de formato desconhecido, `money` sem `currency_field` declarado ou `person` fora do payload; `fixed_text` fora da plataforma; e texto de fábrica inválido (abaixo).
+
+## Texto do aviso
+
+O texto é texto simples com marcadores `{campo}` (`skeleton/notifications/texts.py`). Não é template do Django nem `str.format`: só existem os marcadores, escritos em letras minúsculas, números e `_`; `{{` e `}}` escrevem chaves literais, e qualquer outra chave é erro. Não há acesso a atributo (`{x.__class__}`), índice, formato nem HTML ou Markdown.
+
+- Marcadores permitidos: os `fields` do tipo, `{organizacao}` (o nome público da organização; vazio nos avisos à plataforma) e `{aviso}` (o rótulo do tipo).
+- Título: de 1 a 150 caracteres, uma linha. Corpo: até 2000 caracteres e 30 linhas. Sem caracteres de controle.
+- Cada valor é formatado no idioma e no fuso de quem recebe: datas como no resto da interface, números com separador de milhar, dinheiro como nas telas da cobrança (`1.234,56 BRL`), pessoas pelo nome de exibição.
+- No HTML (caixa, email) todo pedaço sai escapado, e a quebra de linha vira `<br>`. Os links de abrir, de preferências e de descadastro nunca vêm do texto: o layout do núcleo os acrescenta.
 
 Um tipo **sem tabela-alvo** pode declarar `open_url=função(user, row)`: ao abrir a notificação, a função reautoriza a pessoa e devolve o endereço, ou `None` (página genérica). O alvo pode ser uma [tabela derivada](access-control.md#tabelas-derivadas) (#562): quem recebe e quem abre é quem lê a âncora. Como tabela derivada não tem página genérica, a notificação abre só no `open_url` do tipo, chamado depois que o núcleo reautorizou a leitura do alvo; sem ele, abre na página genérica sem link, nunca num endereço que responde 404. Os tipos dos [fluxos de processo](flows.md#integrações) (`flows.task_assigned`, `flows.task_reminder` e `flows.task_overdue`) usam isso para levar à tarefa só quem ainda pode vê-la; o payload deles tem o rótulo do fluxo e da etapa, o número do processo e o identificador da tarefa, nunca dados de formulário.
 
