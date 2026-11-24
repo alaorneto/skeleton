@@ -2,6 +2,27 @@
 
 As versões a partir da primeira, `v0.1.0`, são escritas pelo workflow de release (`release.py run`, skill dev-workflow): não edite este arquivo à mão. O nível de cada versão e os PRs e issues incluídos seguem [docs/workflow.md](docs/workflow.md#versão).
 
+## [0.9.0](https://github.com/alaorneto/skeleton/compare/v0.8.0...v0.9.0) — 2026-11-24
+
+### Funcionalidades
+
+- Renderizar Markdown com dialeto fechado no servidor ([#824](https://github.com/alaorneto/skeleton/issues/824)) — PR [#831](https://github.com/alaorneto/skeleton/pull/831)
+- Criar o editor Markdown com modo visual e modo Markdown ([#825](https://github.com/alaorneto/skeleton/issues/825)) — PR [#831](https://github.com/alaorneto/skeleton/pull/831)
+- Adicionar o widget markdown à interface declarativa ([#826](https://github.com/alaorneto/skeleton/issues/826)) — PR [#831](https://github.com/alaorneto/skeleton/pull/831)
+
+### Melhorias
+
+- Trocar o número por um ponto de atenção nos avisos da plataforma ([#815](https://github.com/alaorneto/skeleton/issues/815)) — PR [#828](https://github.com/alaorneto/skeleton/pull/828)
+- Unir Notificações e Tarefas numa pílula dividida no cabeçalho ([#816](https://github.com/alaorneto/skeleton/issues/816)) — PR [#828](https://github.com/alaorneto/skeleton/pull/828)
+- Mostrar processamento animado nas ações demoradas ([#817](https://github.com/alaorneto/skeleton/issues/817)) — PR [#828](https://github.com/alaorneto/skeleton/pull/828)
+- Confirmar operações sensíveis com o MFA em vez da senha ([#818](https://github.com/alaorneto/skeleton/issues/818)) — PR [#828](https://github.com/alaorneto/skeleton/pull/828)
+- Separar a atualização da plataforma da atualização de aplicativos ([#822](https://github.com/alaorneto/skeleton/issues/822)) — PR [#829](https://github.com/alaorneto/skeleton/pull/829)
+- Clarear o fluxo de um plano de atualização: escolher, conferir, aprovar e acompanhar ([#823](https://github.com/alaorneto/skeleton/issues/823)) — PR [#829](https://github.com/alaorneto/skeleton/pull/829)
+
+### Correções
+
+- Descartar, substituir e vencer as prévias de plano de atualização ([#821](https://github.com/alaorneto/skeleton/issues/821)) — PR [#829](https://github.com/alaorneto/skeleton/pull/829)
+
 ## [0.8.0](https://github.com/alaorneto/skeleton/compare/v0.7.0...v0.8.0) — 2026-11-24
 
 ### Funcionalidades
