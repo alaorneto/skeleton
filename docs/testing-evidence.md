@@ -4,6 +4,22 @@ Registro do que rodou em cada rodada, com os comandos da época. As rodadas ante
 
 As rodadas anteriores à primeira release publicada (`v0.1.0`, #569) citam números de versão do desenvolvimento ("core/agente 0.3.0", "0.4.0", "0.5.0"), que nunca foram publicados e não correspondem às releases de mesmo número: são marcos internos daquela época, conservados como foram registrados. As versões publicadas e o que cada uma trouxe estão no [CHANGELOG](../CHANGELOG.md).
 
+## Bibliotecas first-party (epic #794: #792, #793)
+
+Rodada de 2026-11-23, Windows, PostgreSQL de `tools/dev_postgres.py` com a role runtime, `SKELETON_ENABLE_EXAMPLE_APP=true`.
+
+| Comando | Resultado |
+|---|---|
+| `python -m pytest tests -q -n 8` (sem `SKELETON_BUNDLED_APPS`) | 4214 passed, 204 skipped, 1157 subtests passed em 8 min 44 s |
+| `SKELETON_BUNDLED_APPS=calendar,ledger python -m pytest tests/contrib -q -n 8` | 377 passed, 4 subtests passed |
+| `SKELETON_BUNDLED_APPS=calendar,ledger python -m pytest tests/contrib <arquivos de apps, pacotes, cobrança, plataforma, travas e kit de tests/integration> -q -n 8` (antes da #793) | 820 passed |
+| `SKELETON_BUNDLED_APPS=calendar,ledger python -m mypy` | sem problemas em 231 arquivos |
+| `uvx ruff@0.17.4 check .` e `format --check .` | sem problemas |
+
+- **#792:** `tests/unit/test_first_party_libraries.py` (manifesto `bundled_library`, estado derivado transitivo por `effective_map`, `library_dependency`, `code="library"`) e `tests/contrib/test_libraries.py` (a agenda efetiva só na organização onde a app que a usa está atribuída, nunca em B; nenhuma linha de disponibilidade nem de ativação dela; recusas de disponibilidade, concessão, limites, resumo, atribuição, campos da plataforma, ativação pela organização e comando; serviço de apps esconde a biblioteca; pacote recusa e ignora rótulo antigo; produto e `included_apps` recusam; plataforma mostra a seção só leitura e responde 404 nas páginas de disponibilidade).
+- **#793:** `tests/unit/test_library_installation.py` (fecho entre bibliotecas, opt-in de `bundled_app` mantido, `retained_libraries` do próximo inventário, `project_library_configs` sem importar o AppConfig), `tests/unit/test_distribution_startup.py` (inventário com app que depende da agenda sem opt-in; `retained_libraries` validado), `tests/unit/test_package_doctor.py` e `tests/unit/test_dev_apps.py` (processo real: uma dev app que depende do livro contábil o instala sem `SKELETON_BUNDLED_APPS`).
+- **Não rodou nesta máquina:** `tests/unit/test_plan_dependencies.py` e os demais testes do agente exigem `fcntl` (Linux ou macOS) e ficam para o CI; `tools/i18n_check.py` exige GNU gettext, ausente aqui. Nenhum deployment real com o agente foi ensaiado.
+
 ## Suíte de testes abaixo de 10 minutos de novo (epic #758: #756, #757, #760)
 
 Rodada de 2026-11-23 na branch `test/758-suite-abaixo-de-10-minutos`, a partir da `main`. Windows 11, 8 núcleos e 16 threads, NTFS com antivírus em tempo real, Python do `.venv`, PostgreSQL 16.2 de `tools/dev_postgres.py` num servidor só desta rodada, role runtime, `SKELETON_ENABLE_EXAMPLE_APP=true`. Outras execuções da suíte rodavam na mesma máquina durante quase toda a rodada: salvo onde está dito "máquina livre", os tempos abaixo foram medidos com essa concorrência.

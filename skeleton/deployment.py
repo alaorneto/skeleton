@@ -20,6 +20,10 @@ class DeploymentInventory:
     retained_schema_paths: tuple
     migration_archives: tuple
     frozen_infrastructure: dict | None = None
+    # First-party libraries (#793): required by the active apps, and those the agent keeps retained
+    # after the last app that used them was removed (names of skeleton.conf.bundled).
+    required_libraries: tuple = ()
+    retained_libraries: tuple = ()
 
     @property
     def installed_apps(self):
@@ -153,9 +157,10 @@ def load_deployment_inventory(path, *, bundled_apps=()):
     """Read the private inventory; bundled_apps are the SKELETON_BUNDLED_APPS names (#254)."""
     if not path:
         return DeploymentInventory(0, {}, (), (), ())
-    from skeleton.conf.bundled import bundled_app_ids
+    from skeleton.conf.bundled import bundled_app_ids, bundled_libraries, libraries_required_by, library_app_ids
 
-    provided = bundled_app_ids(bundled_apps)  # An unknown name keeps its own message.
+    # An unknown name keeps its own message; the libraries ship in the wheel and are always provided (#793).
+    provided = (*bundled_app_ids(bundled_apps), *library_app_ids())
     source = Path(path).resolve()
     try:
         if source.stat().st_size > 4 * 1024 * 1024:
@@ -173,8 +178,26 @@ def load_deployment_inventory(path, *, bundled_apps=()):
         clean_archives = _validate_archives(archives, normalized, source.parent)
         clean_retained = _validate_retained(retained, source.parent)
         frozen = _validate_frozen(data.get("frozen_infrastructure"), source.parent)
+        required = libraries_required_by(
+            entry["manifest"] for entry in normalized if entry["state"] in {"installed", "project-local"}
+        )
+        kept = data.get("retained_libraries", [])
+        if (
+            not isinstance(kept, list)
+            or len(set(kept)) != len(kept)
+            or not set(kept) <= set(bundled_libraries())
+            or set(kept) & set(required)
+        ):
+            raise ValueError("retained libraries")
         return DeploymentInventory(
-            data["generation"], core, tuple(normalized), tuple(clean_retained), tuple(clean_archives), frozen
+            data["generation"],
+            core,
+            tuple(normalized),
+            tuple(clean_retained),
+            tuple(clean_archives),
+            frozen,
+            required_libraries=required,
+            retained_libraries=tuple(kept),
         )
     except (OSError, ValueError, TypeError, KeyError) as exc:
         raise ImproperlyConfigured("Invalid private deployment inventory.") from exc

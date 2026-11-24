@@ -42,6 +42,8 @@ class Command(BaseCommand):
             manifest = get_app(label)
         except KeyError:
             raise CommandError(f"Unknown installed app: {label}.") from None
+        if manifest.library:
+            raise CommandError(f"{label} is a first-party library: it follows the apps that depend on it.")
         slugs = sorted(set(options["grant"]) | set(options["enable"]))
         with transaction.atomic(using=using), system_context(reason=REASON, using=using):
             organizations = {

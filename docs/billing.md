@@ -30,7 +30,7 @@ O catálogo é global (`SystemRecord`) e só a plataforma o escreve. O que perte
 
 | Tabela | Base | Papel |
 |---|---|---|
-| `Product` | global | O que se vende: `base_plan`, `app` (com o `app_label` vendido) ou `storage_pack`. Código, tipo e app são imutáveis. |
+| `Product` | global | O que se vende: `base_plan`, `app` (com o `app_label` vendido) ou `storage_pack`. Código, tipo e app são imutáveis. Uma biblioteca first-party (#792) não é vendida nem entra em `included_apps`: acompanha as apps que a usam (`code="library"`). |
 | `Price` | global | Preço de um produto: moeda, valor, ciclo (`month`/`year` × `interval_count`), dias de trial, armazenamento incluído, apps incluídas (plano base), limites (`{"members": 10, "<app>.<métrica>": N}`) e política de excedente (`block` ou `bill`, com bloco, valor e teto). **Os termos nunca mudam**: mudar o preço é criar outro, e as assinaturas existentes mantêm o antigo. Só `is_active` muda, e fecha a oferta a novas assinaturas. |
 | `InvoiceCounter` | global | Último número de fatura de cada ano, na plataforma inteira. |
 | `BillingAccount` | organização | Uma por organização: razão social, email de cobrança e documento (dados pessoais, redigidos na auditoria), país, moeda, estado de acesso (`active`, `past_due`, `restricted`, `suspended`) e a versão dos termos aceita. |

@@ -11,7 +11,7 @@ O administrador da plataforma trava uma configuração de uma organização com 
 | `organization.display_name`, `default_language`, `default_timezone`, `brand_color`, `business_hours`, `holidays`, `site_enabled` | Os campos de `OrganizationSettings` |
 | `organization.logo`, `organization.icon` | A imagem atual: trocar e remover ficam recusados |
 | `admission.discoverable`, `join_requests_enabled`, `join_links_enabled`, `signup_via_link_enabled`, `domain_join_enabled` | A política de admissão |
-| `apps.<app_label>.enabled` | A ativação da app (verdadeiro: a organização não a desliga; falso: não a liga) |
+| `apps.<app_label>.enabled` | A ativação da app (verdadeiro: a organização não a desliga; falso: não a liga). Uma biblioteca first-party (#792) não tem trava: segue as apps que a usam |
 | `apps.<app_label>.<campo>` | Um campo de configuração da app gerido pela organização |
 
 O registro é por provedores (`skeleton.tenancy.setting_locks.register_setting_provider`): o pacote de organizações registra `organization.*` e `admission.*`, e o sistema registra `apps.*` a partir dos manifestos instalados no momento. Uma trava é uma linha global `OrganizationSettingLock` por organização e chave; destravar é exclusão lógica e travar de novo restaura a mesma linha, com auditoria das operações.

@@ -25,7 +25,7 @@ from django.utils.translation import gettext
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.tenancy.context import system_context
 
-from .app_registry import all_apps, required_labels
+from .app_registry import all_apps, is_library, required_app_labels
 
 BUNDLE_REASON = "platform:apps"
 FIELDS = ("code", "label", "description", "apps", "position", "is_default", "signup_visible", "is_active")
@@ -62,6 +62,11 @@ def _clean(data: Mapping[str, Any], existing: Any) -> dict[str, Any]:
     missing = sorted(set(apps) - installed)
     if missing:
         raise ValidationError({"apps": gettext("Apps não instaladas: %(apps)s.") % {"apps": ", ".join(missing)}})
+    libraries = sorted(label for label in apps if is_library(label))
+    if libraries:
+        # A library comes with the apps that use it (#792): a bundle lists apps only.
+        message = gettext("Bibliotecas entram com as apps que dependem delas: %(apps)s.")
+        raise ValidationError({"apps": ValidationError(message % {"apps": ", ".join(libraries)}, code="library")})
     position = values["position"] or 0
     if type(position) is not int or position < 0:
         raise ValidationError({"position": gettext("Use um inteiro positivo.")})
@@ -112,11 +117,16 @@ def bundle_of(organization_id: Any) -> Any:
     return row.bundle if row is not None else None
 
 
+def bundle_apps(bundle: Any) -> list[str]:
+    """The apps of a bundle; a library label stored before #792 is ignored (it follows its dependents)."""
+    return [label for label in bundle.apps if not is_library(label)]
+
+
 def _ordered(labels: set[str]) -> list[str]:
-    """Labels with their dependencies first."""
+    """Labels with their dependencies first; libraries follow the apps and are left out (#792)."""
     result: list[str] = []
     for label in sorted(labels):
-        for item in [*required_labels(label), label]:
+        for item in [*required_app_labels(label), label]:
             if item not in result:
                 result.append(item)
     return result
@@ -156,8 +166,8 @@ def apply_bundle(organization: Any, bundle: Any, *, actor: Any = None, lock_apps
     )
 
     previous = bundle_of(organization.pk)
-    keep = set(bundle.apps)
-    leaving = set(previous.apps) - keep if previous is not None else set()
+    keep = set(bundle_apps(bundle))
+    leaving = set(bundle_apps(previous)) - keep if previous is not None else set()
     try:
         if actor is not None:
             with system_context(reason="platform:organization-inspect", organization_id=organization.pk):
@@ -268,10 +278,13 @@ def bundle_change_preview(*, actor: Any, organization_id: Any, bundle: Any) -> B
         system_context(reason="platform:organization-inspect", organization_id=organization_id),
         read_only_inspection("default"),
     ):
-        effective = {label for label, state in application_states().items() if state["effective"]}
+        effective = {
+            label for label, state in application_states().items() if state["effective"] and not state["library"]
+        }
         status = limit_status(MEMBERS)
-    leaving = (set(previous.apps) - set(bundle.apps)) if previous is not None else set()
-    after_apps = (effective - leaving) | set(bundle.apps)
+    apps = set(bundle_apps(bundle))
+    leaving = (set(bundle_apps(previous)) - apps) if previous is not None else set()
+    after_apps = (effective - leaving) | apps
     others = [item.amount for item in status.contributions if not item.source.startswith("app:")]
     rows = dict(AppAvailability.objects.filter(app_label__in=after_apps).values_list("app_label", "limits"))
     adds = [int((rows.get(label) or {}).get(MEMBERS, 0) or 0) for label in sorted(after_apps)]
@@ -282,7 +295,7 @@ def bundle_change_preview(*, actor: Any, organization_id: Any, bundle: Any) -> B
         else combine(status.base, [*others, *(amount for amount in adds if amount)])
     )
     return BundlePreview(
-        entering=tuple(sorted(set(bundle.apps) - effective)),
+        entering=tuple(sorted(apps - effective)),
         leaving=tuple(sorted(leaving & effective)),
         members_before=status.limit,
         members_after=after,

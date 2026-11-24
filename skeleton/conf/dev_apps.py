@@ -101,6 +101,24 @@ def _existing_origin(module: str) -> str | None:
     return spec.origin or ",".join(spec.submodule_search_locations or ()) or module
 
 
+def dev_app_manifests(paths) -> list[dict]:
+    """The validated manifests of the checkouts in ``paths`` (no import hook registered).
+
+    Read before the first-party apps enter ``INSTALLED_APPS``: a library a dev app depends on is
+    installed with it (#793). ``dev_app_configs`` validates the checkouts again, as before.
+    """
+    manifests = []
+    for raw in paths:
+        raw = str(raw).strip()
+        if not raw:
+            continue
+        root = Path(raw).expanduser().resolve()
+        if not root.is_dir():
+            _fail(root, "o diretório não existe.")
+        manifests.append(_manifest(root))
+    return manifests
+
+
 def dev_app_configs(paths) -> list[str]:
     """AppConfig paths of the checkouts in ``paths``, in order and without duplicates."""
     configs: list[str] = []

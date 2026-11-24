@@ -135,18 +135,17 @@ def _doctor_migrations(root, manifest, report):
 
 
 def _doctor_provided(bundled_apps, report):
-    """App IDs of the first-party apps the target installs (#254)."""
-    if not bundled_apps:
-        return ()
+    """App IDs of the first-party apps the target installs (#254); the libraries always (#793)."""
     from django.core.exceptions import ImproperlyConfigured
 
-    from skeleton.conf.bundled import bundled_app_ids
+    from skeleton.conf.bundled import bundled_app_ids, library_app_ids
 
     try:
-        return bundled_app_ids(bundled_apps)
+        opted_in = bundled_app_ids(bundled_apps) if bundled_apps else ()
     except ImproperlyConfigured as exc:
         report("bundled_app_unknown", str(exc))
-        return ()
+        opted_in = ()
+    return tuple(dict.fromkeys((*opted_in, *library_app_ids())))
 
 
 def _doctor_releases(manifest, inventory, catalog, trust_store, bundled_apps, report):

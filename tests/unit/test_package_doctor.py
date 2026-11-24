@@ -136,14 +136,18 @@ def test_doctor_warns_that_default_enabled_is_obsolete(tmp_path):
 
 
 def test_doctor_accepts_dependency_on_installed_first_party_app(tmp_path):
-    """Regression (#254): --bundled-app satisfies a dependency on a first-party app."""
+    """Regression (#254): a first-party library satisfies the dependency, with or without --bundled-app (#793)."""
     root = notes_copy(tmp_path)
     manifest = load_manifest(root / "manifest.json")
     manifest["dependencies"] = {"org.skeleton.calendar": ">=0.4.0"}
     (root / "manifest.json").write_bytes(canonical_json(manifest))
-    without = doctor(root, inventory=inventory_for([]))
-    assert codes(without) == ["missing_dependency"]
+    assert doctor(root, inventory=inventory_for([]))["problems"] == []
     assert doctor(root, inventory=inventory_for([]), bundled_apps=["calendar"])["problems"] == []
+    manifest["dependencies"] = {"org.skeleton.missing": ">=0.4.0"}
+    (root / "manifest.json").write_bytes(canonical_json(manifest))
+    assert codes(doctor(root, inventory=inventory_for([]))) == ["missing_dependency"]
+    manifest["dependencies"] = {"org.skeleton.calendar": ">=0.4.0"}
+    (root / "manifest.json").write_bytes(canonical_json(manifest))
     completed = subprocess.run(
         [
             sys.executable,

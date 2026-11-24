@@ -4,12 +4,12 @@
 `LedgerService` é o contrato em processo do livro contábil. Outras apps o usam para lançar pelos registros delas, criar e baixar títulos e consultar saldos, sempre com a autorização do ator que está no contexto. As páginas do próprio livro usam o mesmo serviço.
 
 ## Dependência
-`app_id`: `org.skeleton.ledger`. Faixa recomendada: `{"org.skeleton.ledger": ">=0.6.0,<0.7.0"}` (a versão é a do núcleo e a faixa é atualizada pela release; a primeira versão publicada com o livro é a 0.1.0, a primeira do núcleo, ver [histórico](#histórico-de-versões)). Instale com `SKELETON_BUNDLED_APPS=ledger` e veja o guia de consumo em `docs/extending.md` ("Depender do livro contábil"). Importe só `skeleton.contrib.ledger.service_api`.
+`app_id`: `org.skeleton.ledger`. Faixa recomendada: `{"org.skeleton.ledger": ">=0.6.0,<0.7.0"}` (a versão é a do núcleo e a faixa é atualizada pela release; a primeira versão publicada com o livro é a 0.1.0, a primeira do núcleo, ver [histórico](#histórico-de-versões)). Declarar a dependência basta para instalá-lo (#793) e veja o guia de consumo em `docs/extending.md` ("Depender do livro contábil"). É uma biblioteca first-party (#792): instalada com a app que a declara (#793), sem disponibilidade nem ativação próprias, e efetiva onde essa app está ativa. Importe só `skeleton.contrib.ledger.service_api`.
 
 ## Serviços
 
 ### `LedgerService`
-Todos os métodos exigem a app ativa na organização (`Unavailable`), o contexto tenant aberto pelo chamador e `actor` igual ao ator do contexto (`Forbidden`). Nenhum faz commit nem executa efeito externo. "Livro opcional" significa: sem `book_id`, o livro padrão da organização.
+Todos os métodos exigem o livro efetivo na organização, isto é, uma app ativa ali que dependa dele (`Unavailable`), o contexto tenant aberto pelo chamador e `actor` igual ao ator do contexto (`Forbidden`). Nenhum faz commit nem executa efeito externo. "Livro opcional" significa: sem `book_id`, o livro padrão da organização.
 
 #### `books(*, actor) -> tuple[BookInfo, ...]`
 Livros que o ator lê, o padrão primeiro.
@@ -111,8 +111,9 @@ A origem de uma regra ou de um título pode ser uma tabela exposta ou uma [tabel
 - `EntryInfo`: `sysid`, `book_id`, `year`, `number`, `date`, `description`, `kind`, `rule`, `source_app`, `source_table`, `source_id`, `reverses_id`, `reversed_by_id`, `total`, `sealed`, `digest`, `revision` (a esperada por `reverse`) e `lines` (`EntryLineInfo`: `sysid`, `account_id`, `debit`, `credit`, `memo`, `cost_center_id`, `party_ref`, `party_kind`).
 
 ## Testes da app consumidora
-`skeleton.contrib.ledger.testing` traz `enable_ledger(organization)`, `prepare_book(actor, basis=..., bindings=...)` e `account_id(actor, code)`. O teste mínimo de uma app que lança no livro: a regra registrada passa no check E041; o ator com a ação da regra na origem lança, e o lançamento aparece em `entries_for_source`; o ator sem essa ação recebe `Forbidden` (legível) ou `NotFound`; a mesma `idempotency_key` devolve o mesmo lançamento; a organização B não vê o lançamento de A; com o ledger desativado, `Unavailable`. O cenário completo está em `tests/contrib/ledger/test_scenario.py`.
+`skeleton.contrib.ledger.testing` traz `enable_ledger(organization)`, `prepare_book(actor, basis=..., bindings=...)` e `account_id(actor, code)`. O teste mínimo de uma app que lança no livro: a regra registrada passa no check E041; o ator com a ação da regra na origem lança, e o lançamento aparece em `entries_for_source`; o ator sem essa ação recebe `Forbidden` (legível) ou `NotFound`; a mesma `idempotency_key` devolve o mesmo lançamento; a organização B não vê o lançamento de A; com a app consumidora desativada (o livro é uma biblioteca e a acompanha, #792), `Unavailable`. O cenário completo está em `tests/contrib/ledger/test_scenario.py`.
 
 ## Histórico de versões
+- 0.7.0: o livro contábil é uma biblioteca first-party (#792, #793): os métodos exigem uma app ativa na organização que dependa dele, em vez da ativação do livro, e `testing.enable_ledger` só concede as ações nas tabelas; contratos e DTOs não mudam.
 - 0.2.0: `title`, `titles_for_source` e `settlements` aceitam `system_context` (`actor=None`), como as escritas de título já aceitavam (#577).
 - 0.1.0 (primeira versão do núcleo, #569): primeira versão (#542): `books`, `create_default_book`; plano de contas, chaves e centros de custo (#543); lançamentos selados, estorno e trava (#544); regras de lançamento autorizadas pela origem, `post`, `entries_for_source` e o estorno pela origem (#545); títulos, parcelas e baixas (#546); títulos recorrentes e o job `ledger.recurrences` (#547); saldos e relatórios (#548); `title` e `EntryInfo.revision` para as telas (#549).

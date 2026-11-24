@@ -38,8 +38,11 @@ class BundleForm(forms.Form):
         from skeleton.system.app_registry import all_apps
 
         super().__init__(*args, **kwargs)
+        # Libraries come with the apps that use them (#792): never a choice of their own.
         self.fields["apps"].choices = [
-            (manifest.app_label, manifest.label) for manifest in sorted(all_apps(), key=lambda item: item.label)
+            (manifest.app_label, manifest.label)
+            for manifest in sorted(all_apps(), key=lambda item: item.label)
+            if not manifest.library
         ]
 
 

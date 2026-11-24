@@ -14,7 +14,7 @@ Defina `SKELETON_ORGANIZATION_MEMBER_LIMIT` no catálogo da instância (`/platfo
 
 ## 3. Apps dos níveis: disponibilidade e acréscimos
 
-Instale as apps dos níveis ([extensão](extending.md)) e, em `/platform/apps/<app>/availability/`:
+Instale as apps dos níveis ([extensão](extending.md)) e, em `/platform/apps/<app>/availability/`, para cada app (as bibliotecas first-party, como a agenda e o livro contábil, entram com as apps que as usam e não têm disponibilidade, acréscimos, lugar nos pacotes nem preço próprios, #792):
 
 - defina a disponibilidade (`selected` deixa a plataforma decidir quem recebe a app);
 - em "Acréscimos por organização", quanto cada app soma a cada limite (por exemplo A: +2 membros, B: +7).

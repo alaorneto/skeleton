@@ -80,13 +80,14 @@ def test_opt_out_keeps_tables_checked_and_opt_in_keeps_ids(agenda, monkeypatch, 
     with system_context(reason="test:retention"):
         assert ComponentInstallation.all_objects.get(app_label=LABEL).state == "schema_retained"
     with system_context(reason="test:retention", organization_id=agenda.a.pk):
-        assert AppInstallation.all_objects.get(app_label=LABEL).enabled is False
+        # A library has no activation row of its own (#792): nothing to switch off.
+        assert not AppInstallation.all_objects.filter(app_label=LABEL).exists()
         assert Event.all_objects.filter(pk=event.pk).exists()  # Data preserved.
-    # Opt in again: same rows and UUIDs, inactive until the organization activates it.
+    # Opt in again: same rows and UUIDs; effective again through the apps that use it.
     monkeypatch.undo()
     settings.SKELETON_BUNDLED_RETAINED = ()
     assert sync_bundled_components()["reinstalled"] == [LABEL]
     with system_context(reason="test:retention", organization_id=agenda.a.pk):
         assert Calendar.all_objects.get(pk=calendar.pk).owner_id == agenda.alice.pk
         assert Event.all_objects.get(pk=event.pk).title == "Preservado"
-        assert AppInstallation.all_objects.get(app_label=LABEL).enabled is False
+        assert not AppInstallation.all_objects.filter(app_label=LABEL).exists()

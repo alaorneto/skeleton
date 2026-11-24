@@ -220,6 +220,18 @@ def _require_administrator(actor: Any) -> None:
         raise NotFoundError()
 
 
+def _require_application(app_label: str) -> None:
+    """An installed app the organization may choose; a first-party library answers like a missing app (#792)."""
+    from skeleton.system.app_registry import get_app
+
+    try:
+        manifest = get_app(app_label)
+    except KeyError:
+        raise NotFoundError() from None
+    if manifest.library:
+        raise NotFoundError()
+
+
 def _visible(state: ApplicationState) -> bool:
     """Available apps, and enabled ones the platform withdrew (the organization may still close them)."""
     return state.available or state.enabled or state.contract_required
@@ -241,7 +253,8 @@ class ApplicationAdministrationService(ServiceAPI):
         from skeleton.system.app_registry import all_apps
 
         _require_administrator(actor)
-        states = (_state(manifest.app_label) for manifest in all_apps())
+        # First-party libraries (#792) are never chosen: they follow the apps that use them.
+        states = (_state(manifest.app_label) for manifest in all_apps() if not manifest.library)
         return tuple(state for state in states if _visible(state))
 
     @service_method(read_only=True, since="0.1.0")
@@ -249,17 +262,12 @@ class ApplicationAdministrationService(ServiceAPI):
         """One app the organization can choose.
 
         Autorização: capacidade ``apps.manage``.
-        Erros: NotFound para app não instalada ou indisponível (e não ativa) e para quem não
-        tem ``apps.manage``.
+        Erros: NotFound para app não instalada ou indisponível (e não ativa), para uma biblioteca
+        first-party (desde 0.7.0) e para quem não tem ``apps.manage``.
         Efeitos: nenhum.
         """
-        from skeleton.system.app_registry import get_app
-
         _require_administrator(actor)
-        try:
-            get_app(app_label)
-        except KeyError:
-            raise NotFoundError() from None
+        _require_application(app_label)
         state = _state(app_label)
         if not _visible(state):
             raise NotFoundError()
@@ -279,19 +287,16 @@ class ApplicationAdministrationService(ServiceAPI):
 
         Autorização: capacidade ``apps.manage``; a app precisa estar disponível para ativar ou
         configurar (indisponível, só a desativação de uma app ativa é aceita).
-        Erros: NotFound para app não instalada; InvalidInput para configuração, dependência ou
+        Erros: NotFound para app não instalada ou biblioteca first-party (desde 0.7.0); InvalidInput
+        para configuração, dependência ou
         app indisponível (``app_unavailable``); Conflict("stale_revision"); Conflict("setting_locked")
         para a ativação ou um campo travado pela plataforma (desde 0.6.0).
         Efeitos: grava ``AppInstallation`` (auditado) na transação do chamador.
         """
-        from skeleton.system.app_registry import get_app
         from skeleton.system.applications import configure_application
 
         _require_administrator(actor)
-        try:
-            get_app(app_label)
-        except KeyError:
-            raise NotFoundError() from None
+        _require_application(app_label)
         current = _state(app_label)
         if not current.available and (enabled is not False or not current.enabled):
             raise InvalidInput({"enabled": ["Aplicativo indisponível para esta organização."]})

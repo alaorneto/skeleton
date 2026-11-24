@@ -67,7 +67,8 @@ def sync_bundled_components(*, using: str = "default") -> dict[str, list[str]]:
             row = ComponentInstallation.all_objects.using(using).filter(component_id=identifier).first()
             if row is None:
                 ComponentInstallation(component_id=identifier, **values).save(using=using)
-                _close_new_app(manifest.app_label, using=using)
+                if not manifest.library:  # A library has no availability of its own (#792).
+                    _close_new_app(manifest.app_label, using=using)
                 report["installed"].append(manifest.app_label)
                 continue
             changes = {name for name, value in values.items() if getattr(row, name) != value}
