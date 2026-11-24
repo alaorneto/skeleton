@@ -998,6 +998,32 @@
   .table-scroll td table :is(th, td) {
     @apply px-2 py-1.5;
   }
+  /* Detalhes de um evento da auditoria: a linha logo abaixo dele, na largura da tabela (#834). */
+  .table-scroll tbody tr.audit-detail,
+  .table-scroll tbody tr.audit-detail:hover {
+    @apply bg-neutral-secondary-soft;
+  }
+  .table-scroll tr.audit-detail > td {
+    @apply pt-3 pb-5;
+  }
+  .audit-changes {
+    @apply mt-3 overflow-x-auto rounded-base border border-default bg-neutral-primary-soft;
+    & table {
+      @apply w-full table-fixed;
+    }
+    & thead {
+      @apply border-b border-default bg-neutral-secondary-soft;
+    }
+    & tbody tr:hover {
+      @apply bg-transparent;
+    }
+    & :is(th, td) {
+      @apply align-top sm:px-3;
+    }
+  }
+  .audit-changes-empty {
+    @apply mt-3 text-body-subtle;
+  }
   .table-scroll td:first-child > a:not([class]) {
     @apply font-medium text-heading no-underline hover:text-fg-brand hover:underline;
   }

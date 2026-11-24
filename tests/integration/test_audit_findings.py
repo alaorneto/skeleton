@@ -107,4 +107,12 @@ def test_platform_audit_page_uses_the_same_table():
         update_profile(user, data={"first_name": "Tabela"})
     html = login_with(user, password=password).get("/platform/audit/").content.decode()
     assert "<code>first_name</code>" in html and "Tabela" in html
+    # The changes open below the row, across the whole table, from a "Detalhes" button (#834).
+    detail_id = "audit-detail-" + html.split('data-collapse-toggle="audit-detail-', 1)[1].split('"', 1)[0]
+    assert f'<tr id="{detail_id}" class="audit-detail hidden noscript:table-row!"><td colspan="5">' in html
+    assert f'aria-controls="{detail_id}" aria-expanded="false">Detalhes' in html
+    # The global audit names no one: the column says what the actor is, the panel has its id.
+    assert "<td>Usuário</td>" in html and "<td>Sistema</td>" in html
+    assert f'<td><code class="uuid">{user.pk}</code></td>' not in html
+    assert f'<dt>Ator</dt><dd><code class="uuid">{user.pk}</code></dd>' in html
     assert "&#x27;old&#x27;" not in html
