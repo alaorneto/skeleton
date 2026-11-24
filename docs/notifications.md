@@ -102,6 +102,8 @@ O limite de membros atingido (`organization.member_limit_reached`, [#698](https:
 
 Cada pessoa escolhe, por tipo e canal, como recebe as notificações em todas as organizações (`UserNotificationPreference`, `SystemRecord` global, auditado e com revisão). A página fica em `/profile/notifications/` (formulário comum, sem JavaScript) e a API de sessão em `/api/v1/me/notification-preferences/`.
 
+Na página ([#778](https://github.com/alaorneto/skeleton/issues/778)), o padrão para todos os avisos fica num cartão próprio no topo; os tipos vêm agrupados por área, pelo prefixo do código (`AREAS` em `skeleton/notifications/preference_views.py`: Cobrança, Processos e tarefas, Comentários, Agenda, Organização, Integrações, Importação e exportação; um prefixo desconhecido, como o de uma app, vai para "Outros"), numa tabela de colunas fixas que vira um bloco por aviso abaixo de 640 px. O código técnico do tipo não aparece. A hora do resumo só aparece com "Resumo diário" ou "Resumo semanal" escolhido (CSS `:has()`; sem ele, aparece sempre). O canal travado de um tipo obrigatório mostra o marcador "Obrigatório" e o texto "Sempre ligado", sem campo: o POST não o envia. Os nomes de campo (`mode:<tipo>:<canal>`, `hour:…`, `revision:…`) e a revisão de cada linha não mudaram.
+
 | Canal | Modos |
 |---|---|
 | `in_app` | `off`, `immediate` |

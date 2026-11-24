@@ -14,7 +14,7 @@
 </div>
 <h2 class="mt-5 mb-4">{% translate "Publicação" %}</h2>
 <p class="page-description">{% translate "Pedir a publicação inicia um fluxo de processo: preparação, revisão e registro. O pedido aparece na sua caixa de tarefas." %}</p>
-<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Código" %}</th><th scope="col">{% translate "Título" %}</th><th scope="col">{% translate "Ações" %}</th></tr></thead><tbody>
-{% for note in notes %}<tr><td><code>{{ note.code }}</code></td><td>{{ note.title }}</td><td><form method="post" action="{% url 'example_notes:request-publication' organization_id note.sysid %}">{% csrf_token %}<button type="submit" class="btn btn-secondary btn-sm">{% translate "Pedir publicação" %}</button></form></td></tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=3 message=_("Nenhuma anotação.") icon="files"|concept_icon %}{% endfor %}
+<div class="table-scroll table-stack"><table><thead><tr><th scope="col">{% translate "Código" %}</th><th scope="col">{% translate "Título" %}</th><th scope="col">{% translate "Ações" %}</th></tr></thead><tbody>
+{% for note in notes %}<tr><td data-label="{% translate "Código" %}"><code>{{ note.code }}</code></td><td data-label="{% translate "Título" %}">{{ note.title }}</td><td data-label="{% translate "Ações" %}"><form method="post" action="{% url 'example_notes:request-publication' organization_id note.sysid %}">{% csrf_token %}<button type="submit" class="btn btn-secondary btn-sm">{% translate "Pedir publicação" %}</button></form></td></tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=3 message=_("Nenhuma anotação.") icon="files"|concept_icon %}{% endfor %}
 </tbody></table></div>
 {% endblock %}

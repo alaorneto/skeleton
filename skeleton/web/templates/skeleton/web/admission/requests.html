@@ -1,5 +1,5 @@
 {% extends 'skeleton/web/base.html' %}
-{% load skeleton_format %}{% block title %}Solicitações de ingresso · {{ site_name }}{% endblock %}
+{% load i18n skeleton_format %}{% block title %}Solicitações de ingresso · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0">
 {% include 'skeleton/web/components/breadcrumbs.html' %}
@@ -7,13 +7,13 @@
 <p class="page-description">Pedidos abertos, do mais antigo para o mais novo. Aprovar cria o vínculo com o papel indicado; pedidos expiram em 30 dias.</p></div></div>
 {% include "skeleton/web/components/limit_meter.html" %}
 {% include "skeleton/web/components/error-summary.html" with message=error title=_("Não foi possível decidir") extra_class="mb-4" %}
-<div class="table-scroll"><table><thead><tr><th scope="col">Pessoa</th><th scope="col">Mensagem</th><th scope="col">Papel</th><th scope="col" class="col-date">Enviado em</th><th scope="col" class="col-actions"><span class="sr-only">Decisão</span></th></tr></thead><tbody>
+<div class="table-scroll table-stack"><table><thead><tr><th scope="col">Pessoa</th><th scope="col">Mensagem</th><th scope="col">Papel</th><th scope="col" class="col-date">Enviado em</th><th scope="col" class="col-actions"><span class="sr-only">Decisão</span></th></tr></thead><tbody>
 {% for row in rows %}{% with item=row.record %}<tr>
-<td><span class="cell-primary">{{ item.user.get_full_name|default:item.user.email }}</span><span class="cell-secondary">{{ item.user.email }}</span>{% if row.returning %}<span class="cell-secondary">{{ "returning"|marker }}</span>{% endif %}</td>
-<td class="col-text">{{ item.message|default:"—" }}</td>
-<td>{{ item.role.name }}</td>
-<td class="col-date">{{ item.created_at|moment }}</td>
-<td class="col-actions"><form method="post" action="{% url 'web:join-request-decide' organization_id item.pk %}" class="row-actions">{% csrf_token %}<input type="hidden" name="revision" value="{{ item.revision }}">
+<td data-label="{% translate "Pessoa" %}"><span class="cell-primary">{{ item.user.get_full_name|default:item.user.email }}</span><span class="cell-secondary">{{ item.user.email }}</span>{% if row.returning %}<span class="cell-secondary">{{ "returning"|marker }}</span>{% endif %}</td>
+<td data-label="{% translate "Mensagem" %}" class="col-text">{{ item.message|default:"—" }}</td>
+<td data-label="{% translate "Papel" %}">{{ item.role.name }}</td>
+<td data-label="{% translate "Enviado em" %}" class="col-date">{{ item.created_at|moment }}</td>
+<td data-label="{% translate "Decisão" %}" class="col-actions"><form method="post" action="{% url 'web:join-request-decide' organization_id item.pk %}" class="row-actions">{% csrf_token %}<input type="hidden" name="revision" value="{{ item.revision }}">
 <button type="submit" name="decision" value="approve" class="btn btn-primary btn-sm">Aprovar<span class="sr-only"> {{ item.user.email }}</span></button>
 <button type="submit" name="decision" value="reject" class="btn btn-danger-outline btn-sm">Recusar<span class="sr-only"> {{ item.user.email }}</span></button></form></td>
 </tr>{% endwith %}{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=5 message="Nenhum pedido aberto." icon="join_requests"|concept_icon %}{% endfor %}

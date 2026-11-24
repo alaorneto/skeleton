@@ -17,8 +17,8 @@
     {% include "skeleton/web/components/stat.html" with label=_("A vencer em 24 horas") value=panel.counts.due_soon key="due_soon" %}
   </dl>
   <h2 class="section-heading">{% translate "Instâncias com falha" %}</h2>
-  <div class="table-scroll mb-6"><table><thead><tr><th scope="col">{% translate "Fluxo" %}</th><th scope="col" class="col-num">{% translate "Número" %}</th><th scope="col" class="col-date">{% translate "Atualizada em" %}</th></tr></thead><tbody>
-  {% for row in panel.failed %}<tr><td><a class="cell-primary" href="{% url 'flows:instance' organization_id row.sysid %}">{{ row.flow_key }} v{{ row.flow_version }}</a></td><td class="col-num">{{ row.number|default:"—" }}</td><td class="col-date">{{ row.updated_at|moment }}</td></tr>
+  <div class="table-scroll table-stack mb-6"><table><thead><tr><th scope="col">{% translate "Fluxo" %}</th><th scope="col" class="col-num">{% translate "Número" %}</th><th scope="col" class="col-date">{% translate "Atualizada em" %}</th></tr></thead><tbody>
+  {% for row in panel.failed %}<tr><td data-label="{% translate "Fluxo" %}"><a class="cell-primary" href="{% url 'flows:instance' organization_id row.sysid %}">{{ row.flow_key }} v{{ row.flow_version }}</a></td><td data-label="{% translate "Número" %}" class="col-num">{{ row.number|default:"—" }}</td><td data-label="{% translate "Atualizada em" %}" class="col-date">{{ row.updated_at|moment }}</td></tr>
   {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=3 message=_("Nenhuma instância com falha.") icon="check-circle" %}{% endfor %}
   </tbody></table></div>
   {% include "skeleton/flows/operations_tasks.html" with heading=_("Tarefas sem responsável") rows=panel.unassigned empty=_("Nenhuma tarefa sem responsável.") %}

@@ -20,7 +20,7 @@
       </nav>
     </aside>
     {% endif %}
-    <div class="min-w-0 max-w-3xl">
+    <div class="min-w-0 {% block content_width %}max-w-3xl{% endblock %}">
       {% if request.mfa_enrollment_pending %}<p class="mb-4 text-sm text-body">{% translate "Para continuar, configure a autenticação em dois fatores. As demais páginas ficam disponíveis assim que a configuração terminar." %}</p>{% endif %}
       {% include "skeleton/web/components/messages.html" %}
       <div class="card">{% block content %}{% endblock %}</div>

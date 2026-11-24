@@ -19,9 +19,9 @@ revisão lida (CAS). A autorização é da view concreta que monta o PageEditor.
 
 <section aria-labelledby="page-blocks" class="mb-6">
   <h2 id="page-blocks" class="section-heading">{% translate "Blocos" %}</h2>
-  <div class="table-scroll"><table><thead><tr><th scope="col">#</th><th scope="col">{% translate "Tipo" %}</th><th scope="col">{% translate "Conteúdo" %}</th><th scope="col" class="col-actions">{% translate "Ações" %}</th></tr></thead><tbody>
-  {% for row in rows %}<tr><td class="tabular-nums">{{ row.number }}</td><td>{{ row.label }}</td><td class="break-words [overflow-wrap:anywhere]">{{ row.summary|default:"—" }}</td>
-  <td class="col-actions"><div class="row-actions">
+  <div class="table-scroll table-stack"><table><thead><tr><th scope="col">#</th><th scope="col">{% translate "Tipo" %}</th><th scope="col">{% translate "Conteúdo" %}</th><th scope="col" class="col-actions">{% translate "Ações" %}</th></tr></thead><tbody>
+  {% for row in rows %}<tr><td data-label="{% translate "#" %}" class="tabular-nums">{{ row.number }}</td><td data-label="{% translate "Tipo" %}">{{ row.label }}</td><td data-label="{% translate "Conteúdo" %}" class="break-words [overflow-wrap:anywhere]">{{ row.summary|default:"—" }}</td>
+  <td data-label="{% translate "Ações" %}" class="col-actions"><div class="row-actions">
     <a class="btn btn-secondary btn-sm" href="{{ row.edit_url }}">{% include "skeleton/web/components/icon.html" with name="pencil" %}{% translate "Editar" %}<span class="sr-only"> {% blocktranslate trimmed with number=row.number %}o bloco {{ number }}{% endblocktranslate %}</span></a>
     {% if not row.first %}<form method="post" action="{{ row.move_url }}">{% csrf_token %}<input type="hidden" name="revision" value="{{ revision }}"><button type="submit" class="btn btn-secondary btn-sm" name="direction" value="up">{% translate "Subir" %}<span class="sr-only"> {% blocktranslate trimmed with number=row.number %}o bloco {{ number }}{% endblocktranslate %}</span></button></form>{% endif %}
     {% if not row.last %}<form method="post" action="{{ row.move_url }}">{% csrf_token %}<input type="hidden" name="revision" value="{{ revision }}"><button type="submit" class="btn btn-secondary btn-sm" name="direction" value="down">{% translate "Descer" %}<span class="sr-only"> {% blocktranslate trimmed with number=row.number %}o bloco {{ number }}{% endblocktranslate %}</span></button></form>{% endif %}

@@ -571,13 +571,14 @@ def access_list(request, organization_id, resource):
     rows = pagination(request, queryset)
     # The item's name comes first and its code goes on the second line (#767, rule 1 of the tables).
     coded = "code" in fields and "name" in fields
+    labels = {name: dedicated_label(model, name) for name in fields}
     shown = ("name", *(name for name in fields if name not in ("code", "name"))) if coded else tuple(fields)
     rows.object_list = [
         {
             "sysid": item.sysid,
             "secondary": item.code if coded else item.sysid,
             "revision": item.revision,
-            "cells": [_cell(getattr(item, name), name) for name in shown],
+            "cells": [{**_cell(getattr(item, name), name), "label": labels[name]} for name in shown],
         }
         for item in rows
     ]
@@ -586,7 +587,7 @@ def access_list(request, organization_id, resource):
         "skeleton/web/access_list.html",
         {
             "title": get_spec(model._meta.label_lower).label,
-            "headings": [dedicated_label(model, name) for name in shown],
+            "headings": [labels[name] for name in shown],
             "rows": rows,
             "organization_id": organization_id,
             "resource": resource,

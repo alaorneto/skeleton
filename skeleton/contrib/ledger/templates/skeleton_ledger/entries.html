@@ -8,10 +8,10 @@
   <div class="field"><label for="end">{% translate "Até" %}</label><input id="end" type="date" name="end" value="{{ end|date:'Y-m-d' }}"></div>
   <div class="filter-actions"><button type="submit" class="btn btn-secondary">{% translate "Filtrar" %}</button></div>
 </form>
-<div class="table-scroll"><table>
+<div class="table-scroll table-stack"><table>
   <caption class="sr-only">{% translate "Lançamentos" %}</caption>
   <thead><tr><th scope="col" class="col-num">{% translate "Número" %}</th><th scope="col" class="col-date">{% translate "Data" %}</th><th scope="col">{% translate "Descrição" %}</th><th scope="col">{% translate "Tipo" %}</th><th scope="col" class="col-num">{% translate "Total" %}</th></tr></thead>
-  <tbody>{% for entry in page.items %}<tr><td class="col-num"><a class="cell-primary" href="{% url 'skeleton_ledger:entry' organization_id entry.sysid %}">{{ entry.year }}/{{ entry.number }}</a></td><td class="col-date"><time datetime="{{ entry.date|date:'Y-m-d' }}">{{ entry.date|date:"SHORT_DATE_FORMAT" }}</time></td><td>{{ entry.description }}</td><td>{{ entry.kind }}</td><td class="col-num">{{ entry.total|money:book.currency }}</td></tr>
+  <tbody>{% for entry in page.items %}<tr><td data-label="{% translate "Número" %}" class="col-num"><a class="cell-primary" href="{% url 'skeleton_ledger:entry' organization_id entry.sysid %}">{{ entry.year }}/{{ entry.number }}</a></td><td data-label="{% translate "Data" %}" class="col-date"><time datetime="{{ entry.date|date:'Y-m-d' }}">{{ entry.date|date:"SHORT_DATE_FORMAT" }}</time></td><td data-label="{% translate "Descrição" %}">{{ entry.description }}</td><td data-label="{% translate "Tipo" %}">{{ entry.kind }}</td><td data-label="{% translate "Total" %}" class="col-num">{{ entry.total|money:book.currency }}</td></tr>
   {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=5 message=_("Nenhum lançamento no período.") %}{% endfor %}</tbody>
 </table></div>
 {% if page.next_cursor %}<nav class="pagination" aria-label="{% translate "Paginação" %}"><div class="pagination-links"><a class="pagination-next" rel="next" href="?start={{ start|date:'Y-m-d' }}&amp;end={{ end|date:'Y-m-d' }}&amp;cursor={{ page.next_cursor|urlencode }}">{% translate "Próxima página" %}</a></div></nav>{% endif %}

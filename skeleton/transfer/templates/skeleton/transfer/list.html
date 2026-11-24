@@ -2,15 +2,15 @@
 {% block title %}{% translate "Exportações e importações" %} · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Arquivos" %}</p><h1>{% translate "Exportações e importações" %}</h1><p class="page-description">{% translate "Só você vê e baixa os arquivos que pediu. Eles são apagados depois do prazo de retenção." %}</p></div></div>
-<div class="table-scroll"><table><thead><tr><th scope="col" class="col-date">{% translate "Pedido em" %}</th><th scope="col">{% translate "Tipo" %}</th><th scope="col">{% translate "Tabela" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col" class="col-num">{% translate "Linhas" %}</th><th scope="col" class="col-date">{% translate "Disponível até" %}</th><th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
+<div class="table-scroll table-stack"><table><thead><tr><th scope="col" class="col-date">{% translate "Pedido em" %}</th><th scope="col">{% translate "Tipo" %}</th><th scope="col">{% translate "Tabela" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col" class="col-num">{% translate "Linhas" %}</th><th scope="col" class="col-date">{% translate "Disponível até" %}</th><th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
 {% for transfer in transfers %}<tr>
-  <td class="col-date">{{ transfer.created_at|moment }}</td>
-  <td>{{ transfer.kind|status_badge:transfer.get_kind_display }}</td>
-  <td><code>{{ transfer.table_key }}</code></td>
-  <td>{{ transfer.state|status_badge:transfer.get_state_display }}</td>
-  <td class="col-num">{{ transfer.row_count }}</td>
-  <td class="col-date">{{ transfer.expires_at|moment }}</td>
-  <td class="col-actions"><div class="row-actions">{% if transfer.kind == "export" and transfer.state == ready and transfer.file_key %}<a class="btn btn-secondary btn-sm" href="{% url 'transfer:download' organization_id transfer.sysid %}">{% translate "Baixar CSV" %}</a>{% endif %}{% if transfer.report_key %}<a class="btn btn-secondary btn-sm" href="{% url 'transfer:report' organization_id transfer.sysid %}">{% blocktranslate trimmed count errors=transfer.error_count %}Relatório ({{ errors }} erro){% plural %}Relatório ({{ errors }} erros){% endblocktranslate %}</a>{% endif %}{% if transfer.state == previewed and not transfer.error_count %}<form method="post" action="{% url 'transfer:apply' organization_id transfer.sysid %}">{% csrf_token %}<button class="btn btn-primary btn-sm" type="submit">{% translate "Aplicar importação" %}</button></form>{% endif %}</div></td>
+  <td data-label="{% translate "Pedido em" %}" class="col-date">{{ transfer.created_at|moment }}</td>
+  <td data-label="{% translate "Tipo" %}">{{ transfer.kind|status_badge:transfer.get_kind_display }}</td>
+  <td data-label="{% translate "Tabela" %}"><code>{{ transfer.table_key }}</code></td>
+  <td data-label="{% translate "Estado" %}">{{ transfer.state|status_badge:transfer.get_state_display }}</td>
+  <td data-label="{% translate "Linhas" %}" class="col-num">{{ transfer.row_count }}</td>
+  <td data-label="{% translate "Disponível até" %}" class="col-date">{{ transfer.expires_at|moment }}</td>
+  <td data-label="" class="col-actions"><div class="row-actions">{% if transfer.kind == "export" and transfer.state == ready and transfer.file_key %}<a class="btn btn-secondary btn-sm" href="{% url 'transfer:download' organization_id transfer.sysid %}">{% translate "Baixar CSV" %}</a>{% endif %}{% if transfer.report_key %}<a class="btn btn-secondary btn-sm" href="{% url 'transfer:report' organization_id transfer.sysid %}">{% blocktranslate trimmed count errors=transfer.error_count %}Relatório ({{ errors }} erro){% plural %}Relatório ({{ errors }} erros){% endblocktranslate %}</a>{% endif %}{% if transfer.state == previewed and not transfer.error_count %}<form method="post" action="{% url 'transfer:apply' organization_id transfer.sysid %}">{% csrf_token %}<button class="btn btn-primary btn-sm" type="submit">{% translate "Aplicar importação" %}</button></form>{% endif %}</div></td>
 </tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=7 message=_("Nenhuma exportação ou importação.") icon="transfers"|concept_icon %}{% endfor %}
 </tbody></table></div>
 {% endblock %}

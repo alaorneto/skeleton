@@ -9,10 +9,10 @@
   {% if entry.reverses_id %}<dt>{% translate "Estorna" %}</dt><dd><a href="{% url 'skeleton_ledger:entry' organization_id entry.reverses_id %}">{% translate "lançamento original" %}</a></dd>{% endif %}
   {% if entry.reversed_by_id %}<dt>{% translate "Estornado por" %}</dt><dd><a href="{% url 'skeleton_ledger:entry' organization_id entry.reversed_by_id %}">{% translate "estorno" %}</a></dd>{% endif %}
 </dl>
-<div class="table-scroll mb-6"><table>
+<div class="table-scroll table-stack mb-6"><table>
   <caption class="sr-only">{% translate "Partidas" %}</caption>
   <thead><tr><th scope="col">{% translate "Conta" %}</th><th scope="col">{% translate "Histórico" %}</th><th scope="col" class="col-num">{% translate "Débito" %}</th><th scope="col" class="col-num">{% translate "Crédito" %}</th></tr></thead>
-  <tbody>{% for line, account in lines %}<tr><td>{% if account %}{{ account.code }} {{ account.name }}{% else %}—{% endif %}</td><td>{{ line.memo|default:"—" }}</td><td class="col-num">{% if line.debit %}{{ line.debit|money:book.currency }}{% endif %}</td><td class="col-num">{% if line.credit %}{{ line.credit|money:book.currency }}{% endif %}</td></tr>{% endfor %}</tbody>
+  <tbody>{% for line, account in lines %}<tr><td data-label="{% translate "Conta" %}">{% if account %}{{ account.code }} {{ account.name }}{% else %}—{% endif %}</td><td data-label="{% translate "Histórico" %}">{{ line.memo|default:"—" }}</td><td data-label="{% translate "Débito" %}" class="col-num">{% if line.debit %}{{ line.debit|money:book.currency }}{% endif %}</td><td data-label="{% translate "Crédito" %}" class="col-num">{% if line.credit %}{{ line.credit|money:book.currency }}{% endif %}</td></tr>{% endfor %}</tbody>
 </table></div>
 {% if book.writable and not entry.reversed_by_id and entry.kind != "reversal" %}
 <section class="card max-w-xl" aria-labelledby="reverse-heading"><h2 id="reverse-heading">{% translate "Estornar" %}</h2>

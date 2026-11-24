@@ -1,13 +1,13 @@
 {% extends "skeleton/web/platform/base.html" %}
-{% load billing i18n %}
+{% load i18n billing %}
 {% block page_title %}{% translate "Cobrança" %}{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Operação" %}</p><h1>{% translate "Cobrança" %}</h1><p class="page-description">{% translate "Produtos, preços, vouchers e contas de provedor de pagamento. Os termos de um preço nunca mudam: para mudar o valor, crie outro preço e desative o antigo." %}</p></div></div>
 {% include "skeleton/web/components/error-summary.html" with message=error title=_("Não foi possível salvar") extra_class="mb-4" %}
 
 <section class="mb-8" aria-labelledby="products-heading"><h2 id="products-heading" class="section-heading">{% translate "Produtos" %}</h2>
-<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Código" %}</th><th scope="col">{% translate "Nome" %}</th><th scope="col">{% translate "Tipo" %}</th><th scope="col">{% translate "App" %}</th></tr></thead><tbody>
-{% for product in products %}<tr><td><code>{{ product.code }}</code></td><td>{{ product.name }}</td><td>{{ product.kind }}</td><td>{{ product.app_label }}</td></tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhum produto.") %}{% endfor %}
+<div class="table-scroll table-stack"><table><thead><tr><th scope="col">{% translate "Código" %}</th><th scope="col">{% translate "Nome" %}</th><th scope="col">{% translate "Tipo" %}</th><th scope="col">{% translate "App" %}</th></tr></thead><tbody>
+{% for product in products %}<tr><td data-label="{% translate "Código" %}"><code>{{ product.code }}</code></td><td data-label="{% translate "Nome" %}">{{ product.name }}</td><td data-label="{% translate "Tipo" %}">{{ product.kind }}</td><td data-label="{% translate "App" %}">{{ product.app_label }}</td></tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhum produto.") %}{% endfor %}
 </tbody></table></div>
 <form method="post" class="record-form mt-4" action="{% url 'platform:billing-product' %}">{% csrf_token %}
 <p><label for="product-code">{% translate "Código" %}</label><input id="product-code" name="code" required maxlength="64"></p>
@@ -18,9 +18,9 @@
 <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Criar produto" %}</button></div></form></section>
 
 <section class="mb-8" aria-labelledby="prices-heading"><h2 id="prices-heading" class="section-heading">{% translate "Preços" %}</h2>
-<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Produto" %}</th><th scope="col">{% translate "Valor" %}</th><th scope="col">{% translate "Ciclo" %}</th><th scope="col">{% translate "Trial" %}</th><th scope="col">{% translate "Armazenamento" %}</th><th scope="col">{% translate "Situação" %}</th></tr></thead><tbody>
-{% for price in prices %}<tr><td><code>{{ price.product.code }}</code></td><td>{{ price.unit_amount|money:price.currency }}</td><td>{{ price.interval_count }} × {{ price.interval }}</td><td>{{ price.trial_days }}</td><td>{{ price.included_storage_bytes|gigabytes }} GB · {{ price.storage_overage }}</td>
-<td><form method="post" class="toolbar" action="{% url 'platform:billing-price-flags' price.pk %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ price.revision }}"><label><input type="checkbox" name="is_active"{% if price.is_active %} checked{% endif %}> {% translate "ativo" %}</label><label><input type="checkbox" name="is_default"{% if price.is_default %} checked{% endif %}> {% translate "padrão" %}</label><button type="submit" class="btn btn-secondary btn-sm">{% translate "Salvar" %}</button></form></td></tr>
+<div class="table-scroll table-stack"><table><thead><tr><th scope="col">{% translate "Produto" %}</th><th scope="col">{% translate "Valor" %}</th><th scope="col">{% translate "Ciclo" %}</th><th scope="col">{% translate "Trial" %}</th><th scope="col">{% translate "Armazenamento" %}</th><th scope="col">{% translate "Situação" %}</th></tr></thead><tbody>
+{% for price in prices %}<tr><td data-label="{% translate "Produto" %}"><code>{{ price.product.code }}</code></td><td data-label="{% translate "Valor" %}">{{ price.unit_amount|money:price.currency }}</td><td data-label="{% translate "Ciclo" %}">{{ price.interval_count }} × {{ price.interval }}</td><td data-label="{% translate "Trial" %}">{{ price.trial_days }}</td><td data-label="{% translate "Armazenamento" %}">{{ price.included_storage_bytes|gigabytes }} GB · {{ price.storage_overage }}</td>
+<td data-label="{% translate "Situação" %}"><form method="post" class="toolbar" action="{% url 'platform:billing-price-flags' price.pk %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ price.revision }}"><label><input type="checkbox" name="is_active"{% if price.is_active %} checked{% endif %}> {% translate "ativo" %}</label><label><input type="checkbox" name="is_default"{% if price.is_default %} checked{% endif %}> {% translate "padrão" %}</label><button type="submit" class="btn btn-secondary btn-sm">{% translate "Salvar" %}</button></form></td></tr>
 {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=6 message=_("Nenhum preço.") %}{% endfor %}
 </tbody></table></div>
 <form method="post" class="record-form mt-4" action="{% url 'platform:billing-price' %}">{% csrf_token %}
@@ -42,9 +42,9 @@
 <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Criar preço" %}</button></div></form></section>
 
 <section class="mb-8" aria-labelledby="vouchers-heading"><h2 id="vouchers-heading" class="section-heading">{% translate "Vouchers" %}</h2>
-<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Código" %}</th><th scope="col">{% translate "Tipo" %}</th><th scope="col">{% translate "Valor" %}</th><th scope="col">{% translate "Usos" %}</th><th scope="col">{% translate "Situação" %}</th></tr></thead><tbody>
-{% for voucher in vouchers %}<tr><td><code>{{ voucher.code }}</code></td><td>{{ voucher.kind }} · {{ voucher.duration }}</td><td>{{ voucher.value }}{% if voucher.currency %} {{ voucher.currency }}{% endif %}</td><td>{{ voucher.redemption_count }}{% if voucher.max_redemptions %} / {{ voucher.max_redemptions }}{% endif %}</td>
-<td><form method="post" action="{% url 'platform:billing-voucher-toggle' voucher.pk %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ voucher.revision }}">{% if voucher.is_active %}<button type="submit" class="btn btn-danger-outline btn-sm">{% translate "Desativar" %}</button>{% else %}<input type="hidden" name="active" value="on"><button type="submit" class="btn btn-secondary btn-sm">{% translate "Ativar" %}</button>{% endif %}</form></td></tr>
+<div class="table-scroll table-stack"><table><thead><tr><th scope="col">{% translate "Código" %}</th><th scope="col">{% translate "Tipo" %}</th><th scope="col">{% translate "Valor" %}</th><th scope="col">{% translate "Usos" %}</th><th scope="col">{% translate "Situação" %}</th></tr></thead><tbody>
+{% for voucher in vouchers %}<tr><td data-label="{% translate "Código" %}"><code>{{ voucher.code }}</code></td><td data-label="{% translate "Tipo" %}">{{ voucher.kind }} · {{ voucher.duration }}</td><td data-label="{% translate "Valor" %}">{{ voucher.value }}{% if voucher.currency %} {{ voucher.currency }}{% endif %}</td><td data-label="{% translate "Usos" %}">{{ voucher.redemption_count }}{% if voucher.max_redemptions %} / {{ voucher.max_redemptions }}{% endif %}</td>
+<td data-label="{% translate "Situação" %}"><form method="post" action="{% url 'platform:billing-voucher-toggle' voucher.pk %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ voucher.revision }}">{% if voucher.is_active %}<button type="submit" class="btn btn-danger-outline btn-sm">{% translate "Desativar" %}</button>{% else %}<input type="hidden" name="active" value="on"><button type="submit" class="btn btn-secondary btn-sm">{% translate "Ativar" %}</button>{% endif %}</form></td></tr>
 {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=5 message=_("Nenhum voucher.") %}{% endfor %}
 </tbody></table></div>
 <form method="post" class="record-form mt-4" action="{% url 'platform:billing-voucher' %}">{% csrf_token %}

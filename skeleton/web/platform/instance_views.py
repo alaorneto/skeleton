@@ -23,7 +23,7 @@ from django.views.decorators.http import require_http_methods
 from skeleton.accounts.reauthentication import recent_authentication_required
 from skeleton.common.logging import security_event
 from skeleton.instance.resolve import ORIGIN_ENV, is_cluster, resolve_instance_settings
-from skeleton.instance.schema import CATALOG
+from skeleton.instance.schema import CATALOG, SETTING_GROUPS
 from skeleton.instance.writer import can_clear, clear_setting, write_setting
 from skeleton.web.confirm import PLATFORM_TEMPLATE, Confirmation, confirmation_step
 
@@ -38,7 +38,12 @@ class SettingForm(forms.Form):
     value = forms.CharField(required=False, max_length=2000, strip=False)
 
 
-def _rows(cluster: bool):
+ORIGINS = ("env", "instance", "default")
+
+
+def _rows(cluster: bool, form=None):
+    """One row per catalog key; the key of a refused POST carries its error and stays open (#779)."""
+    failed = form.data.get("key") if form is not None and form.errors else None
     rows = []
     for item in resolve_instance_settings(settings.BASE_DIR):
         spec = CATALOG[item.key]
@@ -59,9 +64,29 @@ def _rows(cluster: bool):
                 "value": shown,
                 "editable": not cluster and item.origin != ORIGIN_ENV,
                 "clearable": not cluster and item.origin == "instance" and can_clear(spec),
+                "group": spec.group,
+                "error": " ".join(str(e) for errors in form.errors.values() for e in errors)
+                if failed == item.key
+                else "",
             }
         )
     return rows
+
+
+def _sections(rows, *, query: str, origin: str):
+    """The rows by section of the catalog, filtered by text and origin on the server (#779)."""
+    needle = query.casefold()
+    shown = [
+        row
+        for row in rows
+        if (not origin or row["origin"] == origin)
+        and (not needle or any(needle in str(row[field]).casefold() for field in ("key", "env", "description")))
+    ]
+    return [
+        {"id": group, "label": label, "rows": [row for row in shown if row["group"] == group]}
+        for group, label, _ in SETTING_GROUPS
+        if any(row["group"] == group for row in shown)
+    ]
 
 
 class IdentityForm(forms.Form):
@@ -82,12 +107,21 @@ def _page(request, *, form=None, identity_form=None, status=200):
     identity_form = identity_form or IdentityForm(
         initial={"name": identity.name, "purpose": identity.purpose, "expected_revision": identity.revision}
     )
+    query = request.GET.get("q", "").strip()[:100]
+    origin = request.GET.get("origem", "")
+    origin = origin if origin in ORIGINS else ""
+    rows = _rows(cluster, form)
     return render(
         request,
         "skeleton/web/platform/instance.html",
         {
             "platform_section": "instance",
-            "rows": _rows(cluster),
+            "rows": rows,
+            "sections": _sections(rows, query=query, origin=origin),
+            "query": query,
+            "origin": origin,
+            "origins": ORIGINS,
+            "filtered": bool(query or origin),
             "form": form,
             "mask": MASK,
             "cluster": cluster,

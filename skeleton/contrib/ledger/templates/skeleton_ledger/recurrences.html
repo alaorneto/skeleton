@@ -2,10 +2,10 @@
 {% block content %}
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Livro contábil" %}</p><h1>{% translate "Recorrências" %}</h1><p class="page-description">{% translate "Regras que geram um título por ocorrência, por um job diário." %}</p></div></div>
 {% include "skeleton_ledger/_nav.html" with section="recurrences" %}
-<div class="table-scroll mb-6"><table>
+<div class="table-scroll table-stack mb-6"><table>
   <caption class="sr-only">{% translate "Recorrências" %}</caption>
   <thead><tr><th scope="col">{% translate "Descrição" %}</th><th scope="col">{% translate "Frequência" %}</th><th scope="col" class="col-date">{% translate "Próxima" %}</th><th scope="col">{% translate "Situação" %}</th><th scope="col" class="col-num">{% translate "Valor" %}</th></tr></thead>
-  <tbody>{% for rule in rules %}<tr><td><a class="cell-primary" href="{% url 'skeleton_ledger:recurrence' organization_id rule.sysid %}">{{ rule.description }}</a></td><td>{{ rule.frequency }}{% if rule.interval > 1 %} × {{ rule.interval }}{% endif %}</td><td class="col-date">{% if rule.next_due %}<time datetime="{{ rule.next_due|date:'Y-m-d' }}">{{ rule.next_due|date:"SHORT_DATE_FORMAT" }}</time>{% else %}—{% endif %}</td><td>{% if rule.ended %}{% translate "Encerrada" %}{% elif rule.is_active %}{% translate "Ativa" %}{% else %}{% translate "Pausada" %}{% endif %}</td><td class="col-num">{{ rule.amount|money:book.currency }}</td></tr>
+  <tbody>{% for rule in rules %}<tr><td data-label="{% translate "Descrição" %}"><a class="cell-primary" href="{% url 'skeleton_ledger:recurrence' organization_id rule.sysid %}">{{ rule.description }}</a></td><td data-label="{% translate "Frequência" %}">{{ rule.frequency }}{% if rule.interval > 1 %} × {{ rule.interval }}{% endif %}</td><td data-label="{% translate "Próxima" %}" class="col-date">{% if rule.next_due %}<time datetime="{{ rule.next_due|date:'Y-m-d' }}">{{ rule.next_due|date:"SHORT_DATE_FORMAT" }}</time>{% else %}—{% endif %}</td><td data-label="{% translate "Situação" %}">{% if rule.ended %}{% translate "Encerrada" %}{% elif rule.is_active %}{% translate "Ativa" %}{% else %}{% translate "Pausada" %}{% endif %}</td><td data-label="{% translate "Valor" %}" class="col-num">{{ rule.amount|money:book.currency }}</td></tr>
   {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=5 message=_("Nenhuma recorrência.") %}{% endfor %}</tbody>
 </table></div>
 {% if book.writable %}

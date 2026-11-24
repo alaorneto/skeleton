@@ -1,5 +1,5 @@
 {% extends 'skeleton/web/base.html' %}
-{% load skeleton_format %}{% block title %}Links de ingresso · {{ site_name }}{% endblock %}
+{% load i18n skeleton_format %}{% block title %}Links de ingresso · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="max-w-5xl">
 <div class="page-header"><div class="min-w-0">
@@ -11,11 +11,11 @@
 <p class="mt-3 break-all"><code class="uuid">{{ created.url }}</code></p></div>{% endif %}
 {% include "skeleton/web/components/error-summary.html" with message=error title=_("Não foi possível revogar") extra_class="mb-4" %}
 {% if not enabled %}<div class="card mb-6"><p>Links de ingresso estão desligados nesta organização. Quem administra a organização pode ligá-los em <a href="{% url 'web:admission' organization_id %}">Admissão</a>.</p></div>{% endif %}
-<div class="table-scroll mb-8"><table><thead><tr><th scope="col">Nome</th><th scope="col">Papel</th><th scope="col">Entrada</th><th scope="col" class="col-num">Usos</th><th scope="col" class="col-date">Expira em</th><th scope="col" class="col-actions"><span class="sr-only">Ações</span></th></tr></thead><tbody>
-{% for link in rows %}<tr><td><span class="cell-primary">{{ link.label }}</span></td><td>{{ link.role.name }}</td><td>{% if link.mode == "direct" %}Direta{% else %}Com aprovação{% endif %}</td>
-<td class="col-num">{{ link.use_count }} de {{ link.max_uses }}</td>
-<td class="col-date">{% if link.expires_at <= now %}{{ "expired"|status_badge }}{% else %}{{ link.expires_at|moment }}{% endif %}</td>
-<td class="col-actions"><form method="post" action="{% url 'web:join-link-revoke' organization_id link.pk %}" class="row-actions">{% csrf_token %}<input type="hidden" name="revision" value="{{ link.revision }}"><button type="submit" class="btn btn-danger-outline btn-sm">Revogar<span class="sr-only"> {{ link.label }}</span></button></form></td></tr>
+<div class="table-scroll table-stack mb-8"><table><thead><tr><th scope="col">Nome</th><th scope="col">Papel</th><th scope="col">Entrada</th><th scope="col" class="col-num">Usos</th><th scope="col" class="col-date">Expira em</th><th scope="col" class="col-actions"><span class="sr-only">Ações</span></th></tr></thead><tbody>
+{% for link in rows %}<tr><td data-label="{% translate "Nome" %}"><span class="cell-primary">{{ link.label }}</span></td><td data-label="{% translate "Papel" %}">{{ link.role.name }}</td><td data-label="{% translate "Entrada" %}">{% if link.mode == "direct" %}Direta{% else %}Com aprovação{% endif %}</td>
+<td data-label="{% translate "Usos" %}" class="col-num">{{ link.use_count }} de {{ link.max_uses }}</td>
+<td data-label="{% translate "Expira em" %}" class="col-date">{% if link.expires_at <= now %}{{ "expired"|status_badge }}{% else %}{{ link.expires_at|moment }}{% endif %}</td>
+<td data-label="{% translate "Ações" %}" class="col-actions"><form method="post" action="{% url 'web:join-link-revoke' organization_id link.pk %}" class="row-actions">{% csrf_token %}<input type="hidden" name="revision" value="{{ link.revision }}"><button type="submit" class="btn btn-danger-outline btn-sm">Revogar<span class="sr-only"> {{ link.label }}</span></button></form></td></tr>
 {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=6 message="Nenhum link ativo." icon="join_links"|concept_icon %}{% endfor %}
 </tbody></table></div>
 {% if enabled %}<section aria-labelledby="links-new"><h2 id="links-new" class="section-heading">Novo link</h2>

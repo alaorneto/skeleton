@@ -1,5 +1,5 @@
 {% extends 'skeleton/web/base.html' %}
-{% load billing i18n skeleton_format %}
+{% load i18n billing skeleton_format %}
 {% block title %}{% translate "Cobrança" %} · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="max-w-5xl">
@@ -32,14 +32,14 @@
 <section aria-labelledby="storage-heading" class="mb-8">
   <h2 id="storage-heading" class="section-heading">{% translate "Armazenamento" %}</h2>
   <p class="mb-3">{% translate "Em uso" %}: {{ storage.used_bytes|gigabytes }} GB · {% translate "Cota" %}: {% if storage.quota_bytes is None %}{% translate "ilimitada" %}{% else %}{{ storage.quota_bytes|gigabytes }} GB{% endif %}{% if storage.overage == "bill" %} · {% translate "o excedente é cobrado na renovação" %}{% endif %}</p>
-  {% if usage_by_app %}<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "App" %}</th><th scope="col">GB</th></tr></thead><tbody>{% for app, used in usage_by_app %}<tr><td><code>{{ app }}</code></td><td>{{ used|gigabytes }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+  {% if usage_by_app %}<div class="table-scroll table-stack"><table><thead><tr><th scope="col">{% translate "App" %}</th><th scope="col">GB</th></tr></thead><tbody>{% for app, used in usage_by_app %}<tr><td data-label="{% translate "App" %}"><code>{{ app }}</code></td><td data-label="{% translate "GB" %}">{{ used|gigabytes }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
 </section>
 
 {% if meters %}
 <section aria-labelledby="usage-heading" class="mb-8">
   <h2 id="usage-heading" class="section-heading">{% translate "Uso neste período" %}</h2>
-  <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Medidor" %}</th><th scope="col" class="col-num">{% translate "Usado" %}</th><th scope="col" class="col-num">{% translate "Incluído" %}</th><th scope="col">{% translate "Acima da franquia" %}</th><th scope="col">{% translate "Uso do limite" %}</th></tr></thead><tbody>
-  {% for row in meters %}<tr><td><span class="cell-primary">{{ row.status.label }}</span><code class="cell-secondary">{{ row.status.meter }}</code></td><td class="col-num">{{ row.status.used }}</td><td class="col-num">{{ row.status.included }}</td><td>{% if row.status.overage == "bill" %}{% translate "cobrado na renovação" %}{% if row.status.limit %} · {% translate "teto" %} {{ row.status.limit }}{% endif %}{% else %}{% translate "bloqueado" %}{% endif %}</td><td>{% if row.bound %}<progress max="100" value="{{ row.percent }}" aria-label="{% blocktranslate with meter=row.status.label %}Uso de {{ meter }}{% endblocktranslate %}">{{ row.percent }}%</progress> {{ row.percent }}%{% else %}—{% endif %}</td></tr>{% endfor %}
+  <div class="table-scroll table-stack"><table><thead><tr><th scope="col">{% translate "Medidor" %}</th><th scope="col" class="col-num">{% translate "Usado" %}</th><th scope="col" class="col-num">{% translate "Incluído" %}</th><th scope="col">{% translate "Acima da franquia" %}</th><th scope="col">{% translate "Uso do limite" %}</th></tr></thead><tbody>
+  {% for row in meters %}<tr><td data-label="{% translate "Medidor" %}"><span class="cell-primary">{{ row.status.label }}</span><code class="cell-secondary">{{ row.status.meter }}</code></td><td data-label="{% translate "Usado" %}" class="col-num">{{ row.status.used }}</td><td data-label="{% translate "Incluído" %}" class="col-num">{{ row.status.included }}</td><td data-label="{% translate "Acima da franquia" %}">{% if row.status.overage == "bill" %}{% translate "cobrado na renovação" %}{% if row.status.limit %} · {% translate "teto" %} {{ row.status.limit }}{% endif %}{% else %}{% translate "bloqueado" %}{% endif %}</td><td data-label="{% translate "Uso do limite" %}">{% if row.bound %}<progress max="100" value="{{ row.percent }}" aria-label="{% blocktranslate with meter=row.status.label %}Uso de {{ meter }}{% endblocktranslate %}">{{ row.percent }}%</progress> {{ row.percent }}%{% else %}—{% endif %}</td></tr>{% endfor %}
   </tbody></table></div>
   {% with first=meters.0.status %}{% if first.period_end %}<p class="helptext mt-2">{% translate "Período até" %} {{ first.period_end|moment:"date" }}.</p>{% endif %}{% endwith %}
 </section>

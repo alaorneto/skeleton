@@ -107,7 +107,9 @@ def test_page_saves_without_javascript_and_detects_stale_forms(scenario):
     page = client.get(reverse("notifications:preferences"))
     assert page.status_code == 200
     html = page.content.decode()
-    assert "Tarefa atribuída" in html and 'name="mode:security.alert:in_app" disabled' in html
+    # The locked channel of a mandatory type has no field at all (#778): it says so in text.
+    assert "Tarefa atribuída" in html and 'name="mode:security.alert:in_app"' not in html
+    assert "Sempre ligado" in html and "security.alert" not in html.split("<form", 1)[1].split("revision:")[0]
     form = {
         "csrfmiddlewaretoken": csrf(client),
         "mode:tasks.assigned:email": "weekly",

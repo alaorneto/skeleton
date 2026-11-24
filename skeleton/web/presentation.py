@@ -111,6 +111,7 @@ def list_context(spec, records, *, user, params=None):
     records = list(records)
     projected = records_data(records, list_fields(spec), user=user)
     kinds = {name: _column_kind(spec, name) for name in ui.columns}
+    labels = {name: _field_label(spec, name) for name in ui.columns}
     rows = []
     for record, values in zip(records, projected, strict=True):
         rows.append(
@@ -125,6 +126,8 @@ def list_context(spec, records, *, user, params=None):
                             else _value(spec.model._meta.get_field(name), values.get(name))
                         ),
                         "kind": kinds[name],
+                        # The column of the cell, for the stacked table below 640 px (#777).
+                        "label": labels[name],
                     }
                     for name in ui.columns
                 ],
@@ -132,7 +135,7 @@ def list_context(spec, records, *, user, params=None):
         )
     params = params or {}
     return {
-        "headings": [{"label": _field_label(spec, name), "kind": kinds[name]} for name in ui.columns],
+        "headings": [{"label": labels[name], "kind": kinds[name]} for name in ui.columns],
         "record_rows": rows,
         "filters": [
             {"name": name, "label": _field_label(spec, name), "value": params.get(name, "")} for name in ui.filters

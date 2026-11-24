@@ -9,7 +9,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.http import Http404
 from django.shortcuts import redirect, render
-from django.utils.translation import gettext
+from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.http import require_http_methods
 from rest_framework.response import Response
 
@@ -23,6 +23,34 @@ from .channels.push import public_key as push_public_key
 from .models import DEFAULT_TYPE
 
 HOURS = tuple(range(24))
+# Areas of the preferences page (#778), by the prefix of the type code: presentation only. A
+# prefix not listed here (an app's own types) goes to "Outros", after the known areas.
+AREAS = (
+    ("billing", gettext_lazy("Cobrança")),
+    ("flows", gettext_lazy("Processos e tarefas")),
+    ("comments", gettext_lazy("Comentários")),
+    ("calendar", gettext_lazy("Agenda")),
+    ("organization", gettext_lazy("Organização")),
+    ("webhooks", gettext_lazy("Integrações")),
+    ("transfer", gettext_lazy("Importação e exportação")),
+)
+OTHERS = gettext_lazy("Outros")
+
+
+def group_rows(rows):
+    """``(default_row, [{"label", "rows"}])``: the row for every type apart, the others by area."""
+    default, buckets = None, {}
+    for row in rows:
+        if row["type_code"] == DEFAULT_TYPE:
+            default = row
+            continue
+        prefix = row["type_code"].split(".", 1)[0]
+        buckets.setdefault(prefix, []).append(row)
+    groups = [{"label": label, "rows": buckets.pop(prefix)} for prefix, label in AREAS if prefix in buckets]
+    others = [row for prefix in sorted(buckets) for row in buckets[prefix]]
+    if others:
+        groups.append({"label": OTHERS, "rows": others})
+    return default, groups
 
 
 def _item(line, channel):
@@ -218,6 +246,9 @@ def preferences_page(request):
                     "source": line.channels[channel][0].source,
                     "revision": line.channels[channel][1].revision if line.channels[channel][1] else "",
                     "modes": preferences.MODES[channel],
+                    "channel_label": dict(preferences.CHANNEL_LABELS)[channel],
+                    "options": [(mode, dict(preferences.MODE_LABELS)[mode]) for mode in preferences.MODES[channel]],
+                    "digest": line.channels[channel][0].mode in ("daily", "weekly"),
                     "locked": line.mandatory and channel == "in_app",
                     "mode_name": _field("mode", line.type_code, channel),
                     "hour_name": _field("hour", line.type_code, channel),
@@ -228,12 +259,15 @@ def preferences_page(request):
         }
         for line in lines
     ]
+    default_row, groups = group_rows(rows)
     return render(
         request,
         "account/notification_preferences.html",
         {
             "title": gettext("Notificações"),
             "rows": rows,
+            "default_row": default_row,
+            "groups": groups,
             "errors": errors,
             "hours": HOURS,
             "mode_labels": dict(preferences.MODE_LABELS),

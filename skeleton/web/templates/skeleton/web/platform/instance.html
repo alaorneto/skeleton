@@ -1,9 +1,9 @@
 {% extends "skeleton/web/platform/base.html" %}
 {% load i18n skeleton_format %}{% block page_title %}{% translate "Configuração da instância" %}{% endblock %}
-{% block content %}
-<div class="page-header"><div class="min-w-0"><h1>{% translate "Configuração da instância" %}</h1>
-<p class="page-description">{% translate "Chaves do catálogo e a origem de cada valor: o ambiente vence o SQLite da instância, que vence o padrão. Chaves que vêm do ambiente ficam somente leitura. Segredos nunca são exibidos. As mudanças valem depois do reinício." %}</p></div>
-{% if not cluster %}<a class="btn btn-secondary" href="{% url 'platform:instance-restart' %}">{% translate "Pedir reinício" %}</a>{% endif %}</div>
+{% block content %}{% url 'platform:instance' as instance_url %}
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Dados" %}</p><h1>{% translate "Configuração da instância" %}</h1>
+<p class="page-description">{% translate "Ajuste as chaves desta instância. As mudanças valem depois do reinício." %}</p></div>
+{% if not cluster %}<nav class="toolbar" aria-label="{% translate "Ações" %}"><a class="btn btn-secondary" href="{% url 'platform:instance-restart' %}">{% include "skeleton/web/components/icon.html" with name="refresh" %}{% translate "Pedir reinício" %}</a></nav>{% endif %}</div>
 {% if cluster %}<div class="message info mb-4" role="status">{% include "skeleton/web/components/icon.html" with name="info" %}<div class="min-w-0">{% translate "Configuração gerida pelo ambiente (modo cluster): os mesmos valores valem em todos os nós. Mude o arquivo de ambiente ou o cofre de segredos e reinicie os nós." %}</div></div>{% endif %}
 <section class="card mb-5" aria-labelledby="instance-identity">
   <h2 id="instance-identity">{% translate "Identidade" %}</h2>
@@ -15,19 +15,27 @@
     <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Salvar identidade" %}</button></div>
   </form>
 </section>
-{% if form and form.errors %}{% include "skeleton/web/components/form-errors.html" %}{% endif %}
-<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Chave" %}</th><th scope="col">{% translate "Origem" %}</th><th scope="col">{% translate "Valor" %}</th><th scope="col">{% translate "Alterar" %}</th></tr></thead><tbody>
-{% for row in rows %}<tr>
-  <th scope="row" class="font-normal"><span class="cell-primary">{{ row.key }}</span><span class="cell-secondary"><code>{{ row.env }}</code></span><span class="cell-secondary">{{ row.description }}</span></th>
-  <td>{{ row.origin|code_label:"setting_origin" }}{% if row.origin == "env" %}<span class="cell-secondary">{{ "read_only"|marker }}</span>{% endif %}</td>
-  <td>{% if row.secret %}{% if row.value %}<span aria-label="{% translate "Segredo definido" %}">{{ row.value }}</span>{% else %}<span class="text-body-subtle">{% translate "não definido" %}</span>{% endif %}{% else %}<code>{{ row.value|default:"—" }}</code>{% endif %}</td>
-  <td>{% if row.editable %}<form method="post" action="{% url 'platform:instance-setting' %}" class="flex flex-wrap items-center gap-2">{% csrf_token %}<input type="hidden" name="key" value="{{ row.key }}">
-    <label class="sr-only" for="value-{{ row.key }}">{% translate "Novo valor de" %} {{ row.key }}</label>
-    <input id="value-{{ row.key }}" name="value" {% if row.secret %}type="password" autocomplete="new-password" placeholder="{% translate "novo valor" %}"{% else %}type="text" value="{{ row.value }}"{% endif %}>
-    <button type="submit" name="action" value="set" class="btn btn-primary btn-sm">{% translate "Gravar" %}</button>
-    {% if row.clearable %}<button type="submit" name="action" value="clear" class="btn btn-secondary btn-sm">{% translate "Voltar ao padrão" %}</button>{% endif %}
-  </form>{% elif cluster %}<span class="text-body-subtle">{% translate "Somente leitura (modo cluster)" %}</span>{% else %}<span class="text-body-subtle">{% translate "Somente leitura (ambiente)" %}</span>{% endif %}</td>
-</tr>{% endfor %}
-</tbody></table></div>
+<form method="get" action="{% url 'platform:instance' %}" class="filter-bar mb-5" aria-label="{% translate "Filtros" %}">
+  <div class="field"><label for="setting-q">{% translate "Buscar chave" %}</label><input id="setting-q" type="search" name="q" value="{{ query }}" placeholder="{% translate "nome, variável ou descrição" %}"></div>
+  <div class="field"><label for="setting-origin">{% translate "Origem" %}</label><select id="setting-origin" name="origem"><option value="">{% translate "Todas" %}</option>{% for item in origins %}<option value="{{ item }}"{% if item == origin %} selected{% endif %}>{{ item|code_label:"setting_origin" }}</option>{% endfor %}</select></div>
+  <div class="filter-actions"><button type="submit" class="btn btn-secondary">{% include "skeleton/web/components/icon.html" with name="filter" %}{% translate "Filtrar" %}</button>{% if filtered %}<a class="btn btn-ghost" href="{% url 'platform:instance' %}">{% translate "Limpar" %}</a>{% endif %}</div>
+</form>
+{% if sections %}<nav class="setting-index mb-5" aria-label="{% translate "Seções" %}"><ul>{% for section in sections %}<li><a href="#grupo-{{ section.id }}">{{ section.label }}</a></li>{% endfor %}</ul></nav>{% endif %}
+{% for section in sections %}<section class="card setting-section" id="grupo-{{ section.id }}" aria-labelledby="grupo-{{ section.id }}-title">
+  <h2 id="grupo-{{ section.id }}-title">{{ section.label }}</h2>
+  <div class="setting-list">{% for row in section.rows %}
+  {% if row.editable %}<details class="setting-row" id="setting-{{ row.key }}"{% if row.error %} open{% endif %}>
+    <summary class="setting-line">{% include "skeleton/web/platform/instance-setting-line.html" %}<span class="setting-toggle">{% translate "Alterar" %}</span></summary>
+    <form method="post" action="{% url 'platform:instance-setting' %}#setting-{{ row.key }}" class="setting-form">{% csrf_token %}<input type="hidden" name="key" value="{{ row.key }}">
+      <label for="value-{{ row.key }}">{% if row.secret %}{% translate "Novo valor" %}{% else %}{% translate "Valor" %}{% endif %}</label>
+      {% if row.kind == "bool" %}<select id="value-{{ row.key }}" name="value"{% if row.error %} aria-invalid="true" aria-describedby="error-{{ row.key }}"{% endif %}><option value="true"{% if row.value == "true" or row.value == "1" or row.value == "yes" or row.value == "on" %} selected{% endif %}>{% translate "Sim" %}</option><option value="false"{% if row.value == "false" or row.value == "0" or row.value == "no" or row.value == "off" or not row.value %} selected{% endif %}>{% translate "Não" %}</option></select>
+      {% elif row.secret %}<input id="value-{{ row.key }}" name="value" type="password" autocomplete="new-password"{% if row.error %} aria-invalid="true" aria-describedby="error-{{ row.key }}"{% endif %}><p class="helptext">{% translate "O valor atual nunca é exibido; informe o novo." %}</p>
+      {% else %}<input id="value-{{ row.key }}" name="value" {% if row.kind == "int" %}type="number" step="1" inputmode="numeric"{% else %}type="text"{% endif %} value="{{ row.value }}"{% if row.error %} aria-invalid="true" aria-describedby="error-{{ row.key }}"{% endif %}>{% if row.kind == "list" %}<p class="helptext">{% translate "Separe os itens por vírgula." %}</p>{% endif %}{% endif %}
+      {% if row.error %}<p class="errorlist" id="error-{{ row.key }}">{{ row.error }}</p>{% endif %}
+      <div class="setting-actions"><button type="submit" name="action" value="set" class="btn btn-primary btn-sm">{% translate "Gravar" %}</button>{% if row.clearable %}<button type="submit" name="action" value="clear" class="btn btn-secondary btn-sm">{% translate "Voltar ao padrão" %}</button>{% endif %}</div>
+    </form>
+  </details>{% else %}<div class="setting-row" id="setting-{{ row.key }}"><div class="setting-line">{% include "skeleton/web/platform/instance-setting-line.html" %}<span class="setting-toggle setting-toggle-off">{% if cluster %}{% translate "Somente leitura (modo cluster)" %}{% else %}{% translate "Somente leitura (ambiente)" %}{% endif %}</span></div></div>{% endif %}
+  {% endfor %}</div>
+</section>{% empty %}<div class="card">{% include "skeleton/web/components/empty-state.html" with message=_("Nenhuma chave com esses filtros.") icon="instance_configuration"|concept_icon action_url=instance_url action_label=_("Limpar filtros") %}</div>{% endfor %}
 <p class="mt-4 text-sm/6 text-body-subtle">{% translate "Cada alteração exige autenticação recente e fica registrada (chave, ação e quem alterou, nunca o valor). A URL do banco passa pela mesma validação de privilégios do setup." %}</p>
 {% endblock %}

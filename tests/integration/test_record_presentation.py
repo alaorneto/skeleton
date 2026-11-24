@@ -223,9 +223,10 @@ def test_declared_list_column_order_exact_filters_and_title_are_respected(record
             params={"code": records.private.code, "owner": str(records.alice.pk)},
         )
         assert context["headings"][0] == {"label": "Custom title", "kind": "text"}
+        labels = [heading["label"] for heading in context["headings"]]
         assert context["record_rows"][0]["cells"] == [
-            {"text": records.private.title, "kind": "text"},
-            {"text": records.private.code, "kind": "text"},
+            {"text": records.private.title, "kind": "text", "label": labels[0]},
+            {"text": records.private.code, "kind": "text", "label": labels[1]},
         ]
         assert context["record_rows"][0]["label"] == records.private.code
         assert [item["name"] for item in context["filters"]] == ["code"]

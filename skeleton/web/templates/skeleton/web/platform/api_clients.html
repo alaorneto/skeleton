@@ -6,8 +6,8 @@
   <h1>{% translate "Clientes da API da plataforma" %}</h1>
   <p class="page-description">{% translate "Quem lê esta instância pela API de gestão (/api/v1/platform/), como uma instância central. Um cliente não faz login, não é membro de organização e não tem papel na plataforma: só os tokens dele, com escopos de leitura." %}</p>
 </div></div>
-<div class="table-scroll mb-5"><table><thead><tr><th scope="col">{% translate "Cliente" %}</th><th scope="col">{% translate "Situação" %}</th></tr></thead><tbody>
-{% for client in clients %}<tr><td><a class="cell-primary" href="{% url 'platform:api-client' client.pk %}">{{ client.first_name }}</a></td><td>{% if client.is_active %}{{ "active"|status_badge }}{% else %}{{ "disabled"|status_badge }}{% endif %}</td></tr>
+<div class="table-scroll table-stack mb-5"><table><thead><tr><th scope="col">{% translate "Cliente" %}</th><th scope="col">{% translate "Situação" %}</th></tr></thead><tbody>
+{% for client in clients %}<tr><td data-label="{% translate "Cliente" %}"><a class="cell-primary" href="{% url 'platform:api-client' client.pk %}">{{ client.first_name }}</a></td><td data-label="{% translate "Situação" %}">{% if client.is_active %}{{ "active"|status_badge }}{% else %}{{ "disabled"|status_badge }}{% endif %}</td></tr>
 {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=2 message=_("Nenhum cliente.") %}{% endfor %}
 </tbody></table></div>
 <section class="card"><h2>{% translate "Novo cliente" %}</h2>

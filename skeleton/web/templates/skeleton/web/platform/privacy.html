@@ -2,14 +2,14 @@
 {% load i18n skeleton_format %}{% block page_title %}{% translate "Pedidos de eliminação" %}{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Operação" %}</p><h1>{% translate "Pedidos de eliminação" %}</h1><p class="page-description">{% translate "Pessoas que pediram a anonimização da própria identidade. Aprovar substitui email e nomes, encerra logins, sessões e tokens e apaga notificações e preferências; os registros das organizações ficam ligados à identidade anônima. Não há como desfazer. Quem é o último administrador ativo de uma organização não pode ser anonimizado." %}</p></div></div>
-<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Pessoa" %}</th><th scope="col">{% translate "Situação" %}</th><th scope="col" class="col-date">{% translate "Pedido em" %}</th><th scope="col" class="col-date">{% translate "Decidido em" %}</th><th scope="col" class="col-date">{% translate "Concluído em" %}</th><th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
+<div class="table-scroll table-stack"><table><thead><tr><th scope="col">{% translate "Pessoa" %}</th><th scope="col">{% translate "Situação" %}</th><th scope="col" class="col-date">{% translate "Pedido em" %}</th><th scope="col" class="col-date">{% translate "Decidido em" %}</th><th scope="col" class="col-date">{% translate "Concluído em" %}</th><th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
 {% for row in rows %}<tr>
-  <td><a class="cell-primary" href="{% url 'platform:user' row.user_id %}">{{ row.user.email }}</a></td>
-  <td>{{ row.status|status_badge:row.get_status_display }}</td>
-  <td class="col-date">{{ row.created_at|moment }}</td>
-  <td class="col-date">{{ row.decided_at|moment }}</td>
-  <td class="col-date">{{ row.completed_at|moment }}</td>
-  <td class="col-actions">{% if row.status == "pending" and row.user_id != request.user.pk %}<div class="row-actions"><a class="btn btn-danger-outline btn-sm" href="{% url 'platform:privacy-decide' row.pk %}?decision=approve">{% translate "Aprovar" %}</a><form method="post" action="{% url 'platform:privacy-decide' row.pk %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ row.revision }}"><button type="submit" name="decision" value="reject" class="btn btn-secondary btn-sm">{% translate "Recusar" %}</button></form></div>{% endif %}</td>
+  <td data-label="{% translate "Pessoa" %}"><a class="cell-primary" href="{% url 'platform:user' row.user_id %}">{{ row.user.email }}</a></td>
+  <td data-label="{% translate "Situação" %}">{{ row.status|status_badge:row.get_status_display }}</td>
+  <td data-label="{% translate "Pedido em" %}" class="col-date">{{ row.created_at|moment }}</td>
+  <td data-label="{% translate "Decidido em" %}" class="col-date">{{ row.decided_at|moment }}</td>
+  <td data-label="{% translate "Concluído em" %}" class="col-date">{{ row.completed_at|moment }}</td>
+  <td data-label="" class="col-actions">{% if row.status == "pending" and row.user_id != request.user.pk %}<div class="row-actions"><a class="btn btn-danger-outline btn-sm" href="{% url 'platform:privacy-decide' row.pk %}?decision=approve">{% translate "Aprovar" %}</a><form method="post" action="{% url 'platform:privacy-decide' row.pk %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ row.revision }}"><button type="submit" name="decision" value="reject" class="btn btn-secondary btn-sm">{% translate "Recusar" %}</button></form></div>{% endif %}</td>
 </tr>
 {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=6 message=_("Nenhum pedido de eliminação.") icon="privacy"|concept_icon %}{% endfor %}
 </tbody></table></div>

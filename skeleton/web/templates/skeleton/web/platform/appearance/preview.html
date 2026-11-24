@@ -35,9 +35,9 @@
 </section>
 <section id="preview-table" class="mb-6" aria-labelledby="preview-table-heading">
   <h2 id="preview-table-heading" class="section-heading">{% translate "Tabela" %}</h2>
-  <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Nome" %}</th><th scope="col">{% translate "Situação" %}</th></tr></thead><tbody>
-  <tr><td><a class="cell-primary" href="#preview-table">{% translate "Registro de exemplo" %}</a></td><td>{{ "active"|status_badge }}</td></tr>
-  <tr><td><a class="cell-primary" href="#preview-table">{% translate "Outro registro" %}</a></td><td>{{ "draft"|status_badge }}</td></tr>
+  <div class="table-scroll table-stack"><table><thead><tr><th scope="col">{% translate "Nome" %}</th><th scope="col">{% translate "Situação" %}</th></tr></thead><tbody>
+  <tr><td data-label="{% translate "Nome" %}"><a class="cell-primary" href="#preview-table">{% translate "Registro de exemplo" %}</a></td><td data-label="{% translate "Situação" %}">{{ "active"|status_badge }}</td></tr>
+  <tr><td data-label="{% translate "Nome" %}"><a class="cell-primary" href="#preview-table">{% translate "Outro registro" %}</a></td><td data-label="{% translate "Situação" %}">{{ "draft"|status_badge }}</td></tr>
   </tbody></table></div>
 </section>
 <section id="preview-form" class="card mb-6" aria-labelledby="preview-form-heading">

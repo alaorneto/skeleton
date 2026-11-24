@@ -143,7 +143,8 @@ def test_clear_button_only_for_optional_keys(store, platform, monkeypatch, setti
     write_setting(settings.BASE_DIR, "allowed_hosts", "instance.example.test", source="test")
     write_setting(settings.BASE_DIR, "default_from_email", "ops@example.test", source="test")
     html = client.get(reverse("platform:instance")).content.decode()
-    rows = {row.split("</span>", 1)[0]: row for row in html.split('<span class="cell-primary">')[1:]}
+    # One block per key, from its anchor (#779).
+    rows = {row.split('"', 1)[0]: row for row in html.split('id="setting-')[1:]}
     assert 'value="clear"' not in rows["allowed_hosts"]
     assert 'value="clear"' in rows["default_from_email"] and 'value="clear"' in rows["email_url"]
     assert html.count('value="clear"') == 2  # The two optional keys stored: email_url and default_from_email.
@@ -208,3 +209,24 @@ def test_restart_is_confirmed_first(store, platform, monkeypatch):
         reverse("platform:instance-restart"), {"csrfmiddlewaretoken": client.cookies["csrftoken"].value}
     )
     assert response.status_code == 302 and calls == ["restart"]
+
+
+def test_sections_filters_and_the_error_on_its_own_row(store, platform):
+    """Keys grouped by section, filtered on the server, edited by kind, refused on their own row (#779)."""
+    _, client = platform
+    html = client.get(reverse("platform:instance")).content.decode()
+    assert 'id="grupo-security"' in html and 'id="grupo-messaging"' in html
+    trust = html.split('id="setting-trust_proxy"', 1)[1].split("</details>", 1)[0]
+    assert '<select id="value-trust_proxy" name="value">' in trust  # A boolean is Sim/Não, not free text.
+    count = html.split('id="setting-trusted_proxy_count"', 1)[1].split("</details>", 1)[0]
+    assert 'type="number"' in count
+    filtered = client.get(reverse("platform:instance"), {"q": "proxy"}).content.decode()
+    assert 'id="setting-trust_proxy"' in filtered and 'id="setting-email_url"' not in filtered
+    by_origin = client.get(reverse("platform:instance"), {"origem": "instance"}).content.decode()
+    assert 'id="setting-email_url"' in by_origin and 'id="setting-trust_proxy"' not in by_origin
+    refused = change(client, "trusted_proxy_count", "abc")
+    page = refused.content.decode()
+    assert refused.status_code == 400
+    row = page.split('id="setting-trusted_proxy_count"', 1)
+    assert row[0].endswith('<details class="setting-row" ') and row[1].startswith(" open>")
+    assert 'id="error-trusted_proxy_count"' in page and "abc" not in page

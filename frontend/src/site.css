@@ -709,15 +709,31 @@
     .table-stack tbody tr {
       @apply px-4 py-3;
     }
+    .table-scroll.table-stack {
+      @apply overflow-x-hidden;
+    }
+    /* Rótulo à esquerda e o conteúdo da célula empilhado à direita, um item por linha. */
     .table-stack td {
-      @apply flex gap-3 px-0 py-1 text-start;
+      @apply grid grid-cols-[7rem_minmax(0,1fr)] gap-x-3 px-0 py-1 text-start break-words;
+      & > * {
+        grid-column: 2;
+      }
     }
     .table-stack td[data-label]:not([data-label=""])::before {
       content: attr(data-label);
-      @apply w-28 shrink-0 text-xs/5 font-medium tracking-wide text-body-subtle uppercase;
+      grid-column: 1;
+      grid-row: 1 / span 9;
+      @apply text-xs/5 font-medium tracking-wide text-body-subtle uppercase;
+    }
+    .table-stack td[data-label=""],
+    .table-stack td:not([data-label]) {
+      @apply block;
     }
     .table-stack td.col-actions {
       @apply w-full pt-2;
+      &::before {
+        display: none;
+      }
     }
     .table-stack td.empty-state {
       @apply block py-8 text-center;
