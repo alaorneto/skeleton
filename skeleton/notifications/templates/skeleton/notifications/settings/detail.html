@@ -35,7 +35,7 @@
   {% else %}
   {% if config.locked_text %}<p class="text-sm/6 text-body">{% translate "Definido pela plataforma." %}</p>{% endif %}
   <p class="helptext">{% translate "Marcadores que você pode usar:" %}</p>
-  <dl class="meta-list mt-2">{% for field in fields %}<div><dt><code>{{ field.placeholder }}</code></dt><dd>{{ field.label }}</dd></div>{% endfor %}<div><dt><code>{organizacao}</code></dt><dd>{% translate "Nome da organização" %}</dd></div><div><dt><code>{aviso}</code></dt><dd>{% translate "Nome do aviso" %}</dd></div></dl>
+  <ul class="mt-2 space-y-1 text-sm/6 text-body">{% for field in fields %}<li><code>{{ field.placeholder }}</code> — {{ field.label }}</li>{% endfor %}<li><code>{organizacao}</code> — {% translate "nome da organização" %}</li><li><code>{aviso}</code> — {% translate "nome do aviso" %}</li></ul>
   {% for text in texts %}
   <form method="post" action="{% url 'notifications:organization-setting-text' organization_id kind.code text.language %}" class="mt-6 border-t border-default pt-6" aria-labelledby="org-text-{{ text.language }}">
     {% csrf_token %}<input type="hidden" name="revision" value="{% if text.row %}{{ text.row.revision }}{% endif %}">

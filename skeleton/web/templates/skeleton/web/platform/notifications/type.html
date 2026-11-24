@@ -38,9 +38,8 @@
   <h2 id="text-heading" class="section-heading">{% translate "Texto" %}</h2>
   {% if kind.fixed_text %}<p class="text-sm/6 text-body">{% translate "O texto deste aviso é escrito em cada envio." %}</p>
   {% else %}
-  {% if fields %}<p class="helptext">{% translate "Marcadores que você pode usar:" %}</p>
-  <dl class="meta-list mt-2">{% for field in fields %}<div><dt><code>{{ field.placeholder }}</code></dt><dd>{{ field.label }}</dd></div>{% endfor %}<div><dt><code>{organizacao}</code></dt><dd>{% translate "Nome da organização" %}</dd></div><div><dt><code>{aviso}</code></dt><dd>{% translate "Nome do aviso" %}</dd></div></dl>
-  {% else %}<p class="helptext">{% translate "Marcadores que você pode usar:" %} <code>{organizacao}</code> ({% translate "nome da organização" %}), <code>{aviso}</code> ({% translate "nome do aviso" %}).</p>{% endif %}
+  <p class="helptext">{% translate "Marcadores que você pode usar:" %}</p>
+  <ul class="mt-2 space-y-1 text-sm/6 text-body">{% for field in fields %}<li><code>{{ field.placeholder }}</code> — {{ field.label }}</li>{% endfor %}<li><code>{organizacao}</code> — {% translate "nome da organização" %}</li><li><code>{aviso}</code> — {% translate "nome do aviso" %}</li></ul>
   {% for text in texts %}
   <form method="post" action="{% url 'platform:notification-type-text' kind.code text.language %}" class="mt-6 border-t border-default pt-6" aria-labelledby="text-{{ text.language }}">
     {% csrf_token %}<input type="hidden" name="revision" value="{% if text.row %}{{ text.row.revision }}{% endif %}">
