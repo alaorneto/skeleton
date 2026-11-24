@@ -34,12 +34,13 @@ class SignupForm(forms.Form):
 def _members_line(bundle) -> str:
     """How many members the bundle brings, from the platform's per-app amounts (#696)."""
     from skeleton.common.limits import combine
+    from skeleton.system.bundles import bundle_apps
     from skeleton.system.limits import MEMBERS, base_for
     from skeleton.system.models import AppAvailability
 
     amounts = [
         int((limits or {}).get(MEMBERS, 0) or 0)
-        for limits in AppAvailability.objects.filter(app_label__in=bundle.apps).values_list("limits", flat=True)
+        for limits in AppAvailability.objects.filter(app_label__in=bundle_apps(bundle)).values_list("limits", flat=True)
     ]
     limit = combine(base_for(MEMBERS), [amount for amount in amounts if amount])
     if limit is None:

@@ -205,31 +205,18 @@ def test_tenant_isolation_and_authorization(scenario, books):
 def test_a_disabled_ledger_generates_nothing_and_is_not_scheduled(scenario, books):
     from skeleton.jobs.models import Job
     from skeleton.jobs.periodic import schedule_due
-    from skeleton.system.applications import application_state, configure_application
-    from skeleton.testing.service_api import acting_as
 
     create(scenario, days_ahead=0)
 
-    def configure(admin, organization, enabled):
-        with acting_as(admin, organization):
-            state = application_state("skeleton_ledger")
-            configure_application(
-                "skeleton_ledger",
-                user=admin,
-                enabled=enabled,
-                configuration=state["configuration"],
-                revision=state["revision"],
+    # The ledger is a library (#792): disabling the app that uses it in A closes it there.
+    with scenario.application_disabled(scenario.a):
+        assert run(scenario.a, dt.date(2027, 1, 31)) == 0
+        schedule_due(now=timezone.now())
+        with system_context(reason="test:ledger-recurrences-jobs"):
+            organizations = set(
+                Job.all_objects.filter(job_type=recurrence.JOB).values_list("job_organization_id", flat=True)
             )
-
-    configure(scenario.admin_a, scenario.a, False)
-    assert run(scenario.a, dt.date(2027, 1, 31)) == 0
-    schedule_due(now=timezone.now())
-    with system_context(reason="test:ledger-recurrences-jobs"):
-        organizations = set(
-            Job.all_objects.filter(job_type=recurrence.JOB).values_list("job_organization_id", flat=True)
-        )
-    assert scenario.a.pk not in organizations and scenario.b.pk in organizations
-    configure(scenario.admin_a, scenario.a, True)
+        assert scenario.a.pk not in organizations and scenario.b.pk in organizations
     assert run(scenario.a, dt.date(2027, 1, 31)) == 1
 
 

@@ -99,12 +99,15 @@ def organization_overview(*, actor, organization, using="default"):
 
 
 def _applications(organization_id, using):
-    """Availability and activation of every installed app in the current (inspected) tenant."""
-    from skeleton.system.app_registry import all_apps, required_labels
+    """Availability and activation of every installed app in the current (inspected) tenant.
+
+    First-party libraries (#792) are left out: they follow the apps that use them.
+    """
+    from skeleton.system.app_registry import all_apps, effective_map
     from skeleton.system.availability import availability_map
     from skeleton.system.models import AppInstallation
 
-    manifests = sorted(all_apps(), key=lambda manifest: manifest.label)
+    manifests = sorted((item for item in all_apps() if not item.library), key=lambda manifest: manifest.label)
     labels = [manifest.app_label for manifest in manifests]
     if not labels:
         return ()
@@ -112,15 +115,14 @@ def _applications(organization_id, using):
     enabled = dict(
         AppInstallation.objects.using(using).filter(app_label__in=labels).values_list("app_label", "enabled")
     )
-    open_gate = {label: available[label] and enabled.get(label, False) for label in labels}
+    effective = effective_map({label: available[label] and enabled.get(label, False) for label in labels})
     return tuple(
         ApplicationSummary(
             app_label=manifest.app_label,
             label=manifest.label,
             available=available[manifest.app_label],
             enabled=enabled.get(manifest.app_label, False),
-            effective=open_gate[manifest.app_label]
-            and all(open_gate.get(label, False) for label in required_labels(manifest.app_label)),
+            effective=effective[manifest.app_label],
         )
         for manifest in manifests
     )

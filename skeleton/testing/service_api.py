@@ -278,10 +278,15 @@ class ServiceScenario:
 
 
 def _set_enabled(app_label: str, admin: Any, *, enabled: bool) -> None:
-    from skeleton.system.app_registry import dependent_labels, required_labels
+    from skeleton.system.app_registry import dependent_app_labels, is_library, required_app_labels
     from skeleton.system.applications import application_state, configure_application
 
-    order = [*required_labels(app_label), app_label] if enabled else [*dependent_labels(app_label), app_label]
+    if is_library(app_label):
+        # A library follows its dependents (#792): the test consumer of library_consumer() plays one.
+        from .applications import consumer_of
+
+        app_label = consumer_of(app_label)
+    order = [*required_app_labels(app_label), app_label] if enabled else [*dependent_app_labels(app_label), app_label]
     for label in order:
         state = application_state(label)
         if state["enabled"] != enabled:

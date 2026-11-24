@@ -812,15 +812,32 @@ def _manifest(app_label):
     return application_manifest(app_label)
 
 
+def _app_manifest(app_label):
+    """An app with a gate of its own; a first-party library has no availability page (#792)."""
+    manifest = _manifest(app_label)
+    if manifest.library:
+        raise Http404
+    return manifest
+
+
 @platform_page
 @require_safe
 def app_list(request):
     from skeleton.system.administration import application_identity
-    from skeleton.system.app_registry import all_apps
+    from skeleton.system.app_registry import all_apps, dependent_app_labels
 
-    applications = sorted((application_identity(manifest) for manifest in all_apps()), key=lambda app: app["label"])
+    manifests = sorted(all_apps(), key=lambda manifest: manifest.label)
+    applications = [application_identity(manifest) for manifest in manifests if not manifest.library]
+    # First-party libraries (#792): read-only, with the apps that use them.
+    libraries = [
+        {**application_identity(manifest), "used_by": _app_labels(dependent_app_labels(manifest.app_label))}
+        for manifest in manifests
+        if manifest.library
+    ]
     return render(
-        request, "skeleton/web/platform/apps.html", {"platform_section": "apps", "applications": applications}
+        request,
+        "skeleton/web/platform/apps.html",
+        {"platform_section": "apps", "applications": applications, "libraries": libraries},
     )
 
 
@@ -829,6 +846,7 @@ def app_list(request):
 def app_detail(request, app_label):
     from skeleton.appearance.app_themes import themes_of_app
     from skeleton.system.administration import application_identity, screen_sections
+    from skeleton.system.app_registry import dependent_app_labels
     from skeleton.system.availability import availability_summary
 
     manifest = _manifest(app_label)
@@ -839,7 +857,10 @@ def app_detail(request, app_label):
             "platform_section": "apps",
             "instance_themes": themes_of_app(manifest),
             "application": application_identity(manifest),
-            "availability": availability_summary(manifest.app_label, user=request.user),
+            # A library has no availability: it follows the apps that use it (#792).
+            "availability": None if manifest.library else availability_summary(manifest.app_label, user=request.user),
+            "library": manifest.library,
+            "used_by": _app_labels(dependent_app_labels(manifest.app_label)) if manifest.library else [],
             "has_documentation": bool(manifest.documentation_root),
             "sections": screen_sections(manifest, user=request.user, scope="platform"),
             "tenant_screens": sorted(
@@ -895,7 +916,7 @@ def app_availability(request, app_label):
     """Show the gate; POST changes the mode with CAS on the availability row."""
     from skeleton.system.availability import set_app_availability
 
-    manifest = _manifest(app_label)
+    manifest = _app_manifest(app_label)
     if request.method != "POST":
         return _availability_page(request, manifest)
     form = AppAvailabilityForm(request.POST)
@@ -924,7 +945,7 @@ def app_grant(request, app_label):
     """Admit one organization to the app; it still decides activation itself."""
     from skeleton.system.availability import availability_summary, grant_app
 
-    manifest = _manifest(app_label)
+    manifest = _app_manifest(app_label)
     granted = availability_summary(manifest.app_label, user=request.user).granted_ids
     form = AppGrantForm(request.POST, granted_ids=granted)
     if not form.is_valid():
@@ -948,7 +969,7 @@ def app_revoke(request, app_label):
     """Close the gate for one organization; its activation and configuration are kept (#21)."""
     from skeleton.system.availability import revoke_app
 
-    manifest = _manifest(app_label)
+    manifest = _app_manifest(app_label)
     form = AppRevokeForm(request.POST)
     if not form.is_valid():
         return _availability_page(request, manifest, revoke_error="Pedido de revogação inválido.", status=400)
@@ -977,7 +998,7 @@ def app_limits(request, app_label):
     """What the app adds to each organization limit where it is effective (#696), with CAS."""
     from skeleton.system.availability import set_app_limits
 
-    manifest = _manifest(app_label)
+    manifest = _app_manifest(app_label)
     form = AppLimitsForm(request.POST)
     if not form.is_valid():
         return _availability_page(request, manifest, limits_form=form, status=400)
@@ -1049,7 +1070,7 @@ def _app_assignment(request, sysid, app_label, *, assign):
     from skeleton.system.applications import assign_app, unassign_app
 
     organization = get_object_or_404(_model("sk_tenancy.Organization").objects, pk=sysid, is_active=True)
-    manifest = _manifest(app_label)
+    manifest = _app_manifest(app_label)
     before = _member_limit(request, organization)
     try:
         with transaction.atomic():
@@ -1364,7 +1385,7 @@ def organization_app_configuration(request, sysid, app_label):
     from skeleton.system.applications import configure_application_by_platform, platform_fields
 
     organization = get_object_or_404(_model("sk_tenancy.Organization").objects, pk=sysid)
-    manifest = _manifest(app_label)
+    manifest = _app_manifest(app_label)
     fields = platform_fields(manifest)
     if not fields:
         raise Http404

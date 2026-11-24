@@ -214,7 +214,7 @@ def test_dependents_granted_to_an_organization_block_its_revoke_button(setup, mo
     assert post(client, "platform:app-availability", {"mode": "selected", "expected_revision": 0}).status_code == 302
     assert post(client, "platform:app-grant", {"organization": str(org_a.pk)}).status_code == 302
     assert post(client, "platform:app-grant", {"organization": str(org_b.pk)}).status_code == 302
-    monkeypatch.setattr(availability, "dependent_labels", lambda label: ["child_app"] if label == NOTES else [])
+    monkeypatch.setattr(availability, "dependent_app_labels", lambda label: ["child_app"] if label == NOTES else [])
     with system_context(reason="test:availability-screens-child"):
         child = AppAvailability(app_label="child_app", mode="selected")
         child.save()

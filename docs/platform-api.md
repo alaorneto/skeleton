@@ -28,7 +28,7 @@ Todas em `/api/v1/platform/`, só `GET`, `Cache-Control: no-store`, com o evento
 
 | Rota | Resposta |
 |---|---|
-| `instance/` | `instance_id`, `name`, `purpose`, `product_name`, `core_version`, `billing_enabled`, `apps` (`app_label`, `app_id`, `version`, `availability_mode`, `limits`), `generated_at` |
+| `instance/` | `instance_id`, `name`, `purpose`, `product_name`, `core_version`, `billing_enabled`, `apps` (`app_label`, `app_id`, `version`, `kind`, `availability_mode`, `limits`; `kind` é `app` ou `library`, e uma biblioteca first-party, #792, vem com `availability_mode: null` e `limits` vazio), `generated_at` |
 | `organizations/` | `{"results", "next_cursor", "generated_at"}`. Filtros `updated_since` (ISO 8601 com fuso), `is_active`, `access_state`, `has_overdue`, `cursor`, `page_size` (1 a 200, padrão 100); outro parâmetro é 400 `invalid_filter`. Ordem estável `(updated_at, sysid)`; o cursor é opaco e assinado (um cursor alterado é 400 `invalid_cursor`) |
 | `organizations/<id>/` | Um item: `id`, `name`, `slug`, `is_active`, `created_at`, `members` (`active`, `limit`, `external`, `service_accounts`), `apps`, `bundle`, `storage` (`used_bytes`, `quota_bytes`, `location`), `billing` (só com `platform.billing:read`), `refreshed_at`, `updated_at` |
 | `organizations/<id>/invoices/` | Faturas (número, situação, moeda, subtotal, desconto, imposto, total, pago, período, emissão, vencimento, pagamento), filtros `status` e `issued_since`, páginas `page`/`page_size` |

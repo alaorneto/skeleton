@@ -34,6 +34,14 @@ MAX_EXPANSION_RATIO = 200
 BUNDLED_KIND = "bundled_app"
 
 
+# A first-party library (#792): resources other apps use, never an app of its own. It has no
+# availability nor activation; it is effective in an organization while an app that depends on it is.
+BUNDLED_LIBRARY_KIND = "bundled_library"
+
+
+BUNDLED_KINDS = (BUNDLED_KIND, BUNDLED_LIBRARY_KIND)
+
+
 BUNDLED_PACKAGE = "skeleton.contrib"
 
 

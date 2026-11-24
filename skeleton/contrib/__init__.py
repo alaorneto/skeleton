@@ -1,7 +1,8 @@
 """First-party apps distributed inside the core wheel (#66).
 
-Each subpackage is an ordinary app with a ``kind: "bundled_app"`` manifest, a ``skeleton_*``
-label and the core's exact version. Nothing here is installed by default: an operator opts in
-with ``SKELETON_BUNDLED_APPS``, and the platform still makes the app available to organizations
-and each organization still activates it. The core never imports this package.
+Each subpackage has a ``kind: "bundled_app"`` or ``kind: "bundled_library"`` manifest, a
+``skeleton_*`` label and the core's exact version. A library (#792: the calendar and the ledger)
+has no availability nor activation of its own: it is effective in an organization while an
+effective app depends on it. An app is made available by the platform and activated by each
+organization. The core never imports this package.
 """

@@ -1,6 +1,6 @@
 # Agenda
 
-A agenda (`skeleton_calendar`) é a primeira app first-party do núcleo ([extensão](../../../../docs/extending.md#apps-first-party-do-núcleo-skeletoncontrib)). O operador a instala com `SKELETON_BUNDLED_APPS=calendar`; a plataforma a disponibiliza e cada organização a ativa, como qualquer app.
+A agenda (`skeleton_calendar`) é a primeira app first-party do núcleo ([extensão](../../../../docs/extending.md#apps-first-party-do-núcleo-skeletoncontrib)). É uma **biblioteca** (`kind: "bundled_library"`, #792): é instalada com a app que depende dela (#793) ou com `SKELETON_BUNDLED_APPS=calendar`, não tem disponibilidade nem ativação próprias e fica efetiva numa organização enquanto uma app ativa ali a usa. As telas dela valem enquanto está efetiva.
 
 ## Contract
 `Calendar` (`SecuredRecord`) pertence a uma organização: `name` (até 150), `kind` (`personal` ou `shared`, imutável), `is_default`, `color` (`#RRGGBB`), `timezone` (IANA), `description` (até 2000) e a origem de um calendário gerenciado (`source_app`, `source_path`, #670).

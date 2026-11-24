@@ -161,7 +161,8 @@ def upgrade_app_activation(*, dry_run=False, using="default", stop_after=None) -
     """Run (or, with ``dry_run``, only describe) the resumable upgrade; ``stop_after`` is for tests."""
     from .app_registry import all_apps
 
-    registry = {manifest.app_label: manifest for manifest in all_apps()}
+    # Libraries have no availability nor activation to upgrade (#792).
+    registry = {manifest.app_label: manifest for manifest in all_apps() if not manifest.library}
     report = UpgradeReport()
     pending = _prepare(registry, report, dry_run=dry_run, using=using)
     if stop_after == "prepare":
@@ -179,4 +180,6 @@ def apps_without_availability(*, using="default") -> list[str]:
     from .models import AppAvailability
 
     known = set(AppAvailability.all_objects.using(using).values_list("app_label", flat=True))
-    return sorted(manifest.app_label for manifest in all_apps() if manifest.app_label not in known)
+    return sorted(
+        manifest.app_label for manifest in all_apps() if not manifest.library and manifest.app_label not in known
+    )

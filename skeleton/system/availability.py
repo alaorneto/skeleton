@@ -23,7 +23,7 @@ from skeleton.accounts.platform import require_platform_context
 from skeleton.common.exceptions import ConcurrentUpdate, MissingTenantContext
 from skeleton.tenancy.context import current_context
 
-from .app_registry import dependent_labels, get_app, required_labels
+from .app_registry import dependent_app_labels, get_app, require_not_library, required_app_labels
 
 
 def _organization(organization_id: UUID | None) -> UUID:
@@ -74,8 +74,11 @@ def app_available(app_label: str, *, organization_id: UUID | None = None) -> boo
 
 
 def available_with_dependencies(app_label: str, *, organization_id: UUID | None = None) -> bool:
-    """The app and its whole transitive dependency closure are available to the organization."""
-    labels = [app_label, *required_labels(app_label)]
+    """The app and its whole transitive dependency closure are available to the organization.
+
+    Libraries in the closure (#792) have no availability of their own: they follow the app.
+    """
+    labels = [app_label, *required_app_labels(app_label)]
     return all(availability_map(labels, organization_id=organization_id).values())
 
 
@@ -93,6 +96,7 @@ def _locked_availability(app_label: str, *, create: bool):
     from .models import AppAvailability
 
     get_app(app_label)  # Only installed apps have an availability gate.
+    require_not_library(app_label)  # A library follows its dependents (#792).
     row = AppAvailability.objects.select_for_update().filter(app_label=app_label).first()
     if row is None and create:
         try:
@@ -156,7 +160,7 @@ def grant_app(app_label: str, *, user, organization_id: UUID):
     organization = _active_organization(organization_id)
     row = _locked_availability(app_label, create=True)
     missing = [
-        label for label in required_labels(app_label) if not app_available(label, organization_id=organization.pk)
+        label for label in required_app_labels(app_label) if not app_available(label, organization_id=organization.pk)
     ]
     if missing:
         message = gettext("Dependências indisponíveis para a organização: %(value1)s.") % {"value1": ", ".join(missing)}
@@ -195,7 +199,7 @@ def revoke_app(app_label: str, *, user, organization_id: UUID, expected_revision
         return None
     blocking = [
         label
-        for label in dependent_labels(app_label)
+        for label in dependent_app_labels(app_label)
         if AppOrganizationGrant.objects.filter(
             availability__app_label=label,
             availability__mode=AppAvailability.Mode.SELECTED,
@@ -272,8 +276,9 @@ def availability_summary(app_label: str, *, user) -> AvailabilitySummary:
 
     _require_platform(user)
     get_app(app_label)
+    require_not_library(app_label)
     row = AppAvailability.objects.filter(app_label=app_label).first()
-    dependents = dependent_labels(app_label)
+    dependents = dependent_app_labels(app_label)
     grants: tuple[GrantSummary, ...] = ()
     if row is not None:
         blocking: dict[UUID, list[str]] = {}
@@ -300,7 +305,7 @@ def availability_summary(app_label: str, *, user) -> AvailabilitySummary:
         mode=row.mode if row else None,
         revision=row.revision if row else 0,
         grants=grants,
-        requires=tuple(required_labels(app_label)),
+        requires=tuple(required_app_labels(app_label)),
         required_by=tuple(dependents),
         limits=dict(row.limits) if row is not None and isinstance(row.limits, dict) else {},
     )
