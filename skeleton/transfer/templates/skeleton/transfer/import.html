@@ -1,7 +1,7 @@
 {% extends 'skeleton/web/base.html' %}{% load i18n %}
 {% block title %}{% translate "Importar CSV" %} · {{ site_name }}{% endblock %}
 {% block content %}
-<div class="max-w-3xl">
+<div>
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{{ title }}</p><h1>{% translate "Importar CSV" %}</h1><p class="page-description">{% translate "Uma prévia valida cada linha sem gravar nada. Você confirma depois, e a importação só é aplicada se todas as linhas passarem." %}</p></div></div>
 {% include "skeleton/web/components/error-summary.html" with errors=errors title=_("Verifique o arquivo") %}
 <section class="card">

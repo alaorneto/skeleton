@@ -1,7 +1,7 @@
 {% extends "skeleton/web/platform/base.html" %}
 {% load i18n skeleton_format billing %}{% block page_title %}{% translate "Indicadores" %}{% endblock %}
 {% block content %}
-<div class="max-w-5xl">
+<div>
 <div class="page-header"><div class="min-w-0">
   <h1>{% translate "Indicadores da instância" %}</h1>
   <p class="page-description">{% translate "Resumo das organizações, atualizado de hora em hora e logo depois de mudanças de vínculo, app ou cobrança." %}{% if refreshed_at %} {% translate "Última atualização:" %} {{ refreshed_at|moment }}.{% endif %}</p>

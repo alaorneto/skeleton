@@ -2,7 +2,7 @@
 {% load platform_admin i18n skeleton_format %}
 {% block page_title %}{{ subject.email }}{% endblock %}
 {% block content %}
-<div class="max-w-5xl">
+<div>
 <div class="page-header">
   <div class="min-w-0">
     <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'platform:users' %}">{% translate "Usuários" %}</a></li><li><span aria-current="page">{{ subject.email }}</span></li></ol></nav>

@@ -1,7 +1,7 @@
 {% extends "skeleton/web/platform/base.html" %}
 {% load i18n skeleton_format %}{% block page_title %}{{ client.first_name }}{% endblock %}
 {% block content %}
-<div class="max-w-4xl">
+<div>
 <div class="page-header"><div class="min-w-0">
   <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'platform:api-clients' %}">{% translate "Clientes da API" %}</a></li><li><span aria-current="page">{{ client.first_name }}</span></li></ol></nav>
   <h1>{{ client.first_name }}</h1>

@@ -1,6 +1,6 @@
 {% extends "skeleton/web/base.html" %}{% load i18n %}{% block title %}{% translate "Link de assinatura" %} · {{ calendar.name }} · {{ site_name }}{% endblock %}
 {% block content %}
-<div class="max-w-3xl">
+<div>
 <div class="page-header"><div class="min-w-0"><nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'skeleton_calendar:home' organization_id %}">{% translate "Agenda" %}</a></li><li><a href="{% url 'skeleton_calendar:calendar-detail' organization_id calendar.pk %}">{{ calendar.name }}</a></li><li><span aria-current="page">{% translate "Link de assinatura" %}</span></li></ol></nav><h1>{% translate "Link de assinatura" %}</h1><p class="page-description">{% blocktranslate with name=calendar.name %}Um link só do calendário {{ name }} para clientes de calendário (como os do celular). Ele vale por um ano e pode ser revogado em Tokens de API.{% endblocktranslate %}</p></div></div>
 {% if url %}
 <section class="card" aria-labelledby="link-url"><h2 id="link-url">{% translate "Seu link deste calendário" %}</h2><p class="mt-1 text-sm/6">{% translate "Copie agora: ele não aparece de novo. Quem tiver o link lê este calendário como você; acrescente" %} <code>?busy=1</code> {% translate "para mostrar só os horários ocupados." %}</p><p class="mt-4"><code class="break-all select-all" data-calendar-link>{{ url }}</code></p></section>

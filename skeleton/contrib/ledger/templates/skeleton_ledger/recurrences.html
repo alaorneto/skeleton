@@ -10,7 +10,7 @@
 </table></div>
 {% if book.writable %}
 <section aria-labelledby="new-recurrence"><h2 id="new-recurrence" class="section-heading">{% translate "Nova recorrência" %}</h2>
-<form method="post" class="card max-w-3xl">{% csrf_token %}
+<form method="post" class="card">{% csrf_token %}
   <input type="hidden" name="idempotency_key" value="{{ idempotency_key }}">
   {% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" %}
   <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Criar recorrência" %}</button><a class="btn btn-secondary" href="{% url 'skeleton_ledger:recurrences' organization_id %}">{% translate "Cancelar" %}</a></div>

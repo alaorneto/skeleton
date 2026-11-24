@@ -1,13 +1,13 @@
 {% extends 'skeleton/web/base.html' %}{% load i18n skeleton_format %}
 {% block title %}{% translate "Pessoas externas" %} · {{ site_name }}{% endblock %}
 {% block content %}
-<div class="max-w-5xl">
+<div>
 <div class="page-header"><div class="min-w-0">
 {% include 'skeleton/web/components/breadcrumbs.html' %}
 <h1>{% translate "Pessoas externas" %}</h1>
 <p class="page-description">{% translate "Pessoas que acessam o portal da organização sem ser membros: não ocupam assento nem aparecem nas listas de membros. As apps convidam cada pessoa para um registro delas." %}</p></div></div>
 <section class="mb-8" aria-labelledby="policy-heading"><h2 id="policy-heading" class="section-heading">{% translate "Portal" %}</h2>
-<form method="post" class="card max-w-xl">{% csrf_token %}
+<form method="post" class="card">{% csrf_token %}
 {% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" %}
 <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Salvar" %}</button></div></form></section>
 <section class="mb-8" aria-labelledby="accesses-heading"><h2 id="accesses-heading" class="section-heading">{% translate "Acessos" %}</h2>

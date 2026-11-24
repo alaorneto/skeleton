@@ -1,4 +1,4 @@
 {% extends "skeleton/web/base.html" %}{% load i18n %}{% block title %}{% translate "Livro contábil" %} · {{ site_name }}{% endblock %}
 {% block content %}
-<div class="max-w-3xl">{% url 'skeleton_ledger:home' organization_id as back_url %}{% include "skeleton/web/components/error-summary.html" with message=detail title=_("Pedido inválido") heading="h1" back_url=back_url back_label=_("Voltar ao livro contábil") %}</div>
+<div>{% url 'skeleton_ledger:home' organization_id as back_url %}{% include "skeleton/web/components/error-summary.html" with message=detail title=_("Pedido inválido") heading="h1" back_url=back_url back_label=_("Voltar ao livro contábil") %}</div>
 {% endblock %}
