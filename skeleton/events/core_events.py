@@ -46,6 +46,9 @@ def membership_changed(membership: Any, *, was_active: bool) -> None:
         return
     code = MEMBERSHIP_CREATED if active else MEMBERSHIP_DEACTIVATED
     publish_event(code, record=membership, data={"user": membership.user_id})
+    from skeleton.tenancy.member_notices import membership_notice
+
+    membership_notice(membership, active=active)  # Who joined or left (#786).
     if active:
         from skeleton.tenancy.limit_notices import member_admitted
 

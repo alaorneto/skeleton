@@ -154,6 +154,17 @@ Os avisos da [cobrança](billing.md#inadimplência) (`billing.*`) são tipos sem
 
 O limite de membros atingido (`organization.member_limit_reached`, [#698](https://github.com/alaorneto/skeleton/issues/698)) é um tipo sem tabela-alvo e não obrigatório, por email e na aplicação, para quem tem `members.manage` (`authorize` reconfere no fan-out); leva só `limit` e `used`, e `dedupe_key` faz sair um por dia e valor de limite ([limites da organização](organization-limits.md#aviso-ao-chegar-no-limite)).
 
+## Avisos padrão da organização
+
+Toda organização tem avisos sobre as próprias pessoas, sem depender de app ([#786](https://github.com/alaorneto/skeleton/issues/786)). Eles são do contexto `organization`, ligados por padrão só na aplicação, e a organização pode desligá-los ou reescrever o texto ([configuração da organização](#configuração-da-organização)):
+
+| Tipo | Quando | Quem recebe | Texto de fábrica |
+|---|---|---|---|
+| `organization.member_joined` | um vínculo passa a ativo (`membership.created`: convite aceito, admissão, criação, reativação) | quem tem `members.manage`, menos a própria pessoa | "{member} entrou em {organizacao}" |
+| `organization.member_left` | um vínculo ativo é encerrado (`membership.deactivated`: remoção, saída, desativação) | quem tem `members.manage` | "{member} não faz mais parte de {organizacao}" |
+
+Os avisos são criados no mesmo ponto em que o núcleo publica os [eventos de domínio](events.md) do vínculo (`membership_changed`), na transação da mudança, como o aviso de limite de membros: um rollback não deixa aviso. O payload leva só o UUID da pessoa; o nome aparece no texto de quem pode gerir membros ([campo `person`](#texto-do-aviso)) e sai com a eliminação dela. Não geram aviso: contas de serviço, o primeiro vínculo de uma organização (quem a criou não tem a quem avisar) e um tipo desligado pela plataforma ou pela organização, que nem cria a notificação. A própria pessoa nunca recebe o aviso sobre si.
+
 ## Caixa de notificações
 
 | Rota | O que faz |
