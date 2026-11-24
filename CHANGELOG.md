@@ -2,6 +2,49 @@
 
 As versões a partir da primeira, `v0.1.0`, são escritas pelo workflow de release (`release.py run`, skill dev-workflow): não edite este arquivo à mão. O nível de cada versão e os PRs e issues incluídos seguem [docs/workflow.md](docs/workflow.md#versão).
 
+## [0.7.0](https://github.com/alaorneto/skeleton/compare/v0.6.0...v0.7.0) — 2026-11-24
+
+### ⚠ Mudanças incompatíveis
+
+- **notifications:** notificações por contexto — plataforma, organização e apps (PR [#796](https://github.com/alaorneto/skeleton/pull/796)) — label `breaking-change`; Notificações por contexto (plataforma, organização, app), textos editáveis pela plataforma e pela organização, caixa, alertas e comunicados da plataforma; quebra pequena: o argumento NotificationType(templates=...), que nunca era lido, foi removido, e quem o passava recebe TypeError.
+
+### Funcionalidades
+
+- Auto-atualização do agente nos containers ([#772](https://github.com/alaorneto/skeleton/issues/772)) — PR [#781](https://github.com/alaorneto/skeleton/pull/781)
+- Classificar a agenda e o livro contábil como bibliotecas first-party com estado derivado ([#792](https://github.com/alaorneto/skeleton/issues/792)) — PR [#797](https://github.com/alaorneto/skeleton/pull/797)
+- Instalar sozinhas as bibliotecas first-party exigidas pelas apps ([#793](https://github.com/alaorneto/skeleton/issues/793)) — PR [#797](https://github.com/alaorneto/skeleton/pull/797)
+- Tipos de notificação com contexto, campos e texto de fábrica validado ([#782](https://github.com/alaorneto/skeleton/issues/782)) — PR [#796](https://github.com/alaorneto/skeleton/pull/796)
+- Texto das notificações renderizado no envio e gravado por pessoa ([#783](https://github.com/alaorneto/skeleton/issues/783)) — PR [#796](https://github.com/alaorneto/skeleton/pull/796)
+- Notificações configuradas pela plataforma: ligar, canais padrão e textos da instância ([#784](https://github.com/alaorneto/skeleton/issues/784)) — PR [#796](https://github.com/alaorneto/skeleton/pull/796)
+- Notificações configuradas pela organização: ligar, desligar e editar textos ([#785](https://github.com/alaorneto/skeleton/issues/785)) — PR [#796](https://github.com/alaorneto/skeleton/pull/796)
+- Avisos padrão da organização: membro entrou e membro saiu ([#786](https://github.com/alaorneto/skeleton/issues/786)) — PR [#796](https://github.com/alaorneto/skeleton/pull/796)
+- Caixa de avisos da plataforma para os seus administradores ([#787](https://github.com/alaorneto/skeleton/issues/787)) — PR [#796](https://github.com/alaorneto/skeleton/pull/796)
+- Alertas automáticos da plataforma: jobs, fila, atualizações, eliminação e organizações suspensas ([#788](https://github.com/alaorneto/skeleton/issues/788)) — PR [#796](https://github.com/alaorneto/skeleton/pull/796)
+- Comunicados da plataforma aos administradores das organizações ([#789](https://github.com/alaorneto/skeleton/issues/789)) — PR [#796](https://github.com/alaorneto/skeleton/pull/796)
+
+### Melhorias
+
+- Vocabulário visual semântico: estado, marcador, identificador e valor ([#767](https://github.com/alaorneto/skeleton/issues/767)) — PR [#795](https://github.com/alaorneto/skeleton/pull/795)
+- Ícones por conceito, sem repetição entre conceitos ([#768](https://github.com/alaorneto/skeleton/issues/768)) — PR [#795](https://github.com/alaorneto/skeleton/pull/795)
+- Ações pela intenção: cor, zona de perigo e confirmação das ações irreversíveis ([#769](https://github.com/alaorneto/skeleton/issues/769)) — PR [#795](https://github.com/alaorneto/skeleton/pull/795)
+- Retorno ao usuário unificado: alertas, erros de formulário e estados vazios ([#776](https://github.com/alaorneto/skeleton/issues/776)) — PR [#795](https://github.com/alaorneto/skeleton/pull/795)
+- Tabelas e listas: regras aplicadas em todas as telas e linhas empilhadas no celular ([#777](https://github.com/alaorneto/skeleton/issues/777)) — PR [#795](https://github.com/alaorneto/skeleton/pull/795)
+- Preferências de notificação legíveis em qualquer largura ([#778](https://github.com/alaorneto/skeleton/issues/778)) — PR [#795](https://github.com/alaorneto/skeleton/pull/795)
+- Configuração da instância agrupada, pesquisável e editável pelo tipo ([#779](https://github.com/alaorneto/skeleton/issues/779)) — PR [#795](https://github.com/alaorneto/skeleton/pull/795)
+- Textos e composição das telas na linguagem de quem usa ([#780](https://github.com/alaorneto/skeleton/issues/780)) — PR [#795](https://github.com/alaorneto/skeleton/pull/795)
+- Preferências da pessoa só com os avisos disponíveis, agrupadas por contexto ([#790](https://github.com/alaorneto/skeleton/issues/790)) — PR [#796](https://github.com/alaorneto/skeleton/pull/796)
+
+### Correções
+
+- Revogar ou remover acesso mostra "Salvar" primário sem aviso ([#771](https://github.com/alaorneto/skeleton/issues/771)) — PR [#795](https://github.com/alaorneto/skeleton/pull/795)
+- Classes CSS passam pelo gettext em templates do núcleo ([#774](https://github.com/alaorneto/skeleton/issues/774)) — PR [#795](https://github.com/alaorneto/skeleton/pull/795)
+
+### Manutenção
+
+- Suíte local: migrar uma vez por execução e ajustar o servidor de teste ([#756](https://github.com/alaorneto/skeleton/issues/756)) — PR [#761](https://github.com/alaorneto/skeleton/pull/761)
+- CI: fatias da suíte equilibradas pelo custo e uma migração por job ([#757](https://github.com/alaorneto/skeleton/issues/757)) — PR [#761](https://github.com/alaorneto/skeleton/pull/761)
+- Suíte: reaproveitar o schema entre testes e desfazer só as linhas gravadas ([#760](https://github.com/alaorneto/skeleton/issues/760)) — PR [#761](https://github.com/alaorneto/skeleton/pull/761)
+
 ## [0.6.0](https://github.com/alaorneto/skeleton/compare/v0.5.1...v0.6.0) — 2026-11-23
 
 ### ⚠ Mudanças incompatíveis
