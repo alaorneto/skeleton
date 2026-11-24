@@ -16,10 +16,11 @@ from django import forms
 from django.conf import settings
 from django.contrib import messages
 from django.core.files.uploadhandler import FileUploadHandler, StopUpload
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.http import urlencode
 from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods, require_safe
@@ -30,13 +31,17 @@ from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.system.deployment_client import AgentError, sanitize_details
 from skeleton.system.models import ComponentInstallation, DeploymentOperation
 from skeleton.system.releases import (
+    CLOSED_PREVIEW_STATES,
     GITHUB_REPOSITORY,
     UPSTREAM_REPOSITORY,
     DeploymentUnavailable,
     agent_client,
     confirm_operation,
+    discard_preview,
     invalidate_update_notice,
     plan_artifact,
+    plan_scope,
+    preview_is_stale,
     preview_status,
     reconcile_operation,
     record_preview,
@@ -56,7 +61,9 @@ from .guards import platform_page
 __all__ = [
     "add_dependency",
     "agent_wait",
+    "apps_overview",
     "available",
+    "discard",
     "fetch_release",
     "installed",
     "operation",
@@ -65,18 +72,66 @@ __all__ = [
     "preview",
     "remove_source",
     "sources",
+    "status_link",
     "update_agent",
     "upload",
 ]
 
-STEPS = (
-    ("installed", gettext_lazy("Versões instaladas"), "platform:updates"),
-    ("sources", gettext_lazy("Fontes"), "platform:updates-sources"),
-    ("available", gettext_lazy("Novas versões"), "platform:updates-available"),
-    ("upload", gettext_lazy("Enviar pacote"), "platform:updates-upload"),
-    ("plan", gettext_lazy("Preparar plano"), "platform:updates-plan"),
-    ("operations", gettext_lazy("Operações"), "platform:updates-operations"),
+# Two areas (#822): where the update of the platform (core and agent) and that of the apps start.
+# The engine is one: a core plan may carry apps, so plan, approval and follow-up are shared and
+# take the area of the operation.
+PLATFORM, APPS = "platform", "apps"
+AREAS = {
+    PLATFORM: {
+        "section": "updates",
+        "url_name": "platform:updates",
+        "eyebrow": gettext_lazy("Plataforma"),
+        "title": gettext_lazy("Atualizações da plataforma"),
+        "description": gettext_lazy(
+            "Veja a versão do núcleo e do agente de deployment e atualize a plataforma. "
+            "Nada é aplicado sem que você confira o impacto e aprove."
+        ),
+        "tabs": (
+            ("overview", gettext_lazy("Visão geral"), "platform:updates", ""),
+            ("history", gettext_lazy("Histórico"), "platform:updates-operations", "?area=platform"),
+            ("sources", gettext_lazy("Fontes"), "platform:updates-sources", ""),
+            ("upload", gettext_lazy("Enviar pacote"), "platform:updates-upload", "?area=platform"),
+        ),
+    },
+    APPS: {
+        "section": "updates-apps",
+        "url_name": "platform:updates-apps",
+        "eyebrow": gettext_lazy("Aplicativos"),
+        "title": gettext_lazy("Atualizações de aplicativos"),
+        "description": gettext_lazy(
+            "Instale, atualize ou retire aplicativos desta instância. "
+            "Cada mudança passa por uma prévia do impacto antes de ser aprovada."
+        ),
+        "tabs": (
+            ("overview", gettext_lazy("Visão geral"), "platform:updates-apps", ""),
+            ("history", gettext_lazy("Histórico"), "platform:updates-operations", "?area=apps"),
+            ("upload", gettext_lazy("Enviar pacote"), "platform:updates-upload", "?area=apps"),
+        ),
+    },
+}
+# The steps of one plan (#823): the only numbered sequence of the area.
+FLOW_STEPS = (
+    ("choose", gettext_lazy("Escolher")),
+    ("review", gettext_lazy("Conferir o impacto")),
+    ("approve", gettext_lazy("Aprovar")),
+    ("follow", gettext_lazy("Acompanhar")),
 )
+# Operation states that are still running or waiting for the agent.
+ACTIVE_STATES = ("approved", "queued", "running", "submission_failed", "interrupted")
+
+
+def area_of(action):
+    """The area of a plan or operation: the core update is the platform's, the rest the apps'."""
+    return PLATFORM if action == "core_update" else APPS
+
+
+def _area(value):
+    return value if value in AREAS else PLATFORM
 
 
 class UploadForm(forms.Form):
@@ -134,6 +189,40 @@ class PlanForm(forms.Form):
         elif not values.get("artifacts") or values.get("app_ids"):
             raise forms.ValidationError(gettext("Instalação/atualização exige pacotes, sem IDs de retirada."))
         return values
+
+
+def plan_heading(values, artifact):
+    """ "Atualizar Notas para 1.4.0": the heading of a prefilled plan (#823); the action otherwise."""
+    manifest = artifact.get("manifest") if isinstance(artifact, dict) else None
+    manifest = manifest if isinstance(manifest, dict) else {}
+    version = _text(manifest.get("version"), 64)
+    if isinstance(artifact, dict) and artifact.get("kind") == "release":
+        core = artifact.get("core") if isinstance(artifact.get("core"), dict) else {}
+        version = _text((core.get("manifest") or {}).get("version"), 64) or version
+    name = _text(manifest.get("name"), 200) or _text(manifest.get("app_id"), 200)
+    action = values["action"]
+    if action == "core_update" and version:
+        return gettext("Atualizar o núcleo para %(version)s") % {"version": version}
+    if action == "update" and name and version:
+        return gettext("Atualizar %(name)s para %(version)s") % {"name": name, "version": version}
+    if action == "install" and name and version:
+        return gettext("Instalar %(name)s %(version)s") % {"name": name, "version": version}
+    if action == "uninstall" and values["app_ids"]:
+        return gettext("Retirar o código de %(apps)s") % {"apps": values["app_ids"].replace(" ", ", ")}
+    return values["action_label"]
+
+
+def _plan_values(form):
+    """``{action, action_label, artifacts, app_ids}`` of a plan form, bound or prefilled (#823)."""
+    if form.is_bound:
+        raw = {name: form.data.get(name, "") for name in ("action", "artifacts", "app_ids")}
+    else:
+        raw = {name: form.initial.get(name, "") for name in ("action", "artifacts", "app_ids")}
+    values = {
+        name: " ".join(value) if isinstance(value, (list, tuple)) else str(value or "") for name, value in raw.items()
+    }
+    values["action_label"] = dict(form.fields["action"].choices).get(values["action"], values["action"])
+    return values
 
 
 class SourceForm(forms.Form):
@@ -196,8 +285,28 @@ class BoundedPackageUpload(FileUploadHandler):
         return None
 
 
-def _context(step, **values):
-    return {"platform_section": "updates", "updates_step": step, "steps": STEPS, **values}
+def _context(area, tab=None, *, flow=None, **values):
+    """The area (menu, header and tabs) and, on the pages of one plan, its step (#822, #823)."""
+    meta = AREAS[_area(area)]
+    tabs = [
+        {"id": tab_id, "label": label, "url": reverse(url_name) + query, "current": tab_id == tab}
+        for tab_id, label, url_name, query in meta["tabs"]
+    ]
+    steps = None
+    if flow is not None:
+        index = [step_id for step_id, _label in FLOW_STEPS].index(flow)
+        steps = [
+            {"number": number, "label": label, "current": number - 1 == index, "done": number - 1 < index}
+            for number, (_step_id, label) in enumerate(FLOW_STEPS, start=1)
+        ]
+    return {
+        "platform_section": meta["section"],
+        "area": _area(area),
+        "area_meta": {**meta, "url": reverse(meta["url_name"]), "tabs": tabs},
+        "flow_steps": steps,
+        "updates_help": guide_url(),
+        **values,
+    }
 
 
 # Operator-facing text of the agent update codes (#497); any other code is shown as is.
@@ -241,7 +350,7 @@ ERROR_TEXT = {
     "github_token_missing": gettext_lazy("Repositório privado exige o token configurado no arquivo do agente."),
     # Update path and sources (#500).
     "version_jump_forbidden": gettext_lazy(
-        "Esta versão está mais de uma linha à frente da instalada. Atualize antes para a versão indicada em Novas versões."
+        "Esta versão está mais de uma linha à frente da instalada. Siga os passos indicados em Atualizações da plataforma."
     ),
     "release_environment_conflict": gettext_lazy(
         "Este núcleo já foi recebido com outro conjunto de dependências. O publicador precisa publicar outra versão."
@@ -384,11 +493,25 @@ def _installed_components():
 def _plan_page(
     request, form, *, status=200, artifact=None, problems=(), plan_action="", plan_artifacts="", agent_offer=None
 ):
+    """The plan before its preview (#823): a summary and one button when the plan came prefilled.
+
+    The full form (operation, digests, app IDs) is the advanced, manual path; it opens by itself
+    when it comes back with an error.
+    """
+    values = _plan_values(form)
+    if form.is_bound:
+        manual = bool(form.errors)
+    else:
+        manual = not (values["artifacts"] or values["app_ids"])
     return render(
         request,
         "skeleton/web/platform/updates/plan.html",
         _context(
-            "plan",
+            area_of(plan_action or values["action"]),
+            flow="choose",
+            plan_manual=manual,
+            plan_values=values,
+            plan_heading=plan_heading(values, artifact),
             plan_form=form,
             artifact=artifact,
             problems=problems,
@@ -543,7 +666,8 @@ def _agent_first(request, artifact, agent, *, identifiers=None, artifacts=None, 
         request,
         "skeleton/web/platform/updates/agent-first.html",
         _context(
-            "available",
+            PLATFORM,
+            flow="choose",
             artifact=artifact,
             agent=agent,
             identifiers=identifiers,
@@ -579,44 +703,226 @@ def agent_guide(agent):
     """The documentation of this core release that says how this agent is updated by hand."""
     manual = manual_update(agent)
     anchor = AGENT_GUIDE_ANCHORS.get((manual or {}).get("layout"), "atualizar-o-agente")
+    return f"{_documentation_base()}/deployment.md#{anchor}"
+
+
+def _documentation_base():
     version = running_core().get("version")
     reference = f"v{version}" if isinstance(version, str) and re.fullmatch(r"\d+\.\d+\.\d+", version) else "main"
-    return f"https://github.com/{UPSTREAM_REPOSITORY}/blob/{reference}/docs/deployment.md#{anchor}"
+    return f"https://github.com/{UPSTREAM_REPOSITORY}/blob/{reference}/docs"
+
+
+def guide_url():
+    """The operator's update guide of the running core release (#823), the "Como funciona" link."""
+    return f"{_documentation_base()}/updates.md"
+
+
+def _cluster_panel():
+    """The cluster panel of the platform page; an agent of one node (or older) has none."""
+    try:
+        cluster = agent_client().cluster()
+    except (ValueError, RuntimeError, OSError):
+        return {"mode": "single"}
+    if cluster.get("problem"):
+        # A sentence, never the bare code; the code is closed and bounded by sanitize_cluster.
+        problem = cluster["problem"]
+        cluster = {
+            **cluster,
+            "problem": ERROR_TEXT.get(problem)
+            or gettext("O agente deste nó informou um problema (%(code)s); veja o log dele no servidor.")
+            % {"code": problem},
+        }
+    return cluster
+
+
+def _update_status(request, *, report=True):
+    """The last check of the agent (offline), or ``{}``; ``report`` shows why it is missing."""
+    try:
+        status = agent_client().update_status()
+    except (ValueError, RuntimeError, OSError) as exc:
+        if report:
+            _error(request, exc)
+        return {}
+    return status if isinstance(status, dict) else {}
+
+
+def _check_summary(status):
+    """When the sources were last consulted and how each one answered."""
+    return {"loaded": bool(status), "checked_at": _text(status.get("checked_at")), "sources": _source_rows(status)}
+
+
+def describe_plan(plan):
+    """What a plan installs or takes out, for a list (#821): "Núcleo 0.9.0", "org.example.notes 1.4.0"."""
+    if not isinstance(plan, dict):
+        return ""
+    components = plan.get("components") if isinstance(plan.get("components"), list) else []
+    versions = {
+        component["component_id"]: component.get("version")
+        for component in components
+        if isinstance(component, dict) and isinstance(component.get("component_id"), str)
+    }
+    parts = []
+    for component in sorted(plan_scope(plan), key=lambda item: (item != CORE_COMPONENT, item)):
+        name = gettext("Núcleo") if component == CORE_COMPONENT else component
+        version = None if plan.get("action") == "uninstall" else _text(versions.get(component), 64)
+        parts.append(f"{name} {version}" if version else name)
+    return ", ".join(parts)
+
+
+def _described(rows):
+    rows = list(rows)
+    for row in rows:
+        row.target = describe_plan(row.plan)
+    return rows
+
+
+def open_previews(area):
+    """Plans of the area awaiting approval (#821, #822), the newest first."""
+    rows = DeploymentOperation.objects.filter(state="preview").order_by("-created_at")
+    rows = rows.filter(operation="core_update") if area == PLATFORM else rows.exclude(operation="core_update")
+    return _described(rows[:10])
+
+
+def active_operations():
+    """Operations approved and not finished yet, of any area: only one runs at a time."""
+    return list(DeploymentOperation.objects.filter(state__in=ACTIVE_STATES).order_by("-created_at")[:5])
+
+
+def _chosen_target(request):
+    """The core version the operator chose (#653): ``?target=`` or the one kept in the session."""
+    target = _text(request.GET.get("target"), 64)
+    if target is None:
+        return request.session.get(TARGET_SESSION_KEY)
+    if target == "latest":  # The default path again: forget the chosen version.
+        request.session.pop(TARGET_SESSION_KEY, None)
+        return None
+    return target
 
 
 @platform_page(capability="updates.operate", writes=True)
 @require_safe
 def installed(request):
-    inventory = None
-    cluster = {"mode": "single"}
+    """Atualizações da plataforma (#822): the core and the agent, their next step and the open plans."""
+    inventory, cluster, status = None, {"mode": "single"}, {}
     try:
         inventory = agent_client().inventory()
     except (ValueError, RuntimeError, OSError) as exc:
         _error(request, exc)
     else:
-        try:
-            cluster = agent_client().cluster()
-        except (ValueError, RuntimeError, OSError):
-            cluster = {"mode": "single"}  # An agent of one node (or older): no cluster panel.
-        if cluster.get("problem"):
-            # A sentence, never the bare code; the code is closed and bounded by sanitize_cluster.
-            problem = cluster["problem"]
-            cluster = {
-                **cluster,
-                "problem": ERROR_TEXT.get(problem)
-                or gettext("O agente deste nó informou um problema (%(code)s); veja o log dele no servidor.")
-                % {"code": problem},
-            }
+        cluster = _cluster_panel()
+        status = _update_status(request)
+    inventory_data = inventory if isinstance(inventory, dict) else {}
+    paths = update_paths(status, _component_names(inventory_data))
+    paths, reached = toward_target(paths, _chosen_target(request))
+    if reached:
+        request.session.pop(TARGET_SESSION_KEY, None)
+    mark_agent_first(paths, inventory_data.get("agent"))
+    core_card = next((card for card in paths if card["component_id"] == CORE_COMPONENT), None)
     return render(
         request,
-        "skeleton/web/platform/updates/installed.html",
+        "skeleton/web/platform/updates/platform.html",
         _context(
-            "installed",
+            PLATFORM,
+            "overview",
             core=running_core(),
             inventory=inventory,
-            agent_guide=agent_guide((inventory or {}).get("agent")),
+            agent_guide=agent_guide(inventory_data.get("agent")),
             cluster=cluster,
+            check=_check_summary(status),
+            core_card=core_card,
+            app_updates=sum(1 for card in paths if card["component_id"] != CORE_COMPONENT and card["latest"]),
+            pending=open_previews(PLATFORM),
+            active=active_operations(),
             components=ComponentInstallation.objects.order_by("kind", "component_id"),
+            releases=[
+                row
+                for row in status.get("releases") or ()
+                if isinstance(row, dict) and row.get("component_id") == CORE_COMPONENT
+            ],
+        ),
+    )
+
+
+def app_rows(inventory, cards):
+    """One row per app the agent manages (#822), with its update card when it has one."""
+    rows = []
+    for entry in inventory.get("apps") or () if isinstance(inventory, dict) else ():
+        manifest = entry.get("manifest") if isinstance(entry, dict) else None
+        if not isinstance(manifest, dict) or not _text(manifest.get("app_id"), 100):
+            continue
+        app_id = manifest["app_id"]
+        card = cards.get(app_id)
+        digest = entry.get("digest")
+        rows.append(
+            {
+                "app_id": app_id,
+                "name": _text(manifest.get("name"), 200) or app_id,
+                "version": _text(manifest.get("version"), 64) or "—",
+                "state": _text(entry.get("state"), 32) or "—",
+                "digest": digest if isinstance(digest, str) and DIGEST.fullmatch(digest) else None,
+                # A project-local app is code of the project, not a package the agent can take out.
+                "managed": entry.get("origin") != "project-local",
+                "update": card if card and (card["latest"] or card["blocked"]) else None,
+            }
+        )
+    return sorted(rows, key=lambda row: row["name"].lower())
+
+
+def install_candidates(status, inventory):
+    """Apps the sources publish and this instance does not have (#822): the newest of each one."""
+    known = {
+        entry["manifest"]["app_id"]
+        for entry in (inventory.get("apps") or () if isinstance(inventory, dict) else ())
+        if isinstance(entry, dict) and isinstance(entry.get("manifest"), dict) and entry["manifest"].get("app_id")
+    }
+    best = {}
+    for row in status.get("releases") or () if isinstance(status, dict) else ():
+        if not isinstance(row, dict) or row.get("state") != "available":
+            continue
+        component, version, source = (_text(row.get(name), 128) for name in ("component_id", "version", "source_id"))
+        if not (component and version and source) or component == CORE_COMPONENT or component in known:
+            continue
+        try:
+            parsed = Version(version)
+        except InvalidVersion:
+            continue
+        if component not in best or parsed > best[component][0]:
+            entry = {"component_id": component, "version": version, "source_id": source}
+            best[component] = (parsed, {**entry, "notes": _text(row.get("notes"), 500) or ""})
+    return [best[component][1] for component in sorted(best)]
+
+
+@platform_page(capability="updates.operate", writes=True)
+@require_safe
+def apps_overview(request):
+    """Atualizações de aplicativos (#822): update, install, reinstall or take out the code of an app."""
+    inventory, status = {}, {}
+    try:
+        inventory = agent_client().inventory()
+    except (ValueError, RuntimeError, OSError) as exc:
+        _error(request, exc)
+    else:
+        status = _update_status(request)
+    inventory = inventory if isinstance(inventory, dict) else {}
+    cards = {
+        card["component_id"]: card
+        for card in update_paths(status, _component_names(inventory))
+        if card["component_id"] != CORE_COMPONENT
+    }
+    rows = app_rows(inventory, cards)
+    return render(
+        request,
+        "skeleton/web/platform/updates/apps-area.html",
+        _context(
+            APPS,
+            "overview",
+            loaded=bool(inventory),
+            check=_check_summary(status),
+            updates=[row for row in rows if row["update"]],
+            apps=rows,
+            candidates=install_candidates(status, inventory),
+            pending=open_previews(APPS),
+            active=active_operations(),
         ),
     )
 
@@ -630,7 +936,7 @@ def _describe_cluster_restart(request):
         ),
         submit_label=gettext("Reiniciar os nós"),
         cancel_url=reverse("platform:updates"),
-        eyebrow=gettext("Versões e atualizações"),
+        eyebrow=gettext("Atualizações da plataforma"),
         template=PLATFORM_TEMPLATE,
         context={"platform_section": "updates"},
     )
@@ -800,46 +1106,21 @@ def mark_agent_first(cards, agent):
 @platform_page(capability="updates.operate", writes=True)
 @require_http_methods(["GET", "POST"])
 def available(request):
-    """The last check and the update path, one step at a time (#500); POST checks again."""
+    """POST consults the sources again (#500) and goes back to the area that asked (#822).
+
+    The old "Novas versões" page is now the overview of each area: GET goes there, with the
+    chosen core version when the link carries one.
+    """
     if request.method == "POST":
         try:
             agent_client().check_updates()
         except (ValueError, RuntimeError, OSError) as exc:
             _error(request, exc)
         invalidate_update_notice()
-        return redirect("platform:updates-available")
-    status = None
-    try:
-        status = agent_client().update_status()
-    except (ValueError, RuntimeError, OSError) as exc:
-        _error(request, exc)
-    status = status if isinstance(status, dict) else {}
-    inventory = _inventory() if status.get("paths") else {}
-    paths = update_paths(status, _component_names(inventory))
+        return redirect(AREAS[_area(request.POST.get("area"))]["url_name"])
     target = _text(request.GET.get("target"), 64)
-    if target is None:
-        target = request.session.get(TARGET_SESSION_KEY)
-    elif target == "latest":  # The default path again: forget the chosen version.
-        request.session.pop(TARGET_SESSION_KEY, None)
-        target = None
-    paths, reached = toward_target(paths, target)
-    if reached:
-        request.session.pop(TARGET_SESSION_KEY, None)
-    mark_agent_first(paths, inventory.get("agent"))
-    return render(
-        request,
-        "skeleton/web/platform/updates/available.html",
-        _context(
-            "available",
-            updates=status,
-            loaded=bool(status),
-            checked_at=_text(status.get("checked_at")),
-            sources=_source_rows(status),
-            paths=[card for card in paths if card["latest"]],
-            current=[card for card in paths if not card["latest"]],
-            releases=[row for row in status.get("releases") or () if isinstance(row, dict)],
-        ),
-    )
+    url = reverse("platform:updates")
+    return redirect(f"{url}?{urlencode({'target': target})}" if target else url)
 
 
 @csrf_exempt
@@ -856,14 +1137,43 @@ def upload(request):
     return _upload(request)
 
 
+def upload_action(artifact):
+    """The digest to plan and the action an uploaded package asks for (#823), as a fetched step does.
+
+    A release or core package updates the core; an app package updates the installed app or
+    installs a new one. The operator still sees the impact before approving.
+    """
+    digest, action = plan_artifact(artifact)
+    if action is not None:
+        return digest, action
+    manifest = artifact.get("manifest") if isinstance(artifact.get("manifest"), dict) else {}
+    if artifact.get("kind") == "core" or manifest.get("app_id") == CORE_COMPONENT:
+        return digest, "core_update"
+    if not manifest.get("app_id"):
+        return digest, "install"
+    try:
+        installed = _installed_components()
+    except (ValueError, RuntimeError, OSError, KeyError, TypeError):
+        installed = set()
+    return digest, "update" if manifest.get("app_id") in installed else "install"
+
+
+def _upload_page(request, form, *, status=200):
+    area = _area(request.POST.get("area") or request.GET.get("area"))
+    return render(
+        request,
+        "skeleton/web/platform/updates/upload.html",
+        _context(area, "upload", upload_form=form),
+        status=status,
+    )
+
+
 @csrf_protect
 @recent_authentication_required(allow_get=True)
 def _upload(request):
     require_release_operator(request.user)
     if request.method != "POST":
-        return render(
-            request, "skeleton/web/platform/updates/upload.html", _context("upload", upload_form=UploadForm())
-        )
+        return _upload_page(request, UploadForm())
     handler = request.upload_handlers[0]
     form = UploadForm(request.POST, request.FILES)
     if handler.exceeded:
@@ -878,25 +1188,23 @@ def _upload(request):
                         stream.write(chunk)
                 source.chmod(0o600)
                 artifact = agent_client().upload(source)
-            messages.success(request, gettext("Pacote verificado. Confira o plano e visualize o impacto."))
-            digest, action = plan_artifact(artifact)
+            digest, action = upload_action(artifact)
             return _plan_page(
                 request,
-                PlanForm(initial={"artifacts": digest, "action": action or "install"}),
+                PlanForm(initial={"artifacts": digest, "action": action}),
                 artifact=artifact,
                 agent_offer=_agent_offer(artifact),
             )
         except (ValueError, RuntimeError, OSError) as exc:
             _error(request, exc)
-    return render(
-        request, "skeleton/web/platform/updates/upload.html", _context("upload", upload_form=form), status=400
-    )
+    return _upload_page(request, form, status=400)
 
 
 @platform_page(capability="updates.operate", writes=True)
 @require_http_methods(["GET", "POST"])
 @recent_authentication_required(allow_get=True)
 def plan(request):
+    """The manual plan on GET; POST asks the agent for the preview of a plan (#298)."""
     if request.method != "POST":
         return _plan_page(request, PlanForm())
     form = PlanForm(request.POST)
@@ -922,6 +1230,83 @@ def _preview_failure(request, form, exc):
     )
 
 
+# The recovery the agent promises for a plan, in a sentence (#823); any other value is shown as is.
+RECOVERY_TEXT = {
+    "restore_database_and_previous_release_before_new_writes; operator_repair_to_complete": gettext_lazy(
+        "Se algo falhar antes de o tráfego voltar, o agente restaura o banco e a versão anterior sozinho. "
+        "Depois que o tráfego volta, a recuperação é feita pelo operador no servidor (veja o guia)."
+    ),
+}
+
+
+def plan_changes(plan, inventory):
+    """What a plan changes against what is installed (#823): ``[{name, before, after, kind}]``.
+
+    ``plan["components"]`` is the whole target inventory; only the differences are listed. An
+    app whose code leaves (data preserved) counts as removed. ``None`` without an inventory.
+    """
+    if not isinstance(plan, dict) or not isinstance(inventory, dict):
+        return None
+    try:
+        before = {CORE_COMPONENT: inventory["core"]["version"]}
+        before.update(
+            {
+                entry["manifest"]["app_id"]: entry["manifest"]["version"]
+                for entry in inventory.get("apps") or ()
+                if entry.get("state") != "schema_retained"
+            }
+        )
+    except (KeyError, TypeError, AttributeError):
+        return None
+    after = {}
+    for component in plan.get("components") or ():
+        if not isinstance(component, dict) or not _text(component.get("component_id"), 128):
+            continue
+        if component.get("state", "installed") != "schema_retained":
+            after[component["component_id"]] = _text(component.get("version"), 64) or "—"
+    names = _component_names(inventory)
+    changes = []
+    for component in sorted(set(before) | set(after), key=lambda item: (item != CORE_COMPONENT, item)):
+        old, new = before.get(component), after.get(component)
+        if old == new:
+            continue
+        changes.append(
+            {
+                "name": gettext("Núcleo") if component == CORE_COMPONENT else names.get(component, component),
+                "before": old,
+                "after": new,
+                "kind": "install" if old is None else "remove" if new is None else "update",
+            }
+        )
+    return changes
+
+
+def plan_summary(plan, inventory):
+    """The plain-language summary that opens the preview and the approval (#823)."""
+    migrations = [item for item in (plan.get("migrations") or ()) if isinstance(item, dict)]
+    irreversible = any(
+        isinstance(step, dict) and step.get("reversible") is False
+        for item in migrations
+        for step in item.get("operations") or ()
+    )
+    recovery = plan.get("recovery")
+    return {
+        "changes": plan_changes(plan, inventory),
+        "rolling": plan.get("rollout_mode") == "rolling",
+        "rollout_reason": plan.get("rollout_reason"),
+        "backup": plan.get("backup_required", True) is not False,
+        "migrations": len(migrations),
+        "irreversible": irreversible,
+        "recovery": RECOVERY_TEXT.get(recovery, recovery) if isinstance(recovery, str) else None,
+        "dropped": [name for name in plan.get("dropped_dependencies") or () if isinstance(name, str)],
+        "counts": {
+            "files": len(plan.get("files") or ()),
+            "resources": len(plan.get("resources") or ()),
+            "presentation": len(plan.get("presentation_changes") or ()),
+        },
+    }
+
+
 @platform_page(capability="updates.operate", writes=True)
 @require_http_methods(["GET", "POST"])
 @recent_authentication_required(allow_get=True)
@@ -933,14 +1318,16 @@ def preview(request, plan_id):
         except (ValueError, RuntimeError, OSError) as exc:
             _error(request, exc)
             return redirect("platform:updates-preview", plan_id=plan_id)
+        if getattr(row, "replaced", 0):
+            messages.info(request, gettext("O plano anterior para os mesmos componentes foi substituído por este."))
         return redirect("platform:updates-operation", operation_id=row.pk)
     try:
         status = preview_status(user=request.user, plan_id=plan_id)
     except (ValueError, RuntimeError, OSError) as exc:
         _error(request, exc)
-        return redirect("platform:updates-plan")
+        return redirect("platform:updates")
+    source = status.get("request") or {}
     if status["state"] == "failed":
-        source = status.get("request") or {}
         form = PlanForm(
             {
                 "action": source.get("action", ""),
@@ -950,15 +1337,18 @@ def preview(request, plan_id):
         )
         form.is_valid()
         return _preview_failure(request, form, _PreparationFailed(status))
+    plan_data = status.get("plan") or {}
     return render(
         request,
         "skeleton/web/platform/updates/preview.html",
         _context(
-            "plan",
+            area_of(plan_data.get("action") or source.get("action")),
+            flow="review",
             plan_id=str(plan_id),
             plan_state=status["state"],
-            plan=status.get("plan") or {},
-            theme_warnings=uninstall_theme_warnings(status.get("request") or {}),
+            plan=plan_data,
+            summary=plan_summary(plan_data, _inventory()) if status["state"] == "ready" else None,
+            theme_warnings=uninstall_theme_warnings(source),
         ),
     )
 
@@ -1041,8 +1431,9 @@ def _target_refusal(identifiers, target):
 @require_http_methods(["POST"])
 @recent_authentication_required
 def fetch_release(request):
+    identifiers = {name: request.POST.get(name, "") for name in ("component_id", "version", "source_id")}
+    back = AREAS[PLATFORM if identifiers["component_id"] == CORE_COMPONENT else APPS]["url_name"]
     try:
-        identifiers = {name: request.POST.get(name, "") for name in ("component_id", "version", "source_id")}
         if any(not value or len(value) > 128 for value in identifiers.values()):
             return HttpResponse(gettext("Identificação de release inválida."), status=400)
         target = request.POST.get("target", "")
@@ -1050,23 +1441,18 @@ def fetch_release(request):
             refusal = _target_refusal(identifiers, target)
             if refusal is not None:
                 messages.error(request, refusal)
-                return redirect("platform:updates-available")
+                return redirect(back)
             request.session[TARGET_SESSION_KEY] = target
         elif identifiers["component_id"] == CORE_COMPONENT:
             request.session.pop(TARGET_SESSION_KEY, None)
         artifact = agent_client().fetch_release(**identifiers)
-        return _fetched_plan(
-            request,
-            identifiers,
-            artifact,
-            gettext("Versão obtida e verificada. Confira o plano e visualize o impacto."),
-        )
+        return _fetched_plan(request, identifiers, artifact)
     except (ValueError, RuntimeError, OSError) as exc:
         _error(request, exc)
-        return redirect("platform:updates-available")
+        return redirect(back)
 
 
-def _fetched_plan(request, identifiers, artifact, message, *, automatic=True):
+def _fetched_plan(request, identifiers, artifact, message=None, *, automatic=True):
     """The plan of a fetched step, or the agent update it needs first (#773)."""
     digest, action = plan_artifact(artifact)
     blocking = _agent_behind(artifact)
@@ -1076,7 +1462,8 @@ def _fetched_plan(request, identifiers, artifact, message, *, automatic=True):
         action = "core_update"
     elif action is None:
         action = "update" if identifiers["component_id"] in _installed_components() else "install"
-    messages.success(request, message)
+    if message:
+        messages.success(request, message)
     return _plan_page(
         request,
         PlanForm(initial={"action": action, "artifacts": digest}),
@@ -1099,6 +1486,7 @@ def _sources_page(request, form=None, *, listing=None, status=200):
         request,
         "skeleton/web/platform/updates/sources.html",
         _context(
+            PLATFORM,
             "sources",
             sources=[row for row in rows if isinstance(row, dict)],
             source_form=form if publishers else None,
@@ -1140,7 +1528,7 @@ def sources(request):
     except (ValueError, RuntimeError, OSError) as exc:
         _error(request, exc)
         return _sources_page(request, form, listing=listing, status=400)
-    messages.success(request, gettext("Fonte salva. Ela passa a ser consultada em Novas versões."))
+    messages.success(request, gettext("Fonte salva. Ela passa a ser consultada em Verificar agora."))
     return redirect("platform:updates-sources")
 
 
@@ -1221,26 +1609,24 @@ def agent_wait(request):
     """Wait for the agent a core step updated (#773), then show that step's plan; only reads the agent."""
     continuation = _continuation(request)
     if continuation is None:
-        return redirect("platform:updates-available")
+        return redirect("platform:updates")
     required = continuation["required"]
     if timezone.now() - continuation["started_at"] > AGENT_WAIT_LIMIT:
         request.session.pop(AGENT_CONTINUATION_KEY, None)
         return render(
             request,
             "skeleton/web/platform/updates/agent-wait.html",
-            _context("available", wait_state="failed", required=required),
+            _context(PLATFORM, flow="choose", wait_state="failed", required=required),
         )
     progress = _agent_progress(required)
     if not progress["ready"]:
         return render(
             request,
             "skeleton/web/platform/updates/agent-wait.html",
-            _context("available", wait_state="waiting", required=required, progress=progress),
+            _context(PLATFORM, flow="choose", wait_state="waiting", required=required, progress=progress),
         )
     request.session.pop(AGENT_CONTINUATION_KEY, None)
-    message = gettext("Agente atualizado para %(version)s. Confira o plano e visualize o impacto.") % {
-        "version": required
-    }
+    message = gettext("Agente atualizado para %(version)s. Confira o impacto antes de aprovar.") % {"version": required}
     identifiers = continuation["identifiers"]
     if identifiers is None:
         messages.success(request, message)
@@ -1252,16 +1638,31 @@ def agent_wait(request):
         return _fetched_plan(request, identifiers, artifact, message, automatic=False)
     except (ValueError, RuntimeError, OSError) as exc:
         _error(request, exc)
-        return redirect("platform:updates-available")
+        return redirect("platform:updates")
 
 
 @platform_page(capability="updates.operate", writes=True)
 @require_safe
 def operations(request):
+    """The history of one area (#822): open and executed operations, or the closed previews (#821)."""
+    area = _area(request.GET.get("area"))
+    closed = request.GET.get("estado") == "encerradas"
+    rows = DeploymentOperation.objects.order_by("-created_at")
+    rows = rows.filter(operation="core_update") if area == PLATFORM else rows.exclude(operation="core_update")
+    rows = rows.filter(state__in=CLOSED_PREVIEW_STATES) if closed else rows.exclude(state__in=CLOSED_PREVIEW_STATES)
+    base = reverse("platform:updates-operations")
+    filters = [
+        {"label": gettext("Em aberto e executadas"), "url": f"{base}?area={area}", "current": not closed},
+        {
+            "label": gettext("Descartadas, substituídas e vencidas"),
+            "url": f"{base}?area={area}&estado=encerradas",
+            "current": closed,
+        },
+    ]
     return render(
         request,
         "skeleton/web/platform/updates/operations.html",
-        _context("operations", operations=DeploymentOperation.objects.order_by("-created_at")[:50]),
+        _context(area, "history", operations=_described(rows[:50]), filters=filters, closed=closed),
     )
 
 
@@ -1274,7 +1675,8 @@ def operation(request, operation_id):
     if request.method == "POST":
         form = ConfirmationForm(request.POST)
         if not form.is_valid() or form.cleaned_data["plan_digest"] != row.plan_digest:
-            return HttpResponse(gettext("Confirmação do plano inválida."), status=400)
+            messages.error(request, gettext("A confirmação não corresponde a este plano. Confira o plano de novo."))
+            return redirect("platform:updates-operation", operation_id=row.pk)
         try:
             if request.POST.get("intent") == "retry":
                 retry_submission(user=request.user, operation_id=row.pk, revision=form.cleaned_data["revision"])
@@ -1286,21 +1688,32 @@ def operation(request, operation_id):
                     force_window=request.POST.get("force_window") == "on",
                 )
         except ConcurrentUpdate:
-            return HttpResponse(gettext("A operação mudou; atualize o estado antes de confirmar."), status=409)
+            # Inside the shell, never a bare 409 (#821): the page says what changed.
+            messages.error(
+                request,
+                gettext(
+                    "O plano mudou ou a instalação mudou desde a prévia. Confira o estado abaixo e, "
+                    "se ele venceu, prepare a atualização de novo."
+                ),
+            )
         except (ValueError, RuntimeError, OSError) as exc:
             _error(request, exc)
         return redirect("platform:updates-operation", operation_id=row.pk)
-    status_url = None
-    try:
-        if row.state == "preview":
-            status_url = agent_client().status_ticket(str(row.pk)).get("status_url")
-        else:
+    status_url, stale, summary = None, False, None
+    if row.state == "preview":
+        # Only reads (#821): a plan of an older generation is shown as expired, never approvable.
+        inventory = _inventory()
+        generation = inventory.get("generation")
+        stale = preview_is_stale(row, generation if type(generation) is int else None)
+        summary = plan_summary(row.plan or {}, inventory or None)
+    elif row.state not in CLOSED_PREVIEW_STATES:
+        try:
             status = agent_client().operation(str(row.pk))  # No row lock while waiting for the agent.
             row = DeploymentOperation.objects.select_for_update().get(pk=row.pk)
             reconcile_operation(row, status)
             status_url = status.get("status_url")
-    except (ConcurrentUpdate, ValueError, RuntimeError, OSError) as exc:
-        _error(request, exc)
+        except (ConcurrentUpdate, ValueError, RuntimeError, OSError) as exc:
+            _error(request, exc)
     next_steps = None
     if row.state == "succeeded":
         try:
@@ -1312,13 +1725,22 @@ def operation(request, operation_id):
             next_steps = [card for card in cards if card["steps"] or (card["target"] and card["blocked"])]
         except (ValueError, RuntimeError, OSError, TypeError):
             next_steps = None  # Only hides the section; the operation page never breaks for it.
+    closed = row.state in CLOSED_PREVIEW_STATES
+    error = ERROR_TEXT.get(row.error_code) if row.error_code else None
+    row.target = describe_plan(row.plan)
     return render(
         request,
         "skeleton/web/platform/updates/operation.html",
         _context(
-            "operations",
+            area_of(row.operation),
+            "history" if closed else None,
+            flow=None if closed else "approve" if row.state == "preview" else "follow",
             next_steps=next_steps,
             operation=row,
+            closed=closed,
+            stale=stale,
+            summary=summary,
+            error_text=error,
             confirmation_form=ConfirmationForm(
                 initial={"revision": row.revision, "plan_digest": row.plan_digest},
                 rolling=(row.plan or {}).get("rollout_mode") == "rolling",
@@ -1327,3 +1749,43 @@ def operation(request, operation_id):
             can_retry=submission_can_retry(row),
         ),
     )
+
+
+@platform_page(capability="updates.operate", writes=True)
+@require_http_methods(["POST"])
+@recent_authentication_required
+def discard(request, operation_id):
+    """Discard a plan awaiting approval (#821); it can be prepared again at any time."""
+    row = get_object_or_404(DeploymentOperation.objects, pk=operation_id)
+    try:
+        revision = int(request.POST.get("revision", ""))
+    except ValueError:
+        return HttpResponse(gettext("Revisão inválida."), status=400)
+    try:
+        discard_preview(user=request.user, operation_id=row.pk, revision=revision)
+    except ConcurrentUpdate:
+        messages.error(request, gettext("Este plano já foi aprovado, descartado ou substituído."))
+        return redirect("platform:updates-operation", operation_id=row.pk)
+    messages.success(request, gettext("Plano descartado. Você pode preparar a atualização de novo quando quiser."))
+    return redirect(AREAS[area_of(row.operation)]["url_name"])
+
+
+@platform_page(capability="updates.operate", writes=True)
+@require_http_methods(["POST"])
+@recent_authentication_required
+def status_link(request, operation_id):
+    """Open the independent follow-up channel of a plan (#823): the ticket is asked for on the click.
+
+    The ticket is short-lived and private to this operation; it is never stored, and asking for it
+    only when the operator opens it keeps it from expiring on a page left open.
+    """
+    row = get_object_or_404(DeploymentOperation.objects, pk=operation_id)
+    try:
+        url = agent_client().status_ticket(str(row.pk)).get("status_url")
+    except (ValueError, RuntimeError, OSError) as exc:
+        _error(request, exc)
+        return redirect("platform:updates-operation", operation_id=row.pk)
+    if not isinstance(url, str) or not re.fullmatch(r"https?://[^\s\"'<>]{1,2000}", url):
+        messages.error(request, gettext("O agente não devolveu um endereço de acompanhamento válido."))
+        return redirect("platform:updates-operation", operation_id=row.pk)
+    return HttpResponseRedirect(url)

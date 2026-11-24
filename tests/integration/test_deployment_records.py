@@ -448,7 +448,8 @@ def test_stale_release_confirmation_returns_conflict_without_delivery(monkeypatc
             "plan_digest": row.plan_digest,
         },
     )
-    assert response.status_code == 409
+    # Inside the shell (#821): the page of the operation says what changed, never a bare 409.
+    assert response.status_code == 302 and response["Location"] == f"/platform/updates/operations/{row.pk}/"
     with request_context(actor=user, request_id=None, source="test:deployment"):
         row.refresh_from_db()
         assert row.state == "preview"
@@ -718,7 +719,9 @@ def preview_agent(monkeypatch, *states, calls=None):
             ]
         return status
 
-    monkeypatch.setattr(releases, "agent_client", lambda: SimpleNamespace(preview=preview, plan=plan))
+    inventory = {"generation": 3, "core": {"version": "0.8.0"}, "apps": []}
+    double = SimpleNamespace(preview=preview, plan=plan, inventory=lambda: inventory)
+    monkeypatch.setattr(releases, "agent_client", lambda: double)
     return calls
 
 

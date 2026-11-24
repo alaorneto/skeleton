@@ -1,5 +1,6 @@
 """Release packages in /platform/updates/ (#495): planned through the core package they carry."""
 
+import re
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -125,6 +126,7 @@ def agent_double(monkeypatch, *, self_update=True, calls=None):
         inventory=lambda: inventory,
         upload=lambda path: offer(),
         cluster=lambda: {"mode": "single"},
+        update_status=lambda: {},
     )
     from skeleton.system import releases
 
@@ -141,7 +143,7 @@ def test_installed_versions_show_the_agent(admin, monkeypatch):
     agent_double(monkeypatch, self_update=False)
     client = support.login(admin, password=PASSWORD, csrf=False)
     body = client.get(reverse("platform:updates")).content.decode()
-    assert "Agente de deployment" in body and "Atualização do agente: manual" in body
+    assert "Agente de deployment" in body and "Atualização do agente" in body and "Manual" in body
     assert "docs/deployment.md#atualizar-o-agente" in body and "veja o guia" in body
 
 
@@ -437,36 +439,73 @@ def path_agent(monkeypatch, **options):
     return double
 
 
-def test_available_shows_the_last_check_and_one_step_at_a_time(admin, monkeypatch, subtests):
+def test_platform_overview_shows_the_last_check_and_one_step_at_a_time(admin, monkeypatch, subtests):
     double = path_agent(monkeypatch)
     client = support.login(admin, password=PASSWORD, csrf=False)
-    response = client.get(reverse("platform:updates-available"))
+    response = client.get(reverse("platform:updates"))
     body = response.content.decode()
     with subtests.test("no new check"):
         assert "check_updates" not in double.calls and "update_status" in double.calls
-    with subtests.test("steps in order, only the first with a button"):
-        cards = response.context["paths"]
-        assert [step["version"] for step in cards[0]["steps"]] == ["0.6.4", "0.7.1"]
-        assert body.count("Preparar este passo") == 1 and "Depois: 0.7.1" in body
-        assert body.index("0.6.4") < body.index("Depois: 0.7.1")
+    with subtests.test("core steps in order, only the first with a button"):
+        card = response.context["core_card"]
+        assert [step["version"] for step in card["steps"]] == ["0.6.4", "0.7.1"]
+        assert body.count("Preparar atualização para") == 1 and "Depois: versão 0.7.1" in body
+        assert body.index("Preparar atualização para 0.6.4") < body.index("Depois: versão 0.7.1")
         assert 'name="version" value="0.6.4"' in body and 'name="source_id" value="official"' in body
-    with subtests.test("blocked texts"):
-        assert "não pode pular direto para 1.4.0" in body
-        assert "não são compatíveis com o Python ou o núcleo" in body
-        assert "Notas" in body  # The installed manifest's name.
-    with subtests.test("up-to-date component has no button"):
-        assert [card["component_id"] for card in response.context["current"]] == ["org.example.done"]
-    with subtests.test("source error text and full table"):
-        assert "O GitHub limitou as consultas" in body and "Todas as versões publicadas" in body
+    with subtests.test("only the core: apps are counted and linked"):
+        assert "org.example.calc" not in body and "2 aplicativos têm atualização" in body
+        assert reverse("platform:updates-apps") in body
+    with subtests.test("source error text and the published versions"):
+        assert "O GitHub limitou as consultas" in body and "Versões do núcleo publicadas nas fontes" in body
         assert "2026-11-15T12:00:00" in body
+    with subtests.test("tabs without numbers"):
+        assert "1. " not in body.split('class="link-tabs"')[1].split("</nav>")[0]
+
+
+def test_apps_overview_lists_updates_installs_and_installed(admin, monkeypatch, subtests):
+    status = {
+        **STATUS,
+        "releases": [
+            *STATUS["releases"],
+            {"source_id": "official", "component_id": "org.example.new", "version": "1.0.0", "state": "available"},
+            {"source_id": "official", "component_id": "org.example.new", "version": "1.2.0", "state": "available"},
+            {"source_id": "official", "component_id": "org.example.notes", "version": "1.4.0", "state": "available"},
+        ],
+    }
+    double = path_agent(monkeypatch, status=status)
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    response = client.get(reverse("platform:updates-apps"))
+    body = response.content.decode()
+    with subtests.test("blocked texts of the installed apps"):
+        assert response.status_code == 200 and "check_updates" not in double.calls
+        assert "não pode pular direto para 1.4.0" in body
+        assert "Notas" in body  # The installed manifest's name.
+    with subtests.test("install candidates: the newest of apps not installed"):
+        assert response.context["candidates"] == [
+            {"component_id": "org.example.new", "version": "1.2.0", "source_id": "official", "notes": ""}
+        ]
+        assert "Preparar instalação" in body
+    with subtests.test("installed apps take their code out without typing an id"):
+        assert 'name="action" value="uninstall"' in body and 'name="app_ids" value="org.example.notes"' in body
+    with subtests.test("the core is not here"):
+        assert "Preparar atualização para 0.6.4" not in body
 
 
 def test_check_now_redirects_to_the_status(admin, monkeypatch):
     double = path_agent(monkeypatch)
     client = support.login(admin, password=PASSWORD, csrf=False)
     response = client.post(reverse("platform:updates-available"))
-    assert response.status_code == 302 and response["Location"] == reverse("platform:updates-available")
+    assert response.status_code == 302 and response["Location"] == reverse("platform:updates")
     assert double.calls == ["check_updates"]
+    response = client.post(reverse("platform:updates-available"), {"area": "apps"})
+    assert response["Location"] == reverse("platform:updates-apps")
+
+
+def test_the_old_new_versions_page_goes_to_the_platform_overview(admin, monkeypatch):
+    path_agent(monkeypatch)
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    response = client.get(reverse("platform:updates-available"), {"target": "0.7.1"})
+    assert response.status_code == 302 and response["Location"] == reverse("platform:updates") + "?target=0.7.1"
 
 
 @pytest.mark.parametrize(
@@ -475,7 +514,8 @@ def test_check_now_redirects_to_the_status(admin, monkeypatch):
 def test_unexpected_status_shapes_never_break_the_page(admin, monkeypatch, status):
     path_agent(monkeypatch, status=status)
     client = support.login(admin, password=PASSWORD, csrf=False)
-    assert client.get(reverse("platform:updates-available")).status_code == 200
+    assert client.get(reverse("platform:updates")).status_code == 200
+    assert client.get(reverse("platform:updates-apps")).status_code == 200
 
 
 def test_unavailable_agent_on_available_shows_the_notice(admin, monkeypatch):
@@ -483,7 +523,7 @@ def test_unavailable_agent_on_available_shows_the_notice(admin, monkeypatch):
 
     path_agent(monkeypatch, status=DeploymentUnavailable("x"))
     client = support.login(admin, password=PASSWORD, csrf=False)
-    response = client.get(reverse("platform:updates-available"))
+    response = client.get(reverse("platform:updates"))
     assert response.status_code == 200 and "não está disponível" in response.content.decode()
 
 
@@ -548,14 +588,14 @@ def test_preparing_the_step_updates_the_agent_and_the_wait_ends_in_the_plan(admi
         double.calls.clear()
         response = client.get(wait)
         body = response.content.decode()
-        assert response.status_code == 200 and "Visualizar impacto" in body
+        assert response.status_code == 200 and "Conferir o impacto" in body
         assert response.context["plan_form"].initial == {"action": "core_update", "artifacts": CORE_DIGEST}
         assert "Agente atualizado para 0.7.1" in body and 'http-equiv="refresh"' not in body
         assert ("fetch_release", kept["identifiers"]) in double.calls and not has_call(double, "update_agent")
         assert continuation(client) is None
-    with subtests.test("without a continuation the wait goes back to the new versions"):
+    with subtests.test("without a continuation the wait goes back to the platform overview"):
         response = client.get(wait)
-        assert response.status_code == 302 and response["Location"] == reverse("platform:updates-available")
+        assert response.status_code == 302 and response["Location"] == reverse("platform:updates")
 
 
 def test_the_wait_ends_only_with_every_alive_node_on_the_new_agent(admin, monkeypatch):
@@ -579,7 +619,7 @@ def test_the_wait_ends_only_with_every_alive_node_on_the_new_agent(admin, monkey
     assert "node-b" in body and "node-c" not in body and "atualize a imagem dele" in body
     cluster["nodes"][1]["agent_version"] = "0.7.1"
     response = client.get(reverse("platform:updates-agent-wait"))
-    assert "Visualizar impacto" in response.content.decode() and continuation(client) is None
+    assert "Conferir o impacto" in response.content.decode() and continuation(client) is None
 
 
 def test_a_wait_past_thirty_minutes_says_what_to_do(admin, monkeypatch):
@@ -673,7 +713,7 @@ def test_the_chosen_target_survives_the_agent_update(admin, monkeypatch):
     )
     assert response["Location"] == reverse("platform:updates-agent-wait")
     double.agent["version"] = "0.6.4"
-    assert "Visualizar impacto" in client.get(reverse("platform:updates-agent-wait")).content.decode()
+    assert "Conferir o impacto" in client.get(reverse("platform:updates-agent-wait")).content.decode()
     assert client.session[updates.TARGET_SESSION_KEY] == "0.7.1"
 
 
@@ -681,15 +721,15 @@ def test_available_warns_when_the_step_starts_with_the_agent(admin, monkeypatch,
     client = support.login(admin, password=PASSWORD, csrf=False)
     with subtests.test("self update"):
         path_agent(monkeypatch, agent={"version": "0.5.2", "self_update": True})
-        body = client.get(reverse("platform:updates-available")).content.decode()
+        body = client.get(reverse("platform:updates")).content.decode()
         assert "Este passo começa atualizando o agente de deployment (0.5.2 → 0.6.4)" in body
     with subtests.test("manual"):
         path_agent(monkeypatch, agent={"version": "0.5.2", "self_update": False})
-        body = client.get(reverse("platform:updates-available")).content.decode()
+        body = client.get(reverse("platform:updates")).content.decode()
         assert "que neste servidor é atualizado à mão" in body
     with subtests.test("agent on the line"):
         path_agent(monkeypatch, agent={"version": "0.6.0", "self_update": True})
-        body = client.get(reverse("platform:updates-available")).content.decode()
+        body = client.get(reverse("platform:updates")).content.decode()
         assert "começa atualizando o agente" not in body
 
 
@@ -802,7 +842,7 @@ def test_finished_operation_offers_the_next_step(admin, monkeypatch, subtests):
     url = reverse("platform:updates-operation", args=[row.pk])
     with subtests.test("next step"):
         body = client.get(url).content.decode()
-        assert "Próximo passo" in body and "Preparar este passo" in body
+        assert "Próximo passo" in body and "Preparar atualização para 0.6.4" in body
     with subtests.test("nothing left"):
         double.status = {
             "paths": [{"component_id": "django-skeleton", "installed": "0.7.1", "latest": None, "steps": []}]
@@ -844,7 +884,12 @@ def test_platform_banner_for_release_operators(admin, monkeypatch, notice_cache,
     with subtests.test("banner on platform pages"):
         body = client.get(reverse("platform:overview")).content.decode()
         assert "Há uma versão nova do núcleo: 0.7.1." in body
-        assert reverse("platform:updates-available") in body
+        assert f'href="{reverse("platform:updates")}"' in body
+    with subtests.test("the menu marks the area with the update with a point of attention (#815, #822)"):
+        link = re.search(r'<a class="sidebar-link" href="/platform/updates/"[^>]*>(.*?)</a>', body, re.S)
+        assert link and 'class="attention-dot' in link[1] and "há atualização disponível" in link[1]
+        apps = re.search(r'<a class="sidebar-link" href="/platform/updates/apps/"[^>]*>(.*?)</a>', body, re.S)
+        assert apps and "attention-dot" not in apps[1]  # STATUS has no app with a step to take.
     with subtests.test("one agent call for many pages"):
         client.get(reverse("platform:users"))
         assert double.calls.count("update_status") == 1
@@ -886,6 +931,7 @@ def test_overview_says_up_to_date(admin, monkeypatch, notice_cache):
     client = support.login(admin, password=PASSWORD, csrf=False)
     body = client.get(reverse("platform:overview")).content.decode()
     assert "Tudo atualizado." in body and "Há atualizações" not in body
+    assert "attention-dot" not in body  # No point of attention without an update (#815).
 
 
 def test_banner_never_breaks_a_page_when_the_agent_is_down(admin, monkeypatch, notice_cache):

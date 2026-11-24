@@ -1,30 +1,34 @@
 {% extends "skeleton/web/platform/updates/base.html" %}
 {% load i18n %}{% block extrahead %}{% if plan_state == 'preparing' %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
-{% block step_title %}{% translate "Prévia do plano" %}{% endblock %}
+{% block step_title %}{% translate "Conferir o impacto" %}{% endblock %}
+{% block crumb %}{% translate "Conferir o impacto" %}{% endblock %}
+{% block heading %}{% translate "Conferir o impacto" %}{% endblock %}
+{% block description %}{% translate "Veja o que muda e o risco antes de seguir para a aprovação. Nada foi aplicado." %}{% endblock %}
 {% block step %}
-<div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-  <div class="min-w-0">
-    <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'platform:updates-plan' %}">{% translate "Preparar plano" %}</a></li><li><span aria-current="page">{% translate "Prévia" %}</span></li></ol></nav>
-    <h2 class="text-xl/8">{% translate "Prévia do plano" %}</h2>
-    <p class="mt-1 text-sm text-body"><code class="uuid">{{ plan_id }}</code></p>
-  </div>
-  <a class="btn btn-secondary btn-sm" href="{% url 'platform:updates-preview' plan_id %}">{% include "skeleton/web/components/icon.html" with name="refresh" %}{% translate "Atualizar estado" %}</a>
-</div>
 {% if plan_state == 'preparing' %}
-<div class="message info" role="status" aria-live="polite">{% include "skeleton/web/components/icon.html" with name="refresh" %}<div class="min-w-0">{% translate "Preparando a prévia…" %} {% translate "O agente copia o projeto, instala os pacotes e roda os checks; esta página se atualiza sozinha." %}</div></div>
+<div class="message info" role="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span><div class="min-w-0">{% translate "Preparando a prévia…" %} {% translate "O agente copia o projeto, instala os pacotes e roda os checks; esta página se atualiza sozinha." %} <a href="{% url 'platform:updates-preview' plan_id %}">{% translate "Atualizar agora" %}</a></div></div>
 {% else %}
-{% for warning in theme_warnings %}{% if warning.active %}<div class="message warning mb-4" role="status">{% include "skeleton/web/components/icon.html" with name="warning" %}<div class="min-w-0">{% blocktranslate trimmed with name=warning.active %}O tema ativo da instância ({{ name }}) vem desta app. Depois da desinstalação, a instância volta ao tema do núcleo, a menos que você ative outro tema antes em{% endblocktranslate %} <a href="{% url 'platform:appearance' %}">{% translate "Aparência" %}</a>.</div></div>{% endif %}<div class="message info mb-4" role="status">{% include "skeleton/web/components/icon.html" with name="info" %}<div class="min-w-0">{% blocktranslate trimmed with app=warning.app names=warning.names %}A app {{ app }} traz temas da instância ({{ names }}). Eles saem do catálogo com a desinstalação.{% endblocktranslate %}</div></div>{% endfor %}
+{% for warning in theme_warnings %}{% if warning.active %}<div class="message warning mb-4" role="status">{% include "skeleton/web/components/icon.html" with name="warning" %}<div class="min-w-0">{% blocktranslate trimmed with name=warning.active %}O tema ativo da instância ({{ name }}) vem desta app. Depois da desinstalação, a instância volta ao tema do núcleo, a menos que você ative outro tema antes em{% endblocktranslate %} {% if platform_admin %}<a href="{% url 'platform:appearance' %}">{% translate "Aparência" %}</a>{% else %}{% translate "Aparência" %}{% endif %}.</div></div>{% endif %}<div class="message info mb-4" role="status">{% include "skeleton/web/components/icon.html" with name="info" %}<div class="min-w-0">{% blocktranslate trimmed with app=warning.app names=warning.names %}A app {{ app }} traz temas da instância ({{ names }}). Eles saem do catálogo com a desinstalação.{% endblocktranslate %}</div></div>{% endfor %}
 <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
 <div class="min-w-0 space-y-6">
+  {% include "skeleton/web/platform/updates/plan-summary.html" %}
   {% include "skeleton/web/platform/updates/plan-details.html" with plan=plan %}
 </div>
 <aside class="space-y-5">
   <section class="card" aria-labelledby="preview-continue">
-    <h3 id="preview-continue" class="mb-3">{% translate "Plano pronto" %}</h3>
-    <p class="mb-3 text-sm/6 text-body">{% translate "Continue para registrar a prévia e revisar a aprovação. Nada é executado ainda." %}</p>
-    <form method="post">{% csrf_token %}<button type="submit" class="btn btn-primary w-full">{% translate "Continuar" %}</button></form>
-    <p class="mt-3 text-xs/5 text-body-subtle">{% translate "Digest do plano:" %} <code class="uuid">{{ plan.digest }}</code></p>
+    <h2 id="preview-continue" class="mb-3">{% translate "Plano pronto" %}</h2>
+    <p class="mb-4 text-sm/6 text-body">{% translate "Continue para a aprovação. O plano fica guardado aguardando você; se preparar outro para os mesmos componentes, este é substituído." %}</p>
+    <form method="post">{% csrf_token %}<button type="submit" class="btn btn-primary w-full" data-busy-label="{% translate "Guardando o plano…" %}">{% translate "Continuar para a aprovação" %}{% include "skeleton/web/components/icon.html" with name="arrow-right" %}</button></form>
+    <p class="mt-3"><a class="btn btn-ghost w-full" href="{{ area_meta.url }}">{% translate "Voltar sem guardar" %}</a></p>
   </section>
+  <details class="card">
+    <summary class="font-medium text-heading">{% translate "Detalhes técnicos" %}</summary>
+    <dl class="meta-list mt-3 sm:grid-cols-1!">
+      <div><dt>{% translate "Plano" %}</dt><dd><code class="uuid">{{ plan_id }}</code></dd></div>
+      <div><dt>{% translate "Digest do plano" %}</dt><dd><code class="uuid">{{ plan.digest }}</code></dd></div>
+      <div><dt>{% translate "Geração de origem" %}</dt><dd>{{ plan.generation }}</dd></div>
+    </dl>
+  </details>
 </aside>
 </div>
 {% endif %}

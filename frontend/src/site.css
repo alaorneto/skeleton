@@ -233,6 +233,33 @@
       @apply text-fg-brand;
     }
   }
+  /* Notificações e Tarefas numa pílula dividida (#816): os dois lugares de atividade nova, com
+     contador numérico. Cada metade arredonda o próprio lado, sem overflow que corte o foco. */
+  .activity-pill {
+    @apply flex items-stretch rounded-full border border-default bg-neutral-primary-soft;
+  }
+  .header-end > .activity-pill {
+    @apply max-md:py-0;
+  }
+  .activity-pill > a {
+    @apply flex flex-1 items-center justify-center gap-2 px-3 py-2 text-sm/5 font-medium text-heading no-underline transition-colors first:rounded-s-full last:rounded-e-full hover:bg-neutral-tertiary md:flex-none md:py-1.5;
+    & svg {
+      @apply text-body-subtle;
+    }
+  }
+  .activity-pill > a + a {
+    @apply border-s border-default;
+  }
+  .activity-pill > a[aria-current] {
+    @apply bg-brand-softer text-fg-brand;
+    & svg {
+      @apply text-fg-brand;
+    }
+  }
+  /* Entre md e lg o cabeçalho é estreito: só os ícones, com o rótulo para leitor de tela. */
+  .activity-pill-label {
+    @apply md:max-lg:sr-only;
+  }
   .dropdown-panel {
     @apply z-40 max-md:static! max-md:block! max-md:transform-none! md:rounded-card md:border md:border-default md:bg-neutral-primary-soft md:p-1.5 md:shadow-pop;
   }
@@ -554,6 +581,28 @@
   }
   .setup-step-later .setup-step-number {
     @apply border-warning-subtle bg-warning-soft text-fg-warning;
+  }
+  /* Etapas de um fluxo de várias telas (#823): só onde há sequência real. Linha rolável no celular. */
+  .flow-steps {
+    @apply mb-6 flex gap-2 overflow-x-auto border-b border-default pb-4 [scrollbar-width:thin];
+  }
+  .flow-steps > li {
+    @apply flex shrink-0 items-center gap-2 text-sm/5 text-body-subtle;
+  }
+  .flow-steps > li + li::before {
+    @apply me-1 h-px w-6 bg-default content-[''];
+  }
+  .flow-step-number {
+    @apply grid size-6 shrink-0 place-items-center rounded-full border border-default-medium text-xs font-semibold tabular-nums;
+  }
+  .flow-steps > li[aria-current] {
+    @apply font-medium text-heading;
+  }
+  .flow-steps > li[aria-current] .flow-step-number {
+    @apply border-brand bg-brand text-white;
+  }
+  .flow-step-done .flow-step-number {
+    @apply border-success-subtle bg-success-soft text-fg-success-strong;
   }
   /* Anexos no setup (#729): só a seção da opção marcada aparece. Sem :has, a regra cai inteira e as duas
      aparecem; os campos escondidos continuam no formulário e quem valida é o servidor. */
@@ -1213,6 +1262,10 @@
   .counter {
     @apply inline-flex min-w-5 items-center justify-center rounded-full bg-brand px-1.5 py-0.5 text-xs/4 font-semibold text-white tabular-nums;
   }
+  /* Ponto de atenção (#815): há algo a ver, sem quantidade. O texto vai em sr-only ao lado. */
+  .attention-dot {
+    @apply inline-block size-2 shrink-0 rounded-full bg-brand ring-2 ring-brand-softer;
+  }
 
   /* Listas de definição soltas (metadados) */
   .meta-list {
@@ -1275,6 +1328,28 @@
       flex: 1 1 auto;
     }
   }
+}
+
+/* Processamento (#817). O botão que enviou o formulário mostra um anel girando no lugar do ícone
+   (site.js marca aria-busy depois da trava de duplo envio, #474), e um aviso de espera usa o mesmo
+   anel em `.spinner`. Fora de camada para valer sobre o aria-disabled do `.btn`, que apaga os
+   outros botões do formulário. Com movimento reduzido o anel fica parado; o texto continua dizendo
+   que algo está em andamento. */
+.spinner,
+.btn[aria-busy="true"]::before {
+  @apply inline-block size-4 shrink-0 rounded-full border-2 border-current border-e-transparent motion-safe:animate-spin;
+}
+.btn[aria-busy="true"] {
+  opacity: 1;
+  &::before {
+    content: "";
+  }
+  & > svg {
+    display: none;
+  }
+}
+.message > .spinner {
+  @apply mt-1;
 }
 
 /* Sem JavaScript, menus recolhíveis (Flowbite collapse/dropdown) ficam abertos. */

@@ -1,13 +1,14 @@
 {% extends "skeleton/web/platform/base.html" %}
-{% load i18n %}{% block page_title %}{% block step_title %}{% translate "Versões e atualizações" %}{% endblock %}{% endblock %}
+{% load i18n skeleton_format %}{% comment %}Área de atualizações (#822): plataforma ou aplicativos. Abas sem número entre telas irmãs; as telas de um plano mostram as etapas dele (#823), a única sequência da área.{% endcomment %}{% block page_title %}{% block step_title %}{{ area_meta.title }}{% endblock %}{% endblock %}
 {% block content %}
 <div class="page-header mb-4! sm:mb-5!">
   <div class="min-w-0">
-    <p class="page-eyebrow">{% translate "Aplicativos" %}</p>
-    <h1>{% translate "Versões e atualizações" %}</h1>
-    <p class="page-description">{% translate "Atualize o núcleo e os aplicativos. Cada atualização passa por uma prévia antes de ser aplicada." %}</p>
+    {% if flow_steps or updates_crumb %}<nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{{ area_meta.url }}">{{ area_meta.title }}</a></li><li><span aria-current="page">{% block crumb %}{% endblock %}</span></li></ol></nav>{% else %}<p class="page-eyebrow">{{ area_meta.eyebrow }}</p>{% endif %}
+    <h1>{% block heading %}{{ area_meta.title }}{% endblock %}</h1>
+    <p class="page-description">{% block description %}{{ area_meta.description }}{% endblock %}</p>
   </div>
+  <nav class="toolbar" aria-label="{% translate "Ações" %}">{% block toolbar %}{% endblock %}<a class="btn btn-ghost" href="{{ updates_help }}" rel="noopener noreferrer">{% include "skeleton/web/components/icon.html" with name="documentation"|concept_icon %}{% translate "Como funciona" %}</a></nav>
 </div>
-<nav class="link-tabs" aria-label="{% translate "Etapas de atualização" %}">{% for step_id, label, url_name in steps %}{% url url_name as step_url %}<a href="{{ step_url }}"{% if step_id == updates_step %} aria-current="page"{% endif %}>{{ forloop.counter }}. {{ label }}</a>{% endfor %}</nav>
+{% if flow_steps %}{% include "skeleton/web/components/flow-steps.html" with steps=flow_steps %}{% else %}<nav class="link-tabs" aria-label="{{ area_meta.title }}">{% for tab in area_meta.tabs %}<a href="{{ tab.url }}"{% if tab.current %} aria-current="page"{% endif %}>{{ tab.label }}</a>{% endfor %}</nav>{% endif %}
 {% block step %}{% endblock %}
 {% endblock %}

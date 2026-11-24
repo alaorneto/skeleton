@@ -1,5 +1,6 @@
 """The platform's own inbox (#787): notify_platform, fan-out, email and the pages."""
 
+import re
 from uuid import uuid4
 
 import pytest
@@ -163,6 +164,13 @@ def test_inbox_pages(people, subtests):
         page = client.get(reverse("platform:notifications")).content.decode()
         assert "Há 3 jobs que falharam" in page and "Para operadores" in page
         assert unread_count(admin) == 2
+    with subtests.test("the header and the menu show a point of attention, not a number (#815)"):
+        page = client.get(reverse("platform:jobs")).content.decode()
+        platform_link = re.search(r'<a class="header-link" href="[^"]*/platform/[^"]*"[^>]*>(.*?)</a>', page, re.S)
+        inbox_link = re.search(r'<a class="sidebar-link" href="/platform/notifications/"[^>]*>(.*?)</a>', page, re.S)
+        for link in (platform_link, inbox_link):
+            assert link and 'class="attention-dot' in link[1] and "há avisos não lidos" in link[1]
+            assert "counter" not in link[1] and "2" not in re.sub(r"<[^>]+>", "", link[1])
     with subtests.test("open leads to the type's page and marks read"):
         response = client.get(reverse("platform:notification-open", kwargs={"sysid": admin_row.pk}))
         assert response.status_code == 302 and response["Location"] == reverse("platform:jobs")
@@ -183,6 +191,7 @@ def test_inbox_pages(people, subtests):
         assert post(client, change).status_code == 302 and unread_count(admin) == 2
         assert post(client, reverse("platform:notification-read-all")).status_code == 302
         assert unread_count(admin) == 0
+        assert "attention-dot" not in client.get(reverse("platform:jobs")).content.decode()
     with subtests.test("another person's row answers 404"):
         assert client.get(reverse("platform:notification-open", kwargs={"sysid": operator_row.pk})).status_code == 404
         other = reverse("platform:notification-change", kwargs={"sysid": operator_row.pk, "action": "archive"})

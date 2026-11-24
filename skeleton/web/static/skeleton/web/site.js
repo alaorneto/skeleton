@@ -170,6 +170,9 @@ for (const swatch of document.querySelectorAll("[data-swatch]")) {
 // changes. Buttons are marked aria-disabled, never disabled: a disabled button would not send its
 // name/value (forms with several actions). A form that answers with a file on the same page opts
 // out with data-allow-resubmit.
+// The button that sent the form also shows it is working (#817): aria-busy draws a spinning ring
+// in place of its icon (site.css), and data-busy-label, when present, replaces its text.
+const submitButtons = "button[type=submit], button:not([type]), input[type=submit]";
 for (const form of document.querySelectorAll("form")) {
   if ((form.getAttribute("method") || "get").toLowerCase() !== "post") continue;
   if (form.hasAttribute("data-allow-resubmit")) continue;
@@ -180,11 +183,20 @@ for (const form of document.querySelectorAll("form")) {
       return;
     }
     form.dataset.submitted = "1";
+    const sender = event.submitter || form.querySelector(submitButtons);
     // Disable after the browser has collected the form data, or the clicked button's value is lost.
     setTimeout(() => {
-      for (const button of form.querySelectorAll("button[type=submit], input[type=submit]")) {
+      for (const button of form.querySelectorAll(submitButtons)) {
         button.setAttribute("aria-disabled", "true");
         button.classList.add("is-submitting");
+      }
+      if (sender && sender.tagName === "BUTTON") {
+        sender.setAttribute("aria-busy", "true");
+        const label = sender.dataset.busyLabel;
+        if (label) {
+          sender.idleContent = [...sender.childNodes];
+          sender.replaceChildren(document.createTextNode(label));
+        }
       }
     }, 0);
   });
@@ -194,7 +206,12 @@ window.addEventListener("pageshow", () => {
     delete form.dataset.submitted;
     for (const button of form.querySelectorAll("[aria-disabled=true].is-submitting")) {
       button.removeAttribute("aria-disabled");
+      button.removeAttribute("aria-busy");
       button.classList.remove("is-submitting");
+      if (button.idleContent) {
+        button.replaceChildren(...button.idleContent);
+        delete button.idleContent;
+      }
     }
   }
 });

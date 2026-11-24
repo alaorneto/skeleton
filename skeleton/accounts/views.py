@@ -24,13 +24,11 @@ def invitation_view(request, organization_id, token):
     if request.method == "POST":
         if not request.user.is_authenticated:
             return redirect("account_signup")
-        from skeleton.accounts.reauthentication import has_recent_authentication
+        from skeleton.accounts.reauthentication import has_recent_authentication, reauthentication_url
 
         # SSO-only accounts cannot reauthenticate locally; their login is accepted as before.
         if not has_recent_authentication(request, allow_without_reauthentication_flow=True):
-            from django.urls import reverse
-
-            return redirect(reverse("account_reauthenticate") + "?next=" + request.path)
+            return redirect(reauthentication_url(request.user) + "?next=" + request.path)
         try:
             accept_invitation(user=request.user, organization_id=organization_id, token=token)
         except QuotaLimitExceeded as full:

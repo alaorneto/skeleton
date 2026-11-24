@@ -110,3 +110,62 @@ def test_existing_account_accepts_invitation_only_with_recent_authentication():
     assert response["Location"] == reverse("web:dashboard", kwargs={"organization_id": organization.pk})
     with system_context(reason="test:recent-invite-result", organization_id=organization.pk):
         assert Membership.objects.filter(user=invited).count() == 1
+
+
+def test_mfa_enrolled_person_reauthenticates_with_mfa_not_the_password(subtests):
+    """#818: the authenticator proves the device; with MFA enrolled the password does not confirm."""
+    import time
+
+    from allauth.mfa import app_settings
+    from allauth.mfa.recovery_codes.internal.auth import RecoveryCodes
+    from allauth.mfa.totp.internal.auth import TOTP, format_hotp_value, hotp_value, validate_totp_code
+    from cryptography.fernet import Fernet
+
+    secret = "JBSWY3DPEHPK3PXP"
+    admin, _ = bootstrap_identity(
+        email="recent-mfa@example.test", organization="recent-mfa", name="Recent MFA", password=PASSWORD
+    )
+    plain = local_identity("recent-no-mfa@example.test")
+    with override_settings(MFA_ENCRYPTION_KEYS=[Fernet.generate_key()], SKELETON_PACKAGE_MAX_BYTES=8):
+        with system_context(reason="test:recent-mfa-enrollment"):
+            TOTP.activate(admin, secret)
+            codes = RecoveryCodes.activate(admin).generate_codes()
+        client = Client()
+        challenge = client.post(reverse("account_login"), {"login": admin.email, "password": PASSWORD})["Location"]
+        # A recovery code at login, so the authenticator code below is not refused as already used.
+        assert client.post(challenge, {"code": codes[1]}).status_code == 302
+
+        def upload():
+            return client.post("/platform/updates/upload/", {"package": SimpleUploadedFile("app.skapp", b"123456789")})
+
+        with subtests.test("a sensitive action goes to the MFA page"):
+            expire(client)
+            response = upload()
+            assert response.status_code == 302
+            assert response["Location"].startswith(reverse("mfa_reauthenticate"))
+        with subtests.test("the password page refuses and sends to MFA"):
+            response = client.post(reverse("account_reauthenticate"), {"password": PASSWORD})
+            assert response.status_code == 302 and response["Location"].startswith(reverse("mfa_reauthenticate"))
+            assert not has_recent_authentication(request_for(client, admin))
+        with subtests.test("a wrong code is refused"):
+            wrong = "000000"
+            while validate_totp_code(secret, wrong):
+                wrong = f"{(int(wrong) + 1) % 1000000:06d}"
+            assert client.post(reverse("mfa_reauthenticate"), {"code": wrong}).status_code == 200
+            assert not has_recent_authentication(request_for(client, admin))
+        with subtests.test("a recovery code confirms"):
+            assert client.post(reverse("mfa_reauthenticate"), {"code": codes[0]}).status_code == 302
+            assert upload().status_code == 413
+        with subtests.test("the authenticator code confirms and the action resumes"):
+            expire(client)
+            assert upload()["Location"].startswith(reverse("mfa_reauthenticate"))
+            code = format_hotp_value(hotp_value(secret, int(time.time()) // app_settings.TOTP_PERIOD))
+            response = client.post(reverse("mfa_reauthenticate"), {"code": code})
+            assert response.status_code == 302
+            assert upload().status_code == 413
+        with subtests.test("without MFA the password still confirms"):
+            other = login(plain)
+            expire(other)
+            response = other.post(reverse("account_reauthenticate"), {"password": PASSWORD})
+            assert response.status_code == 302
+            assert has_recent_authentication(request_for(other, plain))

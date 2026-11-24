@@ -53,7 +53,7 @@ def status(**core):
 
 
 def core_card(response):
-    return next(card for card in response.context["paths"] if card["component_id"] == "django-skeleton")
+    return response.context["core_card"]
 
 
 def fetch(client, version, target=None):
@@ -70,7 +70,7 @@ def fetched(double):
 def test_the_page_offers_the_reachable_targets_and_the_steps_to_the_chosen_one(admin, monkeypatch, subtests):
     path_agent(monkeypatch, status=status())
     client = support.login(admin, password=PASSWORD, csrf=False)
-    url = reverse("platform:updates-available")
+    url = reverse("platform:updates")
     with subtests.test("targets, the newest marked"):
         body = client.get(url).content.decode()
         for version in ("0.3.1", "0.4.2"):
@@ -81,7 +81,7 @@ def test_the_page_offers_the_reachable_targets_and_the_steps_to_the_chosen_one(a
         response = client.get(url, {"target": "0.5.0"})
         body = response.content.decode()
         assert [item["version"] for item in core_card(response)["steps"]] == ["0.4.2", "0.5.0"]
-        assert body.count("Preparar este passo") == 1 and "Depois: 0.5.0" in body
+        assert body.count("Preparar atualização para") == 1 and "Depois: versão 0.5.0" in body
         assert 'name="target" value="0.5.0"' in body and 'name="version" value="0.4.2"' in body
     with subtests.test("the choice stays for the session only after a step is prepared"):
         assert core_card(client.get(url))["target"] is None
@@ -92,7 +92,7 @@ def test_the_page_offers_the_reachable_targets_and_the_steps_to_the_chosen_one(a
         response = client.get(url, {"target": "0.4.0"})
         body = response.content.decode()
         assert core_card(response)["steps"] == [] and "deixou de ser alcançável" in body
-        assert "Preparar este passo" not in body
+        assert "Preparar atualização para" not in body
 
 
 def test_a_step_toward_the_target_is_fetched_and_remembered(admin, monkeypatch):
@@ -104,7 +104,7 @@ def test_a_step_toward_the_target_is_fetched_and_remembered(admin, monkeypatch):
         ("fetch_release", {"component_id": "django-skeleton", "version": "0.4.2", "source_id": "official"})
     ]
     assert client.session[updates.TARGET_SESSION_KEY] == "0.5.0"
-    assert core_card(client.get(reverse("platform:updates-available")))["target"] == "0.5.0"
+    assert core_card(client.get(reverse("platform:updates")))["target"] == "0.5.0"
     fetch(client, "0.4.2")  # A step of the default path forgets the choice.
     assert updates.TARGET_SESSION_KEY not in client.session
 
@@ -120,7 +120,7 @@ def test_forged_or_stale_targets_never_reach_the_agent(admin, monkeypatch, subte
             double = path_agent(monkeypatch, status=current, fetched=release_fetch("0.4.2"))
             client = support.login(admin, password=PASSWORD, csrf=False)
             response = fetch(client, version, target)
-            assert response.status_code == 302 and response["Location"] == reverse("platform:updates-available")
+            assert response.status_code == 302 and response["Location"] == reverse("platform:updates")
             assert fetched(double) == [] and updates.TARGET_SESSION_KEY not in client.session
             body = client.get(response["Location"]).content.decode()
             assert "deixou de ser alcançável" in body
@@ -147,7 +147,7 @@ def test_choosing_a_target_needs_csrf_recent_authentication_and_the_capability(a
         grant_platform_role(actor=admin, user=auditor, role="auditor")
     denied = support.login(auditor, password=PASSWORD, csrf=False)
     assert denied.post(reverse("platform:updates-fetch"), data).status_code == 403
-    assert denied.get(reverse("platform:updates-available"), {"target": "0.5.0"}).status_code == 403
+    assert denied.get(reverse("platform:updates"), {"target": "0.5.0"}).status_code == 403
     assert fetched(double) == []
 
 
@@ -179,15 +179,15 @@ def test_after_each_step_the_next_toward_the_target_until_it_is_reached(admin, m
         )
         body = client.get(url).content.decode()
         assert "Próximo passo" in body and 'name="version" value="0.5.0"' in body
-        assert 'name="target" value="0.5.0"' in body and "Depois: 0.6.1" not in body
+        assert 'name="target" value="0.5.0"' in body and "Depois: versão 0.6.1" not in body
     with subtests.test("a target no longer reachable is refused, not replaced"):
         double.status = status(installed="0.4.2", steps=[step("0.6.1")], latest="0.6.1", targets=[])
         body = client.get(url).content.decode()
-        assert "deixou de ser alcançável" in body and "Preparar este passo" not in body
+        assert "deixou de ser alcançável" in body and "Preparar atualização para" not in body
     with subtests.test("at the target, no core step and the choice is forgotten"):
         double.status = status(installed="0.5.0", steps=[step("0.6.1")], latest="0.6.1", targets=[])
         body = client.get(url).content.decode()
-        assert "Preparar este passo" not in body and "Não há mais atualizações pendentes" in body
+        assert "Preparar atualização para" not in body and "Não há mais atualizações pendentes" in body
         assert updates.TARGET_SESSION_KEY not in client.session
     with subtests.test("afterwards the default path again"):
         body = client.get(url).content.decode()
