@@ -20,7 +20,7 @@
     <h2 id="installed-apps" class="section-heading">{% translate "Apps gerenciadas pelo agente" %}</h2>
     <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "App" %}</th><th scope="col">{% translate "Versão" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col">{% translate "Digest" %}</th></tr></thead><tbody>
     {% for entry in inventory.apps %}<tr><td class="font-medium text-heading">{{ entry.manifest.app_id }}</td><td>{{ entry.manifest.version }}</td><td>{{ entry.state|status_badge:"components" }}</td><td><code class="uuid">{{ entry.digest }}</code></td></tr>
-    {% empty %}<tr><td colspan="4" class="empty-state">{% translate "Nenhuma app gerenciada." %}</td></tr>{% endfor %}
+    {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhuma app gerenciada.") icon="updates"|concept_icon %}{% endfor %}
     </tbody></table></div>
   </section>
 </div>
@@ -34,14 +34,14 @@
   {% if cluster.problem %}<div class="message warning mb-3" role="status">{% include "skeleton/web/components/icon.html" with name="warning" %}<div class="min-w-0">{{ cluster.problem }}</div></div>{% endif %}
   <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Nó" %}</th><th scope="col">{% translate "Papel" %}</th><th scope="col">{% translate "Release" %}</th><th scope="col">{% translate "Agente" %}</th><th scope="col">{% translate "Fase" %}</th><th scope="col">{% translate "Estado" %}</th></tr></thead><tbody>
   {% for node in cluster.nodes %}<tr><td class="font-medium text-heading">{{ node.node_id }}{% if cluster.primary and node.node_id == cluster.primary.node_id %} {{ "primary"|marker }}{% endif %}</td><td>{% if node.role == "candidate" %}{% translate "candidato" %}{% else %}{% translate "seguidor" %}{% endif %}</td><td><code>{{ node.release|default:"—" }}</code></td><td>{{ node.agent_version|default:"—" }}</td><td>{{ node.phase|default:"—" }}</td><td>{% if node.alive %}{{ "alive"|status_badge }}{% else %}{{ "no_signal"|status_badge }}{% endif %}</td></tr>
-  {% empty %}<tr><td colspan="6" class="empty-state">{% translate "Nenhum nó registrado." %}</td></tr>{% endfor %}
+  {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=6 message=_("Nenhum nó registrado.") icon="updates"|concept_icon %}{% endfor %}
   </tbody></table></div>
 </section>{% endif %}
 <section class="mt-8" aria-labelledby="installed-components">
   <h2 id="installed-components" class="section-heading">{% translate "Inventário confirmado no banco" %}</h2>
   <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Componente" %}</th><th scope="col">{% translate "Versão" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col">{% translate "Geração" %}</th></tr></thead><tbody>
   {% for component in components %}<tr><td class="font-medium text-heading">{{ component.component_id }}</td><td>{{ component.version }}</td><td>{{ component.state|status_badge:"components" }}</td><td>{{ component.generation }}</td></tr>
-  {% empty %}<tr><td colspan="4" class="empty-state">{% translate "Nenhum componente confirmado." %}</td></tr>{% endfor %}
+  {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhum componente confirmado.") icon="updates"|concept_icon %}{% endfor %}
   </tbody></table></div>
 </section>
 <div class="mt-8 flex flex-wrap gap-3">

@@ -8,6 +8,6 @@
 <ul class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
 {% for app in applications %}
 <li><a class="link-card h-full" href="{% url 'platform:app' app.app_label %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="apps"|concept_icon %}</span><span class="min-w-0"><span class="link-card-title">{{ app.label }}</span><span class="link-card-text">{{ app.description }}</span><span class="mt-2 text-xs text-body-subtle">v{{ app.version }} · {{ app.origin|code_label:"app_origin" }}</span></span></a></li>
-{% empty %}<li class="card empty-state sm:col-span-2 xl:col-span-3">{% translate "Nenhum aplicativo instalado." %}</li>{% endfor %}
+{% empty %}<li class="card sm:col-span-2 xl:col-span-3">{% include "skeleton/web/components/empty-state.html" with message=_("Nenhum aplicativo instalado.") icon="apps"|concept_icon %}</li>{% endfor %}
 </ul>
 {% endblock %}

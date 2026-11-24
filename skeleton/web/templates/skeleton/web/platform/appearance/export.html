@@ -7,7 +7,7 @@
 </div>
 <form method="post" class="card">
   {% csrf_token %}
-  {% if error %}<div class="error-summary mb-4" role="alert" tabindex="-1" data-error-summary><h2>{% include "skeleton/web/components/icon.html" with name="error" class="size-5 shrink-0" %}{% translate "Não foi possível exportar" %}</h2><p class="mt-1">{{ error }}</p></div>{% endif %}
+  {% include "skeleton/web/components/error-summary.html" with message=error title=_("Não foi possível exportar") extra_class="mb-4" %}
   <p class="confirmation">{% translate "Baixa um pacote de tema (.zip) no formato que a instalação aceita, para levar a outra instância ou guardar no repositório do projeto. Um tema que não veio de pacote recebe um id local (local.theme.…): troque-o antes de publicar." %}</p>
   <p><label><input type="checkbox" name="include_brand"> {% translate "Incluir a marca da instância (nome, rodapé, logo e ícone enviados)" %}</label></p>
   <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Baixar pacote" %}</button><a class="btn btn-secondary" href="{{ cancel_url }}">{% translate "Cancelar" %}</a></div>

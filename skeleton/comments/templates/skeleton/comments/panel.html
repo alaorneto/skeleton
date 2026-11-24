@@ -8,7 +8,7 @@
       {% if row.can_delete %}<form method="post" action="{% url 'comments:remove' organization_id table_key record.sysid row.sysid %}">{% csrf_token %}{% if comments.next %}<input type="hidden" name="next" value="{{ comments.next }}">{% endif %}<input type="hidden" name="revision" value="{{ row.revision }}"><button class="btn btn-danger-outline btn-sm" type="submit">{% include "skeleton/web/components/icon.html" with name="trash" %}{% translate "Excluir" %}</button></form>{% endif %}
       {% if row.can_restore %}<form method="post" action="{% url 'comments:restore' organization_id table_key record.sysid row.sysid %}">{% csrf_token %}{% if comments.next %}<input type="hidden" name="next" value="{{ comments.next }}">{% endif %}<input type="hidden" name="revision" value="{{ row.revision }}"><button class="btn btn-secondary btn-sm" type="submit">{% include "skeleton/web/components/icon.html" with name="restore" %}{% translate "Restaurar" %}</button></form>{% endif %}
     </div>
-  </li>{% endfor %}</ol>{% else %}<p class="empty-state">{% translate "Nenhum comentário." %}</p>{% endif %}
+  </li>{% endfor %}</ol>{% else %}{% include "skeleton/web/components/empty-state.html" with message=_("Nenhum comentário.") icon="" %}{% endif %}
   <form class="mt-4" method="post" action="{% url 'comments:add' organization_id table_key record.sysid %}">{% csrf_token %}{% if comments.next %}<input type="hidden" name="next" value="{{ comments.next }}">{% endif %}
     <label class="mb-2 block text-sm font-medium text-heading" for="comment-body">{% translate "Novo comentário (texto simples, até 5.000 caracteres)" %}</label>
     <textarea id="comment-body" name="body" maxlength="5000" rows="3" required></textarea>

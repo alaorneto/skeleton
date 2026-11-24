@@ -9,7 +9,7 @@
     {% if location %}<p class="mt-2 text-sm/6 text-body-subtle">{% translate "Chave secreta" %}: {% if secret_set %}{% translate "definida" %}{% else %}{% translate "não definida" %}{% endif %}</p>{% endif %}
   </div>
 </div>
-{% if result %}<p class="alert {% if result.ok %}alert-success{% else %}alert-warning{% endif %} mb-4" role="status">{{ result.message }}</p>{% endif %}
+{% if result %}<p class="message {% if result.ok %}{% else %}{% endif %} mb-4" role="status">{{ result.message }}</p>{% endif %}
 <section class="card">
   <form method="post" action="{% if location %}{% url 'platform:storage-location' location.pk %}{% else %}{% url 'platform:storage-create' %}{% endif %}" autocomplete="off">
     {% csrf_token %}

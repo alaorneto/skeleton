@@ -44,7 +44,8 @@ def save(scenario, document, *, published=True, revision=0, user=None, organizat
 
 def headings(html):
     content = html.split('id="conteudo"', 1)[1]
-    return re.findall(r'<h2[^>]*class="section-heading"[^>]*>([^<]+)</h2>', content)
+    # The membership block is a danger zone (#769): its heading counts too.
+    return re.findall(r'<h2[^>]*class="(?:section-heading|danger-zone-title)"[^>]*>([^<]+)</h2>', content)
 
 
 def tasks_for(scenario, organization, count, prefix):

@@ -1,5 +1,5 @@
 {% extends 'skeleton/web/base.html' %}
-{% load skeleton_format %}{% block title %}Entrar numa organização · {{ site_name }}{% endblock %}
+{% load skeleton_format i18n %}{% block title %}Entrar numa organização · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="max-w-5xl">
 <div class="page-header"><div class="min-w-0"><h1>Entrar numa organização</h1><p class="page-description">Organizações que aceitam pedidos de ingresso. Quem as administra decide; você recebe um email com a resposta.</p></div></div>
@@ -13,7 +13,7 @@
 </tbody></table></div></section>{% endif %}
 <section aria-labelledby="join-directory"><h2 id="join-directory" class="section-heading">Organizações</h2>
 <ul class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{% for item in organizations %}<li><a class="link-card" href="{% url 'web:join-organization' item.organization_id %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="organization"|concept_icon %}</span><span class="min-w-0"><span class="link-card-title">{{ item.name }}</span><span class="link-card-text">Pedir para entrar</span></span></a></li>
-{% empty %}<li class="card empty-state sm:col-span-2 lg:col-span-3">Nenhuma organização aberta a pedidos no momento. Peça um convite a quem administra a organização.</li>{% endfor %}</ul>
+{% empty %}<li class="card sm:col-span-2 lg:col-span-3">{% include "skeleton/web/components/empty-state.html" with message=_("Nenhuma organização aberta a pedidos no momento.") hint=_("Peça um convite a quem administra a organização.") icon="organization"|concept_icon %}</li>{% endfor %}</ul>
 </section>
 {% endif %}
 </div>

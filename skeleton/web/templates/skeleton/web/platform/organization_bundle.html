@@ -12,7 +12,7 @@
     <div><dt>{% translate "Apps que saem" %}</dt><dd>{{ preview.leaving|join:", "|default:"—" }}</dd></div>
     <div><dt>{% translate "Limite de membros" %}</dt><dd>{% if preview.members_before is None %}{% translate "ilimitado" %}{% else %}{{ preview.members_before }}{% endif %} → {% if preview.members_after is None %}{% translate "ilimitado" %}{% else %}{{ preview.members_after }}{% endif %}</dd></div>
   </dl>
-  {% if preview.over_limit %}<p class="alert alert-warning mt-4" role="status">{% blocktranslate with used=preview.members_used %}A organização tem {{ used }} membros: ficará acima do limite e novas entradas serão bloqueadas.{% endblocktranslate %}</p>{% endif %}
+  {% if preview.over_limit %}<p class="message warning mt-4" role="status">{% blocktranslate with used=preview.members_used %}A organização tem {{ used }} membros: ficará acima do limite e novas entradas serão bloqueadas.{% endblocktranslate %}</p>{% endif %}
   <form method="post" class="mt-5">{% csrf_token %}<input type="hidden" name="bundle" value="{{ bundle.code }}">
     <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="lock_apps"> {% translate "Travar as apps do pacote (a organização não as desativa)" %}</label>
     <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Atribuir" %}</button><a class="btn btn-secondary" href="{% url 'platform:organization' subject.pk %}">{% translate "Cancelar" %}</a></div>

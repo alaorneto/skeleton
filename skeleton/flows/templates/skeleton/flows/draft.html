@@ -3,7 +3,7 @@
 {% block content %}
 <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'flows:drafts' organization_id %}">{% translate "Fluxos em dados" %}</a></li><li><span aria-current="page">{{ draft.key }}</span></li></ol></nav>
 <div class="page-header"><div class="min-w-0"><h1>{{ draft.label|default:draft.key }}</h1><p class="page-description"><code>{{ draft.key }}</code> · {% translate "Versão publicada:" %} {{ draft.published_version|default:"—" }}</p></div></div>
-{% if errors %}<ul class="alert alert-danger mb-4" role="alert">{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}
+{% include "skeleton/web/components/error-summary.html" with errors=errors extra_class="mb-4" %}
 {% if draft.problems %}<section class="card mb-4" aria-labelledby="draft-problems"><h2 id="draft-problems" class="section-heading">{% translate "Problemas de validação" %}</h2><ul class="list-disc ps-5">{% for problem in draft.problems %}<li><code>{{ problem }}</code></li>{% endfor %}</ul></section>{% endif %}
 <div class="grid gap-4 lg:grid-cols-2">
   <section class="card" aria-labelledby="draft-steps"><h2 id="draft-steps" class="section-heading">{% translate "Etapas" %}</h2>

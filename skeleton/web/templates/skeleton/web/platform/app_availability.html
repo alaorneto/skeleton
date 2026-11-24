@@ -38,7 +38,7 @@
   <section class="card lg:col-span-2" aria-labelledby="availability-limits">
     <h2 id="availability-limits">Acréscimos por organização</h2>
     <p class="mt-1 text-sm/6 text-body-subtle">Quanto {{ application.label }} soma aos limites de cada organização em que estiver em uso (disponível, contratada, ativa e com as dependências). Vazio ou 0: não soma nada.</p>
-    {% if limits_without_base %}<p class="alert alert-warning mt-4" role="status">Sem limite padrão de membros na instância, este acréscimo vira o limite inteiro.</p>{% endif %}
+    {% if limits_without_base %}<p class="message warning mt-4" role="status">Sem limite padrão de membros na instância, este acréscimo vira o limite inteiro.</p>{% endif %}
     {% if availability.mode %}
     <form method="post" action="{% url 'platform:app-limits' application.app_label %}" class="mt-5">
       {% csrf_token %}

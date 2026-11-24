@@ -3,7 +3,7 @@
 {% block content %}
 <div class="max-w-3xl">
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{{ title }}</p><h1>{% translate "Importar CSV" %}</h1><p class="page-description">{% translate "Uma prévia valida cada linha sem gravar nada. Você confirma depois, e a importação só é aplicada se todas as linhas passarem." %}</p></div></div>
-{% if errors %}<div class="error-summary" role="alert" tabindex="-1" data-error-summary><h2>{% include "skeleton/web/components/icon.html" with name="error" class="size-5 shrink-0" %}{% translate "Verifique o arquivo" %}</h2><ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}
+{% include "skeleton/web/components/error-summary.html" with errors=errors title=_("Verifique o arquivo") %}
 <section class="card">
   <h2>{% translate "Formato" %}</h2>
   <p class="mt-2 text-sm/6 text-body">{% translate "UTF-8, separado por ponto e vírgula ou vírgula, com o cabeçalho na primeira linha. Uma linha sem sysid cria um registro; com sysid, atualiza e precisa da revision exportada." %}</p>

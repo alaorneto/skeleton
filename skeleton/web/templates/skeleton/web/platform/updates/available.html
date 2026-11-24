@@ -21,7 +21,7 @@
   <summary class="section-heading">{% translate "Todas as versões publicadas" %}</summary>
   <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Componente" %}</th><th scope="col">{% translate "Versão" %}</th><th scope="col">{% translate "Situação" %}</th><th scope="col">{% translate "Notas" %}</th><th scope="col">{% translate "Ação" %}</th></tr></thead><tbody>
   {% for release in releases %}<tr><td class="font-medium text-heading">{{ release.component_id }}</td><td>{{ release.version }}</td><td>{{ release.state|status_badge:"releases" }}</td><td>{{ release.notes }}</td><td>{% if release.state == 'available' %}<form method="post" action="{% url 'platform:updates-fetch' %}">{% csrf_token %}<input type="hidden" name="component_id" value="{{ release.component_id }}"><input type="hidden" name="version" value="{{ release.version }}"><input type="hidden" name="source_id" value="{{ release.source_id }}"><button type="submit" class="btn btn-secondary btn-sm">{% translate "Preparar plano" %}</button></form>{% endif %}</td></tr>
-  {% empty %}<tr><td colspan="5" class="empty-state">{% translate "Nenhuma versão candidata nas fontes consultadas." %}</td></tr>{% endfor %}
+  {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=5 message=_("Nenhuma versão candidata nas fontes consultadas.") icon="updates"|concept_icon %}{% endfor %}
   </tbody></table></div>
 </details>
 {% endif %}

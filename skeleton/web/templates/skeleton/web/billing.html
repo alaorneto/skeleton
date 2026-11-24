@@ -51,7 +51,7 @@
   <ul class="grid gap-3 sm:grid-cols-2">
   {% for offer in offers %}<li class="card flex flex-col gap-3 p-5"><h3 class="text-base">{{ offer.product }}</h3><p class="text-sm/6 text-body">{{ offer.unit_amount|money:offer.currency }} / {% if offer.interval == "year" %}{% translate "ano" %}{% else %}{% translate "mês" %}{% endif %}{% if offer.trial_days %} · {% blocktranslate count days=offer.trial_days %}{{ days }} dia de avaliação{% plural %}{{ days }} dias de avaliação{% endblocktranslate %}{% endif %}</p>
   <form method="post" action="{% url 'billing-action' organization_id 'contract' %}">{% csrf_token %}<input type="hidden" name="price" value="{{ offer.sysid }}"><label class="mb-2 flex items-center gap-2 text-sm"><input type="checkbox" name="accept_terms" required> {% translate "Aceito os termos de uso" %}</label><button type="submit" class="btn btn-primary btn-sm">{% translate "Contratar" %}</button></form></li>
-  {% empty %}<li class="card empty-state sm:col-span-2">{% translate "Nenhuma oferta disponível." %}</li>{% endfor %}
+  {% empty %}<li class="card sm:col-span-2">{% include "skeleton/web/components/empty-state.html" with message=_("Nenhuma oferta disponível.") icon="billing"|concept_icon %}</li>{% endfor %}
   </ul>
 </section>
 

@@ -109,3 +109,30 @@ def test_the_scan_catches_a_grey_destructive_button():
         "Remover logo",
         "Excluir",
     ]
+
+
+# The empty state of the organizations home carries links of its own (join directory, invitation).
+EMPTY_STATE_ALLOWED = {Path("skeleton/web/templates/skeleton/web/home.html")}
+FEEDBACK_COMPONENTS = {
+    Path("skeleton/web/templates/skeleton/web/components/form-errors.html"),
+    Path("skeleton/web/templates/skeleton/web/components/error-summary.html"),
+    Path("skeleton/web/templates/skeleton/web/components/empty-row.html"),
+    Path("skeleton/web/templates/skeleton/web/components/empty-state.html"),
+}
+
+
+def test_feedback_uses_one_vocabulary():
+    """Alerts are message + tone, error summaries and empty lists come from their components (#776)."""
+    offenders = []
+    for path in _templates():
+        relative = path.relative_to(ROOT)
+        if relative in FEEDBACK_COMPONENTS:
+            continue
+        text = path.read_text(encoding="utf-8")
+        if re.search(r"""class=["']alert\b""", text):
+            offenders.append(f"{relative}: alert (use message info|success|warning|error)")
+        if re.search(r"""class=["']error-summary\b""", text):
+            offenders.append(f"{relative}: error-summary (use components/error-summary.html)")
+        if relative not in EMPTY_STATE_ALLOWED and re.search(r"""class=["'][^"']*\bempty-state\b""", text):
+            offenders.append(f"{relative}: empty-state (use components/empty-row.html or empty-state.html)")
+    assert offenders == []

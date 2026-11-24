@@ -1,5 +1,5 @@
 {% extends 'skeleton/web/base.html' %}
-{% load skeleton_format %}{% block title %}Identidade · {{ site_name }}{% endblock %}
+{% load skeleton_format i18n %}{% block title %}Identidade · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="max-w-5xl">
 <div class="page-header"><div class="min-w-0">
@@ -22,7 +22,7 @@
   </form>
 </section>
 {% endwith %}{% empty %}
-<div class="card empty-state">Nenhum provedor de identidade cadastrado para esta organização. Peça à administração da plataforma.</div>
+<div class="card">{% include "skeleton/web/components/empty-state.html" with message=_("Nenhum provedor de identidade cadastrado para esta organização.") hint=_("Peça à administração da plataforma.") icon="identity"|concept_icon %}</div>
 {% endfor %}
 </div>
 {% endblock %}

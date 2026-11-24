@@ -4,7 +4,7 @@
 <div class="page-header"><div class="min-w-0"><h1>{% translate "Configuração da instância" %}</h1>
 <p class="page-description">{% translate "Chaves do catálogo e a origem de cada valor: o ambiente vence o SQLite da instância, que vence o padrão. Chaves que vêm do ambiente ficam somente leitura. Segredos nunca são exibidos. As mudanças valem depois do reinício." %}</p></div>
 {% if not cluster %}<a class="btn btn-secondary" href="{% url 'platform:instance-restart' %}">{% translate "Pedir reinício" %}</a>{% endif %}</div>
-{% if cluster %}<div class="alert mb-4" role="status">{% include "skeleton/web/components/icon.html" with name="info" %}<div class="min-w-0">{% translate "Configuração gerida pelo ambiente (modo cluster): os mesmos valores valem em todos os nós. Mude o arquivo de ambiente ou o cofre de segredos e reinicie os nós." %}</div></div>{% endif %}
+{% if cluster %}<div class="message info mb-4" role="status">{% include "skeleton/web/components/icon.html" with name="info" %}<div class="min-w-0">{% translate "Configuração gerida pelo ambiente (modo cluster): os mesmos valores valem em todos os nós. Mude o arquivo de ambiente ou o cofre de segredos e reinicie os nós." %}</div></div>{% endif %}
 <section class="card mb-5" aria-labelledby="instance-identity">
   <h2 id="instance-identity">{% translate "Identidade" %}</h2>
   <p class="mt-1 text-sm/6 text-body-subtle">{% translate "Identificador estável desta base, usado pela API de gestão e pelas conexões de uma instância central. Ele nunca muda." %}</p>
