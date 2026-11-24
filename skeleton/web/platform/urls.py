@@ -135,6 +135,7 @@ urlpatterns = [
     path("users/<uuid:sysid>/roles/<uuid:assignment>/revoke/", views.user_role_revoke, name="user-role-revoke"),
     path("organizations/", views.organizations, name="organizations"),
     path("organizations/new/", views.organization_create, name="organization-create"),
+    path("organizations/slug/", views.organization_slug, name="organization-slug"),
     path("organizations/policy/", views.organization_policy, name="organization-policy"),
     path("organizations/<uuid:sysid>/", views.organization_detail, name="organization"),
     path("organizations/<uuid:sysid>/storage/", views.organization_storage, name="organization-storage"),

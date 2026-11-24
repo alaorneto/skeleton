@@ -120,7 +120,9 @@ class ProvisioningRuleRemoveForm(forms.Form):
 class OrganizationCreateForm(forms.Form):
     name = forms.CharField(label=gettext_lazy("Nome"), max_length=200)
     slug = forms.SlugField(
-        label="Identificador (slug)", max_length=63, help_text=gettext_lazy("Não pode ser alterado depois.")
+        label="Identificador (slug)",
+        max_length=63,
+        help_text=gettext_lazy("Aparece no endereço da organização; pode ser trocado depois."),
     )
     # An email, not a list of every identity of the installation (#311).
     owner = forms.EmailField(
@@ -130,9 +132,13 @@ class OrganizationCreateForm(forms.Form):
     )
 
     def __init__(self, *args, **kwargs):
+        from django.urls import reverse
+
         from skeleton.files.models import StorageLocation
+        from skeleton.web.slug_check import slug_check_attrs
 
         super().__init__(*args, **kwargs)
+        slug_check_attrs(self.fields["slug"], url=reverse("platform:organization-slug"))
         self.required_rules = add_required_rule_fields(self)
         locations = StorageLocation.objects.filter(is_active=True).order_by("label")
         if locations.exists():
@@ -181,12 +187,30 @@ class OrganizationCreateForm(forms.Form):
 
 class OrganizationForm(forms.Form):
     name = forms.CharField(label=gettext_lazy("Nome"), max_length=200)
+    slug = forms.SlugField(
+        label="Identificador (slug)",
+        max_length=63,
+        help_text=gettext_lazy(
+            "Aparece no endereço próprio da organização: ao trocá-lo, o endereço antigo deixa de funcionar."
+        ),
+    )
     is_active = forms.BooleanField(
         label=gettext_lazy("Organização ativa"),
         required=False,
         help_text=gettext_lazy("Inativa, ninguém consegue abrir a organização."),
     )
     expected_revision = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
+
+    def __init__(self, *args, organization=None, **kwargs):
+        from django.urls import reverse
+
+        from skeleton.web.slug_check import slug_check_attrs
+
+        super().__init__(*args, **kwargs)
+        url = reverse("platform:organization-slug")
+        if organization is not None:
+            url = f"{url}?organization={organization.pk}"
+        slug_check_attrs(self.fields["slug"], url=url, current=organization.slug if organization else "")
 
 
 class OrganizationAdministratorForm(forms.Form):

@@ -205,21 +205,28 @@ def test_platform_creates_identity_and_organization_through_services(platform_ac
         {
             "name": "Renamed org",
             "is_active": "on",
-            "slug": "hijack",
+            "slug": "created-org-renamed",
             "expected_revision": stale,
             "csrfmiddlewaretoken": token,
         },
     )
     assert renamed.status_code == 302
     created_org.refresh_from_db()
-    assert created_org.name == "Renamed org" and created_org.slug == "created-org"
+    # The platform may change the slug (#765), through the same checked service.
+    assert created_org.name == "Renamed org" and created_org.slug == "created-org-renamed"
     conflict = client.post(
         reverse("platform:organization", args=[created_org.pk]),
-        {"name": "Stale", "is_active": "on", "expected_revision": stale, "csrfmiddlewaretoken": token},
+        {
+            "name": "Stale",
+            "slug": "stale-slug",
+            "is_active": "on",
+            "expected_revision": stale,
+            "csrfmiddlewaretoken": token,
+        },
     )
     assert conflict.status_code == 409
     created_org.refresh_from_db()
-    assert created_org.name == "Renamed org"
+    assert (created_org.name, created_org.slug) == ("Renamed org", "created-org-renamed")
 
 
 def test_catalog_edits_only_labels_with_compare_and_swap(platform_actor):
