@@ -5,6 +5,7 @@ import point: the names below are re-exported for the core and for derived proje
 """
 
 from . import (
+    app_icons,  # noqa: F401 - registers its checks
     app_themes,  # noqa: F401 - registers its checks
     contract,  # noqa: F401 - registers its checks
     encryption,  # noqa: F401 - registers its checks

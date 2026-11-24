@@ -149,6 +149,10 @@ files = [
     "skeleton/web/markdown_widget.py",
     # #833: states and markers of apps in the visual vocabulary.
     "skeleton/web/vocabulary.py",
+    # #842: the icon of each app menu entry and the stroke icons apps ship.
+    "skeleton/common/icons.py",
+    "skeleton/common/stroke_icons.py",
+    "skeleton/system/app_icons.py",
     "skeleton/instance/schema.py",
     "skeleton/instance/store.py",
     "skeleton/instance/crypto.py",

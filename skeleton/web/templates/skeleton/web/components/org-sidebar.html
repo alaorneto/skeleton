@@ -37,7 +37,7 @@ Links não concedem acesso: cada tela revalida a autorização no servidor.
     <p class="sidebar-heading" id="sidebar-apps">{% translate "Aplicativos" %}</p>
     {% if application_navigation %}
     <ul class="sidebar-list" aria-labelledby="sidebar-apps">
-      {% for entry in application_navigation %}<li><a class="sidebar-link" href="{{ entry.url }}"{% if request.path == entry.url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="apps"|concept_icon %}{{ entry.label }}</a></li>{% endfor %}
+      {% for entry in application_navigation %}<li><a class="sidebar-link" href="{{ entry.url }}"{% if entry.current %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name=entry.concept|concept_icon app_icon_markup=entry.icon_svg %}{{ entry.label }}</a></li>{% endfor %}
     </ul>
     {% else %}
     <p class="px-3 text-sm/6 text-body-subtle">{% translate "Nenhum aplicativo disponível." %}</p>

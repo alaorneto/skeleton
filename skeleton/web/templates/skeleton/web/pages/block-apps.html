@@ -1,6 +1,6 @@
 {% load i18n skeleton_format %}<section aria-labelledby="home-block-{{ forloop.counter }}">
   <h2 id="home-block-{{ forloop.counter }}" class="section-heading">{% firstof block.heading _("Aplicativos") %}</h2>
   {% if application_navigation %}<ul class="cards grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-    {% for entry in application_navigation %}<li><a class="link-card" href="{{ entry.url }}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="apps"|concept_icon %}</span><span class="min-w-0"><span class="link-card-title">{{ entry.label }}</span><span class="link-card-text">{% translate "Abrir aplicativo" %}</span></span></a></li>{% endfor %}
+    {% for entry in application_navigation %}<li><a class="link-card" href="{{ entry.url }}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name=entry.concept|concept_icon app_icon_markup=entry.icon_svg %}</span><span class="min-w-0"><span class="link-card-title">{{ entry.label }}</span><span class="link-card-text">{% translate "Abrir aplicativo" %}</span></span></a></li>{% endfor %}
   </ul>{% else %}<p class="text-sm/6 text-body-subtle">{% translate "Nenhum aplicativo disponível." %}</p>{% endif %}
 </section>

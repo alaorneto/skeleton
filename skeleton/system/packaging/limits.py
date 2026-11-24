@@ -91,6 +91,8 @@ PORTAL_CORE_MINIMUM = "0.0.0"
 INSTANCE_THEMES_CORE_MINIMUM = "0.3.0"
 # ``managed_by: "platform"`` in configuration fields (docs/managed-settings.md, #702).
 PLATFORM_MANAGED_CONFIG_CORE_MINIMUM = "0.6.0"
+# ``icon`` and ``icon_svg`` in navigation entries (docs/extending.md, #842): the icon of the entry.
+NAVIGATION_ICON_CORE_MINIMUM = "0.10.0"
 CONFIGURATION_OWNERS = ("organization", "platform")
 MAX_INSTANCE_THEMES = 4
 INSTANCE_THEME_SLUG = re.compile(r"[a-z][a-z0-9-]{0,31}\Z")
