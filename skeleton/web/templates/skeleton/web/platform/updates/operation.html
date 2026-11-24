@@ -1,62 +1,68 @@
 {% extends "skeleton/web/platform/updates/base.html" %}
-{% load i18n skeleton_format %}{% block step_title %}{{ operation.get_operation_display }}{% endblock %}
+{% load i18n skeleton_format %}{% comment %}Uma operação (#821, #823): aprovar um plano (o resumo antes dos detalhes), acompanhar a execução ou ver por que um plano foi encerrado sem rodar.{% endcomment %}{% block step_title %}{% if stale %}{% translate "Plano vencido" %}{% elif operation.state == 'preview' %}{% translate "Aprovar a atualização" %}{% else %}{{ operation.get_operation_display }}{% endif %}{% endblock %}
+{% block crumb %}{% if closed %}{% translate "Histórico" %}{% elif operation.state == 'preview' %}{% translate "Aprovar" %}{% else %}{% translate "Acompanhar" %}{% endif %}{% endblock %}
+{% block heading %}{% if stale %}{% translate "Plano vencido" %}{% elif operation.state == 'preview' %}{% translate "Aprovar a atualização" %}{% else %}{{ operation.get_operation_display }}{% endif %}{% endblock %}
+{% block description %}<span class="flex flex-wrap items-center gap-x-2 gap-y-1">{% if stale %}{{ "stale"|status_badge:"updates" }}{% else %}{% include "skeleton/web/platform/updates/state.html" %}{% endif %}{% if operation.state == 'preview' %}<span>{{ operation.get_operation_display }}{% if operation.target %}: {{ operation.target }}{% endif %}</span><span class="text-body-subtle">{% translate "preparada" %} {{ operation.created_at|moment }}</span>{% else %}<span>{{ operation.stage|code_label:"update_stage" }}</span>{% endif %}</span>{% endblock %}
+{% block toolbar %}{% if not closed and operation.state != 'preview' %}<a class="btn btn-secondary" href="{% url 'platform:updates-operation' operation.sysid %}">{% include "skeleton/web/components/icon.html" with name="refresh" %}{% translate "Atualizar estado" %}</a>{% endif %}{% endblock %}
 {% block step %}
-<div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-  <div class="min-w-0">
-    <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'platform:updates-operations' %}">{% translate "Operações" %}</a></li><li><span aria-current="page">{{ operation.get_operation_display }}</span></li></ol></nav>
-    <h2 class="text-xl/8">{{ operation.get_operation_display }}</h2>
-    <p class="mt-1 flex flex-wrap items-center gap-2 text-sm text-body">{% include "skeleton/web/platform/updates/state.html" %}<span>{% translate "etapa" %} {{ operation.stage }}</span><span class="text-body-subtle">· {% translate "geração de origem" %} {{ operation.expected_generation }}</span></p>
-  </div>
-  <a class="btn btn-secondary btn-sm" href="{% url 'platform:updates-operation' operation.sysid %}">{% include "skeleton/web/components/icon.html" with name="refresh" %}{% translate "Atualizar estado" %}</a>
-</div>
-{% if operation.error_code %}<div class="message error mb-5" role="alert">{% include "skeleton/web/components/icon.html" with name="error" %}<div class="min-w-0">{{ operation.error_code }}</div></div>{% endif %}
+{% if operation.error_code %}<div class="message error mb-5" role="alert">{% include "skeleton/web/components/icon.html" with name="error" %}<div class="min-w-0">{% if error_text %}{{ error_text }}{% else %}{% translate "A operação não terminou." %}{% endif %} <span class="text-body-subtle">{% translate "Código para o suporte:" %} <code>{{ operation.error_code }}</code></span></div></div>{% endif %}
+{% if closed %}<div class="message info mb-5" role="status">{% include "skeleton/web/components/icon.html" with name="info" %}<div class="min-w-0">{% if operation.state == "discarded" %}{% translate "Este plano foi descartado e nunca foi aplicado." %}{% elif operation.state == "superseded" %}{% translate "Este plano foi substituído por um mais novo para os mesmos componentes e nunca foi aplicado." %}{% else %}{% translate "Este plano venceu: a instalação mudou depois dele, e ele nunca foi aplicado." %}{% endif %} <a href="{{ area_meta.url }}">{% translate "Ver as atualizações disponíveis" %}</a></div></div>
+{% elif stale %}<div class="message warning mb-5" role="status">{% include "skeleton/web/components/icon.html" with name="warning" %}<div class="min-w-0">{% translate "Este plano venceu: outra operação mudou a instalação depois que ele foi preparado, e o agente não o aplicaria. Prepare a atualização de novo para ver o impacto atual." %}</div></div>{% endif %}
 <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
 <div class="min-w-0 space-y-6">
   {% if next_steps is not None %}<section aria-labelledby="operation-next">
-    <h3 id="operation-next" class="section-heading">{% translate "Próximo passo" %}</h3>
+    <h2 id="operation-next" class="section-heading">{% translate "Próximo passo" %}</h2>
     {% for card in next_steps %}{% include "skeleton/web/platform/updates/path.html" %}{% empty %}<p class="text-sm/6 text-body">{% translate "Não há mais atualizações pendentes nas fontes consultadas." %}</p>{% endfor %}
   </section>{% endif %}
+  {% if summary and not stale %}{% include "skeleton/web/platform/updates/plan-summary.html" %}{% endif %}
   {% include "skeleton/web/platform/updates/plan-details.html" with plan=operation.plan %}
 </div>
 <aside class="space-y-5">
-  <section class="card" aria-labelledby="operation-impact">
-    <h3 id="operation-impact" class="mb-3">{% translate "Impacto e recuperação" %}</h3>
-    <dl class="meta-list sm:grid-cols-1!">
-      <div><dt>{% translate "Organizações" %}</dt><dd>{{ operation.plan.impact.organizations }}</dd></div>
-      <div><dt>{% translate "Configurações existentes" %}</dt><dd>{{ operation.plan.impact.configured_installations }}</dd></div>
-      {% for snapshot in operation.plan.impact.retained_schema %}<div><dt>{% translate "Retenção" %}</dt><dd>{{ snapshot.records }} {% translate "registros em" %} {{ snapshot.organizations }} {% translate "organizações" %}</dd></div>{% endfor %}
-      <div><dt>{% translate "Recuperação" %}</dt><dd>{{ operation.plan.recovery }}</dd></div>
-    </dl>
-    <p class="confirmation mt-4">{% translate "Haverá manutenção e reinício. Depois de alterações no banco, voltar apenas os arquivos não garante recuperação. O backup e os checks são executados antes da liberação de tráfego." %}</p>
+  {% if operation.state == 'preview' %}
+  {% if not stale %}<section class="card" aria-labelledby="operation-approve">
+    <h2 id="operation-approve" class="mb-3">{% translate "Aprovar e iniciar" %}</h2>
+    <ol class="mb-4 list-decimal space-y-2 ps-5 text-sm/6 text-body">
+      <li><form method="post" action="{% url 'platform:updates-status-link' operation.sysid %}" target="_blank" class="inline">{% csrf_token %}<button type="submit" class="font-medium text-fg-brand underline">{% translate "Abra o acompanhamento" %}</button></form> {% translate "numa aba nova: a manutenção fecha esta interface, e o acompanhamento continua no ar. O link é privado e vale por cinco minutos." %}</li>
+      <li>{% translate "Aprove. O agente faz o backup, aplica a mudança, confere a saúde e só então libera o tráfego." %}</li>
+    </ol>
+    <form method="post">{% csrf_token %}{{ confirmation_form.as_div }}<button type="submit" class="btn btn-primary w-full" data-busy-label="{% translate "Enviando ao agente…" %}">{% translate "Aprovar e iniciar" %}</button></form>
+  </section>{% endif %}
+  <section class="card" aria-labelledby="operation-discard">
+    <h2 id="operation-discard" class="mb-2 text-base">{% if stale %}{% translate "O que fazer" %}{% else %}{% translate "Não vai aplicar?" %}{% endif %}</h2>
+    <p class="mb-4 text-sm/6 text-body">{% translate "Descartar não muda nada na instalação; o plano pode ser preparado de novo a qualquer momento." %}</p>
+    <div class="flex flex-wrap gap-2">{% if stale %}<a class="btn btn-primary" href="{{ area_meta.url }}">{% translate "Preparar de novo" %}</a>{% endif %}
+    <form method="post" action="{% url 'platform:updates-discard' operation.sysid %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ operation.revision }}"><button type="submit" class="btn btn-danger-outline">{% translate "Descartar plano" %}</button></form></div>
   </section>
-  {% if operation.state == 'preview' or can_retry %}
-  <section class="card" aria-labelledby="operation-approve">
-    <h3 id="operation-approve" class="mb-3">{% if operation.state == 'preview' %}{% translate "Aprovar plano" %}{% else %}{% translate "Reenviar solicitação" %}{% endif %}</h3>
-    {% if status_url %}<p class="mb-3 text-sm/6 text-body">{% translate "Abra o" %} <a href="{{ status_url }}" target="_blank" rel="noopener noreferrer">{% translate "canal independente de acompanhamento" %}</a> {% translate "antes de confirmar: a manutenção fecha esta interface. O link é privado, limitado a esta operação e válido por cinco minutos." %}</p>{% endif %}
-    <form method="post">{% csrf_token %}{{ confirmation_form.as_div }}{% if can_retry %}<input type="hidden" name="intent" value="retry">{% endif %}<button type="submit" class="btn btn-primary w-full" data-busy-label="{% translate "Enviando ao agente…" %}">{% if operation.state == 'preview' %}{% translate "Confirmar este plano e iniciar" %}{% else %}{% translate "Reenviar solicitação ao agente" %}{% endif %}</button></form>
-    <p class="mt-3 text-xs/5 text-body-subtle">{% translate "Plano aprovado por digest:" %} <code class="uuid">{{ operation.plan_digest }}</code></p>
+  {% elif can_retry %}
+  <section class="card" aria-labelledby="operation-retry">
+    <h2 id="operation-retry" class="mb-3">{% translate "Reenviar solicitação" %}</h2>
+    <p class="mb-4 text-sm/6 text-body">{% translate "O agente não confirmou o recebimento da aprovação. Reenviar entrega a mesma aprovação de novo; o agente não executa a operação duas vezes." %}</p>
+    <form method="post">{% csrf_token %}{{ confirmation_form.as_div }}<input type="hidden" name="intent" value="retry"><button type="submit" class="btn btn-primary w-full" data-busy-label="{% translate "Enviando ao agente…" %}">{% translate "Reenviar solicitação ao agente" %}</button></form>
   </section>
-  {% elif status_url %}
-  <section class="card"><p class="text-sm/6"><a href="{{ status_url }}" target="_blank" rel="noopener noreferrer">{% translate "Abrir canal independente de acompanhamento" %}</a></p></section>
   {% endif %}
-  {% if operation.result %}
+  {% if status_url %}<section class="card"><p class="text-sm/6"><a href="{{ status_url }}" target="_blank" rel="noopener noreferrer">{% translate "Abrir canal independente de acompanhamento" %}</a></p></section>{% endif %}
+  {% if operation.result.release %}
   <section class="card" aria-labelledby="operation-result">
-    <h3 id="operation-result" class="mb-3">{% translate "Resultado e journal" %}</h3>
+    <h2 id="operation-result" class="mb-3 text-base">{% translate "Resultado" %}</h2>
     <dl class="meta-list sm:grid-cols-1!">
-      <div><dt>{% translate "Release" %}</dt><dd><code class="uuid">{{ operation.result.release }}</code></dd></div>
-      <div><dt>{% translate "Backup" %}</dt><dd><code class="uuid">{{ operation.result.backup|default:"—" }}</code></dd></div>
+      <div><dt>{% translate "Backup" %}</dt><dd>{% if operation.result.backup %}{% translate "Feito" %}{% else %}—{% endif %}</dd></div>
       <div><dt>{% translate "Tráfego liberado" %}</dt><dd>{{ operation.result.traffic_released|yesno:_("Sim,Não") }}</dd></div>
     </dl>
   </section>
   {% endif %}
-  <section class="card" aria-labelledby="operation-meta">
-    <h3 id="operation-meta" class="mb-3">{% translate "Registro" %}</h3>
-    <dl class="meta-list sm:grid-cols-1!">
+  <details class="card">
+    <summary class="font-medium text-heading">{% translate "Detalhes técnicos" %}</summary>
+    <dl class="meta-list mt-3 sm:grid-cols-1!">
       <div><dt>{% translate "ID" %}</dt><dd><code class="uuid">{{ operation.sysid }}</code></dd></div>
       <div><dt>{% translate "Solicitante" %}</dt><dd>{{ operation.created_by|default:_("Sistema") }}</dd></div>
       <div><dt>{% translate "Criada / atualizada" %}</dt><dd>{{ operation.created_at|moment }} · {{ operation.updated_at|moment }}</dd></div>
+      <div><dt>{% translate "Geração de origem" %}</dt><dd>{{ operation.expected_generation }}</dd></div>
+      <div><dt>{% translate "Etapa (código)" %}</dt><dd><code>{{ operation.stage }}</code></dd></div>
+      <div><dt>{% translate "Digest do plano" %}</dt><dd><code class="uuid">{{ operation.plan_digest }}</code></dd></div>
+      {% if operation.result.release %}<div><dt>{% translate "Release" %}</dt><dd><code class="uuid">{{ operation.result.release }}</code></dd></div>
+      <div><dt>{% translate "Backup" %}</dt><dd><code class="uuid">{{ operation.result.backup|default:"—" }}</code></dd></div>{% endif %}
     </dl>
-  </section>
+  </details>
 </aside>
 </div>
 {% endblock %}

@@ -1,12 +1,15 @@
 {% extends "skeleton/web/platform/updates/base.html" %}
 {% load i18n %}{% block step_title %}{% translate "Atualize o agente primeiro" %}{% endblock %}
+{% block crumb %}{% translate "Atualize o agente primeiro" %}{% endblock %}
+{% block heading %}{% translate "Atualize o agente primeiro" %}{% endblock %}
+{% block description %}{% translate "O passo escolhido do núcleo precisa de um agente de deployment mais novo." %}{% endblock %}
 {% block step %}
 <section class="card" aria-labelledby="agent-first">
-  <h2 id="agent-first">{% translate "Atualize o agente primeiro" %}</h2>
+  <h2 id="agent-first">{% translate "Agente de deployment" %}</h2>
   <p class="mt-1 text-sm/6 text-body">{% blocktranslate with required=artifact.agent.version|default:artifact.manifest.version installed=agent.version %}Este passo exige o agente de deployment na versão {{ required }}. O agente instalado é {{ installed }}.{% endblocktranslate %}</p>
   {% if agent.self_update %}<form class="mt-4" method="post" action="{% url 'platform:updates-agent' %}">{% csrf_token %}<input type="hidden" name="release" value="{{ artifact.digest }}">{% if plan_artifacts %}<input type="hidden" name="artifacts" value="{{ plan_artifacts }}">{% endif %}{% if identifiers %}<input type="hidden" name="component_id" value="{{ identifiers.component_id }}"><input type="hidden" name="version" value="{{ identifiers.version }}"><input type="hidden" name="source_id" value="{{ identifiers.source_id }}">{% endif %}<button type="submit" class="btn btn-primary" data-busy-label="{% translate "Pedindo ao agente…" %}">{% translate "Atualizar agente" %}</button></form>
   <p class="mt-4 text-sm/6 text-body-subtle">{% translate "Depois que o agente reiniciar, a página segue sozinha para o plano deste passo." %}</p>
   {% else %}{% include "skeleton/web/platform/updates/agent-manual.html" %}
-  <p class="mt-4 text-sm/6 text-body-subtle">{% translate "Depois que o agente reiniciar, volte a Novas versões e prepare este passo de novo." %}</p>{% endif %}
+  <p class="mt-4 text-sm/6 text-body-subtle">{% translate "Depois que o agente reiniciar, volte a Atualizações da plataforma e prepare este passo de novo." %}</p>{% endif %}
 </section>
 {% endblock %}

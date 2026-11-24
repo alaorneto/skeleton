@@ -1,0 +1,10 @@
+{% load i18n skeleton_format %}{% comment %}O que espera o operador numa área (#821, #822): a operação em curso e os planos aguardando aprovação, com revisar e descartar.{% endcomment %}{% for operation in active %}<div class="message info mb-4" role="status">{% include "skeleton/web/components/icon.html" with name="refresh" %}<div class="min-w-0">{% blocktranslate trimmed with name=operation.get_operation_display %}{{ name }} em andamento.{% endblocktranslate %} {{ operation.stage|code_label:"update_stage" }}. <a href="{% url 'platform:updates-operation' operation.sysid %}">{% translate "Acompanhar" %}</a></div></div>{% endfor %}
+{% if pending %}<section class="card mb-6 border-warning-subtle!" aria-labelledby="pending-plans">
+  <h2 id="pending-plans" class="flex items-center gap-2">{% include "skeleton/web/components/icon.html" with name="warning" class="size-5 text-fg-warning" %}{% blocktranslate count counter=pending|length %}Plano aguardando aprovação{% plural %}{{ counter }} planos aguardando aprovação{% endblocktranslate %}</h2>
+  <p class="mt-1 text-sm/6 text-body">{% translate "Nada foi aplicado ainda. Revise o impacto e aprove, ou descarte o plano se não for usá-lo." %}</p>
+  <ul class="mt-4 divide-y divide-default">{% for operation in pending %}<li class="flex flex-wrap items-center justify-between gap-3 py-3">
+    <span class="min-w-0"><span class="block font-medium text-heading">{{ operation.get_operation_display }}{% if operation.target %}: {{ operation.target }}{% endif %}</span><span class="block text-sm text-body-subtle">{% translate "Preparado" %} {{ operation.created_at|moment }}</span></span>
+    <span class="flex flex-wrap items-center gap-2"><a class="btn btn-primary btn-sm" href="{% url 'platform:updates-operation' operation.sysid %}">{% translate "Revisar e aprovar" %}</a>
+    <form method="post" action="{% url 'platform:updates-discard' operation.sysid %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ operation.revision }}"><button type="submit" class="btn btn-danger-outline btn-sm">{% translate "Descartar" %}</button></form></span>
+  </li>{% endfor %}</ul>
+</section>{% endif %}

@@ -262,6 +262,7 @@ urlpatterns = [
         name="native-client-withdraw",
     ),
     path("updates/", updates.installed, name="updates"),
+    path("updates/apps/", updates.apps_overview, name="updates-apps"),
     path("updates/sources/", updates.sources, name="updates-sources"),
     path("updates/sources/remove/", updates.remove_source, name="updates-sources-remove"),
     path("updates/available/", updates.available, name="updates-available"),
@@ -275,4 +276,6 @@ urlpatterns = [
     path("updates/operations/", updates.operations, name="updates-operations"),
     path("updates/cluster/restart/", updates.cluster_restart, name="updates-cluster-restart"),
     path("updates/operations/<uuid:operation_id>/", updates.operation, name="updates-operation"),
+    path("updates/operations/<uuid:operation_id>/discard/", updates.discard, name="updates-discard"),
+    path("updates/operations/<uuid:operation_id>/status-link/", updates.status_link, name="updates-status-link"),
 ]

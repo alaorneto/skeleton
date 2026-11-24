@@ -579,6 +579,28 @@
   .setup-step-later .setup-step-number {
     @apply border-warning-subtle bg-warning-soft text-fg-warning;
   }
+  /* Etapas de um fluxo de várias telas (#823): só onde há sequência real. Linha rolável no celular. */
+  .flow-steps {
+    @apply mb-6 flex gap-2 overflow-x-auto border-b border-default pb-4 [scrollbar-width:thin];
+  }
+  .flow-steps > li {
+    @apply flex shrink-0 items-center gap-2 text-sm/5 text-body-subtle;
+  }
+  .flow-steps > li + li::before {
+    @apply me-1 h-px w-6 bg-default content-[''];
+  }
+  .flow-step-number {
+    @apply grid size-6 shrink-0 place-items-center rounded-full border border-default-medium text-xs font-semibold tabular-nums;
+  }
+  .flow-steps > li[aria-current] {
+    @apply font-medium text-heading;
+  }
+  .flow-steps > li[aria-current] .flow-step-number {
+    @apply border-brand bg-brand text-white;
+  }
+  .flow-step-done .flow-step-number {
+    @apply border-success-subtle bg-success-soft text-fg-success-strong;
+  }
   /* Anexos no setup (#729): só a seção da opção marcada aparece. Sem :has, a regra cai inteira e as duas
      aparecem; os campos escondidos continuam no formulário e quem valida é o servidor. */
   .setup-files:has(input[type="radio"][value="s3"]:checked) [data-files-section="local"],

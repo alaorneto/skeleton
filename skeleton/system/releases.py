@@ -290,7 +290,89 @@ def record_preview(*, user, plan_id):
         plan=plan,
     )
     operation.save()
+    operation.replaced = _close_open_previews(operation)
     return operation
+
+
+# A preview that will never run (#821): the operator discarded it, a newer plan for the same
+# components replaced it, or the installation changed since it was prepared.
+DISCARDED, SUPERSEDED, STALE = "discarded", "superseded", "stale"
+CLOSED_PREVIEW_STATES = frozenset({DISCARDED, SUPERSEDED, STALE})
+
+
+def plan_scope(plan):
+    """The components a plan changes: those of the packages it was asked for, and the apps it removes.
+
+    ``plan["components"]`` is the whole target inventory, so only the requested artifacts say
+    what the plan is about. A core package counts as the core component.
+    """
+    if not isinstance(plan, dict):
+        return frozenset()
+
+    def items(name):
+        value = plan.get(name)
+        return value if isinstance(value, list) else ()
+
+    artifacts = {value for value in items("artifacts") if isinstance(value, str)}
+    scope = {
+        component["component_id"]
+        for component in items("components")
+        if isinstance(component, dict)
+        and isinstance(component.get("component_id"), str)
+        and component.get("digest") in artifacts
+    }
+    if plan.get("action") == "core_update":
+        scope.add("django-skeleton")
+    scope.update(value for value in items("app_ids") if isinstance(value, str))
+    return frozenset(scope)
+
+
+def _close_preview(row, state):
+    row.state = state
+    row.stage = state
+    row.save(update_fields={"state", "stage"})
+
+
+def _close_open_previews(operation):
+    """Close the open previews a newly recorded one makes useless; returns how many were replaced.
+
+    Same components: replaced (``superseded``). Prepared at an older generation: the
+    installation changed since, so the agent would refuse it anyway (``stale``).
+    """
+    scope = plan_scope(operation.plan)
+    replaced = 0
+    rows = DeploymentOperation.objects.select_for_update().filter(state="preview").exclude(pk=operation.pk)
+    for row in rows.order_by("created_at"):
+        if row.expected_generation < operation.expected_generation:
+            _close_preview(row, STALE)
+        elif scope & plan_scope(row.plan):
+            _close_preview(row, SUPERSEDED)
+            replaced += 1
+    return replaced
+
+
+def expire_previews(generation):
+    """Mark ``stale`` every open preview prepared before ``generation`` (#821)."""
+    rows = DeploymentOperation.objects.select_for_update().filter(state="preview", expected_generation__lt=generation)
+    for row in rows.order_by("created_at"):
+        _close_preview(row, STALE)
+
+
+def preview_is_stale(row, generation):
+    """Whether an open preview can no longer be approved: the installation changed since (#821)."""
+    return row.state == "preview" and isinstance(generation, int) and generation != row.expected_generation
+
+
+def discard_preview(*, user, operation_id, revision):
+    """The operator drops a plan awaiting approval (#821); nothing was sent to the agent yet."""
+    require_release_operator(user)
+    row = DeploymentOperation.objects.select_for_update().get(pk=operation_id)
+    if row.revision != revision:
+        raise ConcurrentUpdate("Deployment preview changed.")
+    if row.state != "preview":
+        raise ConcurrentUpdate("Deployment preview has already been submitted or closed.")
+    _close_preview(row, DISCARDED)
+    return row
 
 
 def confirm_operation(*, user, operation_id, revision, force_window=False):
@@ -440,6 +522,7 @@ def reconcile_operation(row, status):
         raise DeploymentUnavailable("Agent operation approval mismatch.")
     if state == "succeeded" and row.state != "succeeded":
         invalidate_update_notice()  # The installed versions changed: recompute the banner (#501).
+        expire_previews(status["generation"])  # The plans prepared before can no longer run (#821).
     result = deepcopy(status)
     # Status tickets are short-lived credentials, not durable operation evidence.
     result.pop("status_url", None)

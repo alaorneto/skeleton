@@ -7,7 +7,7 @@
 | Superfície | Responsabilidade | Não faz |
 |---|---|---|
 | `/platform/` | Administração da plataforma em views próprias: identidades, organizações, aplicativos instalados (visão, documentação e telas de escopo plataforma), catálogo de tabelas e auditoria global | Não abre negócio tenant nem seleciona organizações; não há editor genérico de modelos |
-| `/platform/updates/` | Versões e atualizações em etapas: instaladas, novas versões, envio de pacote, plano com prévia e operações | Não executa pip/DDL; só pede prévia e aprovação ao agente |
+| `/platform/updates/` e `/platform/updates/apps/` | Atualizações da plataforma (núcleo e agente) e de aplicativos (#822); cada plano em quatro etapas: escolher, conferir o impacto, aprovar e acompanhar (#823) | Não executa pip/DDL; só pede prévia e aprovação ao agente |
 | `/o/<org>/apps/` e `apps/<app_label>/admin/` | Configuração, ativação e parâmetros organizacionais das apps | Não apresentam tabelas, CRUD ou atalhos de modelos |
 | `/o/<org>/catalog/` e `tables/<table_key>/` | Descoberta e viewer padronizado de negócio: lista, detalhe e formulário | Não instalam software nem administram configuração de plataforma |
 | `/api/v1/o/<org>/tables/<table_key>/` | Recursos de negócio e seleção autorizada de referências | Não aceitam classe Python, nome SQL ou bypass de autorização |

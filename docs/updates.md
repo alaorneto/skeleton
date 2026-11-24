@@ -19,6 +19,34 @@ publicador ── workflow "Artefatos de release" ──► release do GitHub
                           /platform/updates/  ── mostra o caminho; o operador prepara e confirma cada passo
 ```
 
+## Plataforma e aplicativos
+
+A tela separa onde cada tarefa começa (#822). O motor é um só: o agente prepara, o operador confere o impacto e aprova, e a operação é acompanhada na mesma tela, seja do núcleo ou de uma app. Um plano do núcleo pode trazer apps junto ("Adicionar ao plano").
+
+| Área | No menu | O que faz |
+|---|---|---|
+| **Atualizações da plataforma** (`/platform/updates/`) | no topo, logo abaixo de "Configuração da instância" | O núcleo e o agente de deployment: versão instalada, a nova, "Atualizar até a versão", os passos e "Preparar atualização para X"; os nós do cluster; os detalhes técnicos (geração, digest, inventário confirmado no banco, versões publicadas) recolhidos. Abas: Visão geral, Histórico, Fontes e Enviar pacote. |
+| **Atualizações de aplicativos** (`/platform/updates/apps/`) | grupo Aplicativos | Atualizações disponíveis das apps instaladas, apps publicadas nas fontes que a instância ainda não tem ("Preparar instalação") e as instaladas, com "Retirar o código" (dados preservados) e "Reinstalar código" (dados preservados de volta), sem digitar digest nem ID. Abas: Visão geral, Histórico e Enviar pacote. |
+
+As duas áreas aparecem para quem tem `updates.operate`, inclusive sem ser administrador completo. As abas não têm número: não são uma sequência. A sequência existe dentro de um plano, e as telas dele mostram as quatro etapas:
+
+1. **Escolher:** o passo, o pacote enviado ou a ação da app. A tela diz o que vai ser feito ("Atualizar Notas para 1.4.0") e tem um botão, "Conferir o impacto". O formulário com a operação, os digests e os IDs fica em "Plano manual (avançado)", para combinar pacotes num só plano.
+2. **Conferir o impacto:** o agente prepara a prévia (a página se atualiza sozinha). Ela abre com "O que muda": os componentes de → para, se o site sai do ar (o texto vem do modo do plano: janela de manutenção ou nó a nó), o backup, as alterações no banco e o que acontece se algo falhar. Componentes, migrations, arquivos, recursos compartilhados e apresentação ficam recolhidos, com a contagem. "Continuar para a aprovação" guarda o plano.
+3. **Aprovar:** o mesmo resumo, "Abra o acompanhamento" (o link privado é pedido ao agente só no clique) e "Aprovar e iniciar", com autenticação recente. "Descartar plano" encerra o plano sem tocar na instalação.
+4. **Acompanhar:** o estado e a etapa em texto, o resultado e, no fim, o próximo passo rumo ao alvo.
+
+O histórico de cada área mostra por padrão o que está em aberto ou foi executado; o filtro "Descartadas, substituídas e vencidas" mostra os planos encerrados sem rodar.
+
+## Planos aguardando aprovação
+
+Um plano guardado fica "Aguardando aprovação" até ser aprovado ou encerrado (#821). Ele aparece no topo da área, com "Revisar e aprovar" e "Descartar". Nenhum plano fica guardado para sempre:
+
+- **Substituído:** preparar outro plano para os mesmos componentes (por exemplo, a mesma versão de novo) substitui o anterior, e a tela avisa.
+- **Vencido:** quando outra operação conclui e muda a instalação, os planos preparados antes dela vencem, porque o agente não os aplicaria. A tela de um plano vencido não oferece aprovação; "Preparar de novo" leva à área para preparar o passo com a instalação atual.
+- **Descartado:** "Descartar" encerra o plano. Não muda nada na instalação e o plano pode ser preparado de novo a qualquer momento.
+
+Os três ficam no histórico e na auditoria. Os estados estão em [planos que não rodam](deployment.md#agente-independente-de-deployment).
+
 O agente confere a assinatura do índice e de cada pacote contra as chaves que o operador aprovou no arquivo do agente (`approved_publishers`); o GitHub só entrega bytes. A tela nunca cadastra chave nem token e nunca baixa nada: ela fala com o agente pelo socket de controle.
 
 ## Vocabulário
@@ -44,9 +72,9 @@ O agente confere a assinatura do índice e de cada pacote contra as chaves que o
      --trust-store /caminho/privado/publishers.json
    ```
 
-2. Envie-o em `/platform/updates/` → "Enviar pacote". O agente verifica o pacote inteiro, guarda o pacote de release e o pacote do core que veio nele e abre "Preparar plano" já com a ação "Atualizar núcleo" e o digest do core. Se o pacote não traz a plataforma deste servidor, a tela avisa que valem o lock e o wheelhouse configurados no agente.
-3. "Visualizar impacto" pede a prévia. Confira os componentes, as migrations, os arquivos e, quando houver, "Dependências que deixam de ser instaladas".
-4. Na tela da operação, confirme (autenticação recente) e acompanhe até `succeeded`.
+2. Envie-o em "Atualizações da plataforma" → "Enviar pacote". O agente verifica o pacote inteiro e guarda o pacote de release e o pacote do core que veio nele. A tela abre a etapa "Escolher" com "Atualizar o núcleo para X". Um pacote de app abre "Atualizar" (app instalada) ou "Instalar" (app nova). Se o pacote não traz a plataforma deste servidor, a tela avisa que valem o lock e o wheelhouse configurados no agente.
+3. "Conferir o impacto" pede a prévia. Confira "O que muda" e, nos detalhes, os componentes, as migrations, os arquivos e, quando houver, "Dependências que deixam de ser instaladas".
+4. "Continuar para a aprovação", abra o acompanhamento, aprove (autenticação recente) e acompanhe até `succeeded`.
 
 Pelo shell do servidor, o mesmo fluxo é:
 
@@ -63,9 +91,9 @@ CONFIG=/srv/skeleton/private/agent.json
 ## Atualizar pelo GitHub
 
 1. Em "Fontes", cadastre o repositório (`dono/nome`) e escolha o publicador entre os aprovados no servidor. Sem nenhuma fonte GitHub, o formulário já sugere o repositório oficial, `alaorneto/skeleton`.
-2. Em "Novas versões", "Verificar agora" consulta as fontes. A página mostra a última consulta e, para o núcleo e cada app, a versão instalada, a mais nova e os passos.
+2. "Verificar agora" consulta as fontes. "Atualizações da plataforma" mostra a última consulta e, para o núcleo, a versão instalada, a mais nova e os passos. "Atualizações de aplicativos" mostra o mesmo para cada app, além das apps publicadas que a instância ainda não tem.
 3. Para o núcleo, "Atualizar até a versão" escolhe o alvo entre as versões alcançáveis a partir da instalada (#653): a mais nova de cada linha que o caminho alcança, lida dos índices verificados, sem rede; a mais nova de todas vem marcada. De `0.3.0`, com `0.3.1`, `0.4.0`, `0.4.2` e `0.5.0` publicadas, os alvos são `0.3.1`, `0.4.2` e `0.5.0`, e escolher `0.5.0` mostra os passos `0.4.2 → 0.5.0`. Sem escolha, o alvo é a mais nova alcançável. Apps seguem sempre até a mais nova.
-4. "Preparar este passo" (só no primeiro passo) baixa o pacote pelo agente e abre o plano. Confirme como no envio por arquivo: cada passo tem prévia e confirmação próprias, com autenticação recente e `updates.operate`; nada é aplicado sozinho.
+4. "Preparar atualização para X" (só no primeiro passo) baixa o pacote pelo agente e abre o plano. Confirme como no envio por arquivo: cada passo tem prévia e confirmação próprias, com autenticação recente e `updates.operate`; nada é aplicado sozinho.
 5. Ao fim da operação, a página dela oferece o próximo passo rumo ao alvo escolhido; ao chegar nele, nenhum passo do núcleo é oferecido e a escolha é esquecida.
 
 O alvo fica só na sessão de quem escolheu e nunca vale como confiança: a tela confere de novo, a cada passo, que ele continua entre os alcançáveis e que o passo pedido é o primeiro rumo a ele, e o agente revalida o passo (assinatura, linha minor, versão abaixo da instalada). Um alvo que deixou de ser alcançável (índice vencido, versão retirada, linha intermediária faltando) é recusado com aviso, nunca trocado por outra versão.
@@ -97,13 +125,13 @@ Crie um token de acesso de escopo mínimo (leitura de conteúdo só dos reposit�
 
 ## Atualizar o agente
 
-O agente informa a própria versão em "Versões instaladas". Como ele valida e instala o núcleo, uma prévia de núcleo de linha acima da do agente é recusada com `agent_update_required`. Com `agent_root` configurado, o agente se atualiza a partir do pacote de release: monta um virtualenv novo (sem rede), testa-o com `selfcheck`, troca o link `current` e reinicia o serviço (código de saída 75 com `Restart=on-failure`). Nos containers, `agent_root` é o volume `agent_code`, e o iniciador da imagem sobe a versão nova sozinho; uma instalação de containers anterior a isso precisa de uma última imagem nova ([atualizar o agente nos containers](deployment.md#atualizar-o-agente-nos-containers-772)).
+O agente informa a própria versão no cartão "Agente de deployment" de "Atualizações da plataforma". Como ele valida e instala o núcleo, uma prévia de núcleo de linha acima da do agente é recusada com `agent_update_required`. Com `agent_root` configurado, o agente se atualiza a partir do pacote de release: monta um virtualenv novo (sem rede), testa-o com `selfcheck`, troca o link `current` e reinicia o serviço (código de saída 75 com `Restart=on-failure`). Nos containers, `agent_root` é o volume `agent_code`, e o iniciador da imagem sobe a versão nova sozinho; uma instalação de containers anterior a isso precisa de uma última imagem nova ([atualizar o agente nos containers](deployment.md#atualizar-o-agente-nos-containers-772)).
 
-**O passo do núcleo começa pelo agente (#773).** Em "Novas versões", o cartão do núcleo avisa quando o próximo passo exige um agente de linha mais nova ("Este passo começa atualizando o agente de deployment (A → B)"). Com um agente que se atualiza sozinho, "Preparar este passo" busca o pacote, pede a atualização do agente (o clique é o consentimento; só o digest segue para o agente) e abre uma página de espera que se recarrega a cada 5 segundos. Só o agente reinicia: o site continua no ar. Com o agente novo de pé (num cluster, em todos os nós vivos), a página busca o passo de novo pelo agente novo, que reaproveita o pacote já guardado e o revalida, e mostra o plano do núcleo pronto para "Visualizar impacto"; a escolha de "Atualizar até a versão" continua valendo. O botão "Atualizar agente" do plano de um pacote enviado segue o mesmo caminho e termina no plano do núcleo que veio no pacote. A confirmação do plano continua com o operador.
+**O passo do núcleo começa pelo agente (#773).** Em "Atualizações da plataforma", o cartão do núcleo avisa quando o próximo passo exige um agente de linha mais nova ("Este passo começa atualizando o agente de deployment (A → B)"). Com um agente que se atualiza sozinho, "Preparar atualização para X" busca o pacote, pede a atualização do agente (o clique é o consentimento; só o digest segue para o agente) e abre uma página de espera que se recarrega a cada 5 segundos. Só o agente reinicia: o site continua no ar. Com o agente novo de pé (num cluster, em todos os nós vivos), a página busca o passo de novo pelo agente novo, que reaproveita o pacote já guardado e o revalida, e mostra o plano do núcleo pronto para "Conferir o impacto"; a escolha de "Atualizar até a versão" continua valendo. O botão "Atualizar agente" do plano de um pacote enviado segue o mesmo caminho e termina no plano do núcleo que veio no pacote. A confirmação do plano continua com o operador.
 
 Se o agente não chegar à versão nova em 30 minutos, a espera para e diz o que fazer: nos containers, o iniciador volta sozinho ao agente da imagem depois de 3 partidas sem sucesso (confira o log do serviço `agent`); num servidor systemd, `agent-rollback` e `systemctl restart skeleton-agent`. Se o agente recusar a atualização (por exemplo, `agent_build_failed`), o texto do erro aparece em "Atualize o agente primeiro" e nada fica guardado na sessão.
 
-**Sem `agent_root` (#775).** O agente informa `agent.manual_update` no inventário, e "Atualize o agente primeiro", o plano e "Versões instaladas" dizem o que fazer conforme o leiaute:
+**Sem `agent_root` (#775).** O agente informa `agent.manual_update` no inventário, e "Atualize o agente primeiro", o plano e "Atualizações da plataforma" dizem o que fazer conforme o leiaute:
 
 - **Containers:** atualize a imagem do agente e recrie o serviço (`docker compose pull agent && docker compose up -d agent`; no Coolify, Redeploy). A imagem que traz o volume `agent_code` passa a se atualizar sozinha.
 - **systemd com virtualenv fixo:** a tela mostra a migração única para `agent_root` com os caminhos reais do servidor (executável, `agent.json`, a raiz sugerida `/opt/skeleton-agent` e o pacote já enviado): `agent-install --enable` e o drop-in do systemd ([migrar para `agent_root`](deployment.md#migrar-para-agent_root-775)). Depois disso, o passo do núcleo atualiza o agente sozinho.
@@ -121,7 +149,7 @@ Num cluster (#689), "Atualizar agente" em qualquer nó chega ao primário, que c
 
 ## Atualizar um cluster de vários nós
 
-Num cluster (#678–#681, [alta disponibilidade](high-availability.md)), a tela de qualquer nó encaminha a atualização ao agente primário. O primário prepara o release e cada seguidor o recebe e confere antes de qualquer manutenção; depois todos os nós entram juntos na manutenção e param, o primário faz o backup e as migrations, e cada nó troca o release e confere a própria saúde antes de o tráfego reabrir. Em **Versões instaladas**, o painel **Nós do cluster** mostra o agente primário e a época, e cada nó com papel, release, fase da operação em curso e se está vivo ou sem sinal há mais de 60 s; o botão **Reiniciar os nós em rolagem** reinicia os serviços nó a nó com o mesmo release (para aplicar uma configuração nova), com reautenticação recente e CSRF. Sem primário, a página diz que as atualizações estão suspensas e o site continua no ar; com o primário inalcançável, uma operação pendente depois de uma troca de primário ou o cluster ocupado, a mensagem diz o que fazer. A prévia mostra o **modo de atualização** e, na confirmação de um plano que pode trocar nó a nó, a caixa **Forçar janela de manutenção**. Um patch sem migration, da mesma linha `major.minor` e com as mesmas apps, troca nó a nó sem janela de manutenção (a prévia mostra `rolling`); o resto usa a janela em todos os nós. O passo a passo, o que cada falha deixa e a recuperação estão em [agente em vários nós](deployment.md#agente-em-vários-nós-678).
+Num cluster (#678–#681, [alta disponibilidade](high-availability.md)), a tela de qualquer nó encaminha a atualização ao agente primário. O primário prepara o release e cada seguidor o recebe e confere antes de qualquer manutenção; depois todos os nós entram juntos na manutenção e param, o primário faz o backup e as migrations, e cada nó troca o release e confere a própria saúde antes de o tráfego reabrir. Em **Atualizações da plataforma**, o painel **Nós do cluster** mostra o agente primário e a época, e cada nó com papel, release, fase da operação em curso e se está vivo ou sem sinal há mais de 60 s; o botão **Reiniciar os nós em rolagem** reinicia os serviços nó a nó com o mesmo release (para aplicar uma configuração nova), com reautenticação recente e CSRF. Sem primário, a página diz que as atualizações estão suspensas e o site continua no ar; com o primário inalcançável, uma operação pendente depois de uma troca de primário ou o cluster ocupado, a mensagem diz o que fazer. A prévia diz em "O site sai do ar?" o **modo de atualização** e, na confirmação de um plano que pode trocar nó a nó, a caixa **Forçar janela de manutenção**. Um patch sem migration, da mesma linha `major.minor` e com as mesmas apps, troca nó a nó sem janela de manutenção (a prévia mostra `rolling`); o resto usa a janela em todos os nós. O passo a passo, o que cada falha deixa e a recuperação estão em [agente em vários nós](deployment.md#agente-em-vários-nós-678).
 
 ## Apps
 
@@ -129,9 +157,9 @@ Apps continuam em pacotes de componente. Uma app publica o próprio índice no p
 
 ## Avisos
 
-O agente consulta as fontes sozinho a cada `update_check_interval` segundos (padrão 6 horas; `0` desliga; a primeira consulta, 2 minutos depois de subir). Quem tem `updates.operate` vê nas páginas de `/platform/` uma faixa com o link "Ver o passo a passo"; o atraso máximo é o intervalo do agente mais 5 minutos de cache. Nada é baixado nem aplicado sozinho. Quem tem `updates.operate` também recebe na caixa da plataforma o aviso de versão nova e o de uma operação que não terminou ([alertas da plataforma](notifications.md#alertas-da-plataforma)).
+O agente consulta as fontes sozinho a cada `update_check_interval` segundos (padrão 6 horas; `0` desliga; a primeira consulta, 2 minutos depois de subir). Quem tem `updates.operate` vê nas páginas de `/platform/` uma faixa com o link para a área que tem a novidade ("Ver a atualização da plataforma" ou "Ver os aplicativos"); o atraso máximo é o intervalo do agente mais 5 minutos de cache. Nada é baixado nem aplicado sozinho. Quem tem `updates.operate` também recebe na caixa da plataforma o aviso de versão nova e o de uma operação que não terminou ([alertas da plataforma](notifications.md#alertas-da-plataforma)).
 
-Todo deployment roda o agente (#649), que mostra as versões em "Novas versões". Fora dele (só desenvolvimento local), com o opt-in `SKELETON_UPDATE_REPOSITORY`, o job `system.update_check` consulta o release mais recente e mostra um aviso **só informativo** com o link para o release ([aviso sem agente](deployment.md#sandbox-no-coolify-369)).
+Todo deployment roda o agente (#649), que mostra as versões nas duas áreas de atualização. Fora dele (só desenvolvimento local), com o opt-in `SKELETON_UPDATE_REPOSITORY`, o job `system.update_check` consulta o release mais recente e mostra um aviso **só informativo** com o link para o release ([aviso sem agente](deployment.md#sandbox-no-coolify-369)).
 
 ## Dependências do projeto derivado
 
@@ -154,7 +182,7 @@ Com um pacote de release que traz o alvo do servidor, o lock e os wheels das dep
 
 | Código | O que significa | O que fazer |
 |---|---|---|
-| `version_jump_forbidden` | O pacote está mais de uma linha à frente do núcleo instalado. | Siga o caminho de "Novas versões", um passo por vez. |
+| `version_jump_forbidden` | O pacote está mais de uma linha à frente do núcleo instalado. | Siga o caminho de "Atualizações da plataforma", um passo por vez. |
 | `agent_update_required` | O agente é de linha anterior à do núcleo de destino. | Atualize o agente primeiro. |
 | `agent_self_update_unavailable` | `agent_root` não configurado. | Use `agent-install` no servidor. |
 | `release_without_agent` | O pacote de release não traz o agente. | Use um pacote que traga, ou atualize o agente à mão. |
@@ -184,6 +212,10 @@ Com um pacote de release que traz o alvo do servidor, o lock e os wheels das dep
 | `catalogue_unavailable` | A fonte não respondeu ou respondeu fora do formato. | Tente de novo mais tarde. |
 | `invalid_source`, `source_id_reserved`, `publisher_not_approved`, `too_many_sources`, `source_not_found` | Cadastro de fonte recusado. | Corrija o formulário; o publicador precisa estar aprovado no servidor. |
 | `invalid_managed_sources` | O `sources.json` do agente está inválido (por exemplo, publicador retirado). | Corrija ou apague a entrada no arquivo do agente. |
+
+**Um plano aparece como "Vencida" ou "Substituída":** outro plano foi gravado para os mesmos componentes, ou uma operação concluída mudou a instalação. Prepare o passo de novo pela área; o plano antigo fica só no histórico ([planos aguardando aprovação](#planos-aguardando-aprovação)).
+
+**"O plano mudou ou a instalação mudou desde a prévia" ao aprovar:** a revisão ou a geração não batem mais; atualize a página do plano e, se ele venceu, prepare a atualização de novo.
 
 **O agente não volta depois de se atualizar:** rode `agent-rollback` e `sudo systemctl restart skeleton-agent`; depois investigue o log do serviço.
 
@@ -257,12 +289,14 @@ Num servidor de teste Linux com systemd e PostgreSQL, com um repositório de tes
 
 1. Publique dois releases de teste em linhas diferentes pelo workflow "Artefatos de release".
 2. Instale a primeira versão com o agente no leiaute `agent_root` (`agent-install`).
-3. Envie pela tela o pacote de release da versão seguinte; confira o plano (`core_update`, dependências, migrations), confirme e veja a operação concluir.
+3. Envie pela tela o pacote de release da versão seguinte; confira o plano (`core_update`, "O que muda", dependências, migrations), confirme e veja a operação concluir.
 4. Cadastre em "Fontes" o `dono/nome` do repositório de teste; "Verificar agora"; confira o caminho com dois passos e o botão só no primeiro.
-5. Tente enviar direto o pacote da segunda linha; confira a recusa com o texto de salto de versão.
-6. Com um pacote cujo agente é de linha mais nova, confira o aviso no cartão do núcleo em "Novas versões" e clique em "Preparar este passo": a página de espera se recarrega enquanto só o agente reinicia (o site continua no ar) e termina no plano do núcleo, sem voltar a "Novas versões"; confira a versão nova em "Versões instaladas" (#773). Num servidor com a unit antiga (virtualenv fixo), rode o bloco que "Atualize o agente primeiro" mostra e confira que o passo seguinte atualiza o agente sozinho (#775).
-7. Conclua os dois passos; confira que a página da operação oferece o passo seguinte e que a faixa de aviso some no fim. Com três releases em linhas seguidas, escolha em "Atualizar até a versão" a do meio, conclua os passos até ela e confira que, ao chegar, nenhum passo do núcleo é oferecido (#653).
-8. Rode `agent-rollback` e reinicie; confira a versão anterior do agente.
-9. No sandbox (`compose.sandbox.yaml`, [sandbox no Coolify](deployment.md#sandbox-no-coolify-369)) recriado do zero: confira que a primeira partida instalou o release publicado mais novo, que `/platform/updates/` mostra o agente, o core e a fonte oficial, que a agenda, o livro contábil e a app de exemplo aparecem instaladas e que a cobrança sobe sem `skeleton.E037`; depois de um release novo, escolha-o como alvo e conclua os passos.
-10. No sandbox, atualize o agente pela tela e confira que o container reinicia sozinho na versão nova e que `docker compose up -d --force-recreate agent` a mantém; com `SKELETON_AGENT_USE_IMAGE=1`, confira o agente da imagem; apague o virtualenv da versão do volume e confira, depois de 3 partidas, o agente da imagem e `agent.entry_fallback` no log (#772).
-11. Confira nos logs do agente e do web que nenhum token, chave ou URL de download assinada aparece.
+5. Prepare o mesmo passo duas vezes até "Continuar para a aprovação": confira que o primeiro plano aparece como "Substituída" no histórico. Descarte o segundo e confira "Descartada"; prepare de novo, aprove e confira que um plano de app preparado antes vira "Vencida" (#821).
+6. Tente enviar direto o pacote da segunda linha; confira a recusa com o texto de salto de versão.
+7. Com um pacote cujo agente é de linha mais nova, confira o aviso no cartão do núcleo em "Atualizações da plataforma" e clique em "Preparar atualização para X": a página de espera se recarrega enquanto só o agente reinicia (o site continua no ar) e termina no plano do núcleo; confira a versão nova no cartão do agente (#773). Num servidor com a unit antiga (virtualenv fixo), rode o bloco que "Atualize o agente primeiro" mostra e confira que o passo seguinte atualiza o agente sozinho (#775).
+8. Conclua os dois passos; confira que a página da operação oferece o passo seguinte e que a faixa de aviso some no fim. Com três releases em linhas seguidas, escolha em "Atualizar até a versão" a do meio, conclua os passos até ela e confira que, ao chegar, nenhum passo do núcleo é oferecido (#653).
+9. Rode `agent-rollback` e reinicie; confira a versão anterior do agente.
+10. No sandbox (`compose.sandbox.yaml`, [sandbox no Coolify](deployment.md#sandbox-no-coolify-369)) recriado do zero: confira que a primeira partida instalou o release publicado mais novo, que "Atualizações da plataforma" mostra o agente, o core e a fonte oficial, que a agenda, o livro contábil e a app de exemplo aparecem instaladas e que a cobrança sobe sem `skeleton.E037`; depois de um release novo, escolha-o como alvo e conclua os passos.
+11. No sandbox, atualize o agente pela tela e confira que o container reinicia sozinho na versão nova e que `docker compose up -d --force-recreate agent` a mantém; com `SKELETON_AGENT_USE_IMAGE=1`, confira o agente da imagem; apague o virtualenv da versão do volume e confira, depois de 3 partidas, o agente da imagem e `agent.entry_fallback` no log (#772).
+12. Em "Atualizações de aplicativos", instale uma app publicada, retire o código dela e reinstale; confira em 390 px e na largura do desktop que nenhuma tela rola na horizontal (#822, #823).
+13. Confira nos logs do agente e do web que nenhum token, chave ou URL de download assinada aparece.
