@@ -57,7 +57,7 @@ def test_invalid_manifest_stops_with_one_problem(tmp_path):
 def inventory_for(manifests):
     return {
         "generation": 1,
-        "core": {"version": "0.4.0"},
+        "core": {"version": "0.9.0"},
         "runtime": {"python": "3.14.0", "django": "6.1.3"},
         "apps": [{"manifest": manifest, "state": "installed"} for manifest in manifests],
     }

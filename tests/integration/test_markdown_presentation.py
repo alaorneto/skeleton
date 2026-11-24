@@ -101,3 +101,42 @@ def test_detail_list_and_form_of_a_markdown_field(records, monkeypatch, subtests
                 "skeleton/web/form.html", {"form": form, "title": "x", "csrf_token": "t", **sections}
             )
             assert '<div class="read-only-value markdown"><h2>Evolução</h2>' in html
+
+
+@pytest.mark.needs_example_app
+def test_notes_example_declares_the_markdown_widget(records, subtests):
+    """The Notes example uses the widget on body (#830), through the manifest it ships, not a monkeypatch."""
+    from django.urls import reverse
+
+    from examples.notes.models import Note
+    from tests.support import login
+
+    client = login(records.admin, password="Fixture-only-password-2026!", csrf=False)
+    table = {"organization_id": records.a.pk, "table_key": Note._meta.label_lower}
+
+    with subtests.test("the create form shows the editor"):
+        html = client.get(reverse("web:record-create", kwargs=table)).content.decode()
+        assert 'data-markdown-editor=""' in html and 'name="body"' in html
+
+    response = client.post(
+        reverse("web:record-create", kwargs=table),
+        {"code": "md-notes", "title": "Formatada", "body": "**forte** e *leve*\n\n- item"},
+    )
+    assert response.status_code == 302, response.content.decode()
+    with actor_tenant(records.admin, records.a):
+        note = Note.objects.get(code="md-notes")
+    assert note.body == "**forte** e *leve*\n\n- item"
+    record = {**table, "sysid": note.pk}
+
+    with subtests.test("the detail shows the formatted text"):
+        html = client.get(reverse("web:record", kwargs=record)).content.decode()
+        assert '<div class="markdown"><p><strong>forte</strong> e <em>leve</em></p>' in html
+        assert "<li>item</li>" in html and "**forte**" not in html
+
+    with subtests.test("the list shows the text without markers"):
+        html = client.get(reverse("web:records", kwargs=table)).content.decode()
+        assert "forte e leve" in html and "**forte**" not in html
+
+    with subtests.test("the edit form keeps the Markdown in the editor"):
+        html = client.get(reverse("web:record-edit", kwargs=record)).content.decode()
+        assert 'data-markdown-editor=""' in html and "**forte** e *leve*" in html
