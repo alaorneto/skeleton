@@ -135,7 +135,7 @@ Use as classes abaixo nos templates do núcleo e das apps; elas encapsulam os pa
 |---|---|
 | `page-header`, `page-eyebrow`, `page-description`, `section-heading` | Cabeçalho de página e rótulos de seção. |
 | `btn` + `btn-primary` / `btn-secondary` / `btn-danger` / `btn-danger-outline` / `btn-ghost`, `btn-sm` | Botões e links com aparência de botão. `.button` continua como alias do primário. |
-| `card`, `link-card` (+ `link-card-icon`, `link-card-title`, `link-card-text`) | Superfícies e atalhos navegáveis. |
+| `card`, `link-card` (+ `link-card-icon`, `link-card-title`, `link-card-text`) | Superfícies e atalhos navegáveis. Numa grade (`<ul class="grid ..."><li>`), todo `link-card` tem a mesma altura mínima, a de título mais duas linhas de descrição, e acompanha a linha da grade quando um vizinho precisa de mais (#804). |
 | `table-scroll` | Tabela responsiva (rola dentro do cartão, nunca a página); classes de coluna e de célula em [Tabelas](#tabelas). Lista vazia por `components/empty-row.html` (tabela) ou `components/empty-state.html` (cartão, lista), ver [Retorno ao usuário](#retorno-ao-usuário). |
 | `pagination` | Componente `skeleton/web/pagination.html` (resumo "Mostrando X–Y de N" e Anterior/Próxima). |
 | `components/cursor-pagination.html` | Paginação por cursor (`next_url`, `label`): "Carregar mais" só quando há próxima página. A view monta `next_url` com `urlencode`, preservando os outros parâmetros (o escopo das tarefas). |
