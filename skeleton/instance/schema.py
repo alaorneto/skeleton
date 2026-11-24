@@ -700,9 +700,9 @@ SETTING_GROUPS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("observability", "Observabilidade", ("insights_enabled", "metrics_token", "sentry_dsn")),
 )
 _GROUP_OF = {key: group for group, _, keys in SETTING_GROUPS for key in keys}
-_SPECS = tuple(replace(spec, group=_GROUP_OF.get(spec.key, "")) for spec in _SPECS)
-CATALOG: dict[str, SettingSpec] = {spec.key: spec for spec in _SPECS}
-BY_ENV: dict[str, SettingSpec] = {spec.env: spec for spec in _SPECS}
+_GROUPED = tuple(replace(spec, group=_GROUP_OF.get(spec.key, "")) for spec in _SPECS)
+CATALOG: dict[str, SettingSpec] = {spec.key: spec for spec in _GROUPED}
+BY_ENV: dict[str, SettingSpec] = {spec.env: spec for spec in _GROUPED}
 
 # Never stored in the instance SQLite: they locate it, or must not persist (owner credential).
 BOOTSTRAP_ENV = (

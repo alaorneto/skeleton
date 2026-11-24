@@ -106,7 +106,7 @@ def test_platform_pages_use_predicate_and_refuse_last_admin_with_409(admins):
     with request_context(actor=first, request_id=uuid4(), source="test:platform-pages"):
         update_platform_user(second, actor=first, data={"is_staff": False}, expected_revision=fresh(second).revision)
     listing = client.get(reverse("platform:users")).content.decode()
-    assert "Parcial" in listing
+    assert "Acesso parcial" in listing  # The marker of a partial platform admin (#767).
     detail = client.get(reverse("platform:user", args=[second.pk])).content.decode()
     assert "Administrador da plataforma" not in detail
     assert "Administrador da plataforma" in client.get(reverse("platform:user", args=[first.pk])).content.decode()
