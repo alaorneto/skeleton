@@ -25,8 +25,8 @@ A tela separa onde cada tarefa começa (#822). O motor é um só: o agente prepa
 
 | Área | No menu | O que faz |
 |---|---|---|
-| **Atualizações da plataforma** (`/platform/updates/`) | no topo, logo abaixo de "Configuração da instância" | O núcleo e o agente de deployment: versão instalada, a nova, "Atualizar até a versão", os passos e "Preparar atualização para X"; os nós do cluster; os detalhes técnicos (geração, digest, inventário confirmado no banco, versões publicadas) recolhidos. Abas: Visão geral, Histórico, Fontes e Enviar pacote. |
-| **Atualizações de aplicativos** (`/platform/updates/apps/`) | grupo Aplicativos | Atualizações disponíveis das apps instaladas, apps publicadas nas fontes que a instância ainda não tem ("Preparar instalação") e as instaladas, com "Retirar o código" (dados preservados) e "Reinstalar código" (dados preservados de volta), sem digitar digest nem ID. Abas: Visão geral, Histórico e Enviar pacote. |
+| **Atualizações da plataforma** (`/platform/updates/`) | "Atualizações", no topo, logo abaixo de "Configuração da instância" | O núcleo e o agente de deployment: versão instalada, a nova, "Atualizar até a versão", os passos e "Preparar atualização para X"; os nós do cluster; os detalhes técnicos (geração, digest, inventário confirmado no banco, versões publicadas) recolhidos. Abas: Visão geral, Histórico, Fontes e Enviar pacote. |
+| **Atualizações de aplicativos** (`/platform/updates/apps/`) | "Atualizações", no grupo Aplicativos | Atualizações disponíveis das apps instaladas, apps publicadas nas fontes que a instância ainda não tem ("Preparar instalação") e as instaladas, com "Retirar o código" (dados preservados) e "Reinstalar código" (dados preservados de volta), sem digitar digest nem ID. Abas: Visão geral, Histórico e Enviar pacote. |
 
 As duas áreas aparecem para quem tem `updates.operate`, inclusive sem ser administrador completo. As abas não têm número: não são uma sequência. A sequência existe dentro de um plano, e as telas dele mostram as quatro etapas:
 
