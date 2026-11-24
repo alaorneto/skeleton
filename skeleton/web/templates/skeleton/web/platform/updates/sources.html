@@ -8,7 +8,7 @@
   {% empty %}{% if listing_loaded %}{% translate "Nenhuma fonte de releases." as empty_message %}{% else %}{% translate "O agente não respondeu; as fontes estão indisponíveis." as empty_message %}{% endif %}{% include "skeleton/web/components/empty-row.html" with colspan=6 message=empty_message icon="updates"|concept_icon %}{% endfor %}
   </tbody></table></div>
 </section>
-<section class="card mt-6 max-w-3xl" aria-labelledby="sources-form">
+<section class="card mt-6" aria-labelledby="sources-form">
   <h2 id="sources-form">{% translate "Cadastrar repositório do GitHub" %}</h2>
   <p class="mt-1 mb-5 text-sm/6 text-body">{% translate "Para usar um fork, informe o repositório do fork e escolha o publicador dele. A chave pública do publicador precisa ter sido aprovada pelo operador no arquivo do agente; esta tela não cadastra chaves." %}</p>
   {% if source_form %}<form method="post" action="{% url 'platform:updates-sources' %}">{% csrf_token %}

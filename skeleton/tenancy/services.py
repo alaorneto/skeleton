@@ -27,24 +27,28 @@ def validate_new_slug(slug):
 
 
 def update_organization(organization, *, actor, data, expected_revision, using="default"):
-    """Platform-side organization edit with CAS; the slug is immutable."""
+    """Platform-side organization edit with CAS; a new slug follows ``skeleton.tenancy.slugs`` (#765)."""
     from skeleton.accounts.platform import require_platform_actor
     from skeleton.tenancy.models import Organization
 
+    from .slugs import prepare_slug, save_with_slug
+
     require_platform_actor(actor)
-    unknown = set(data) - {"name", "is_active"}
+    unknown = set(data) - {"name", "is_active", "slug"}
     if unknown:
         raise ValidationError(gettext("Campo não permitido."))
     with transaction.atomic(using=using):
         previous = Organization.objects.using(using).select_for_update(no_key=True).get(pk=organization.pk)
         if expected_revision != previous.revision:
             raise ConcurrentUpdate("The organization form is stale.")
-        changed = {key for key, value in data.items() if getattr(previous, key) != value}
+        changed = {key for key, value in data.items() if key != "slug" and getattr(previous, key) != value}
+        if "slug" in data and prepare_slug(previous, data["slug"], using=using):
+            changed.add("slug")
         if not changed:
             return previous
-        for key in changed:
+        for key in changed - {"slug"}:
             setattr(previous, key, data[key])
-        previous.save(using=using, update_fields=changed)
+        save_with_slug(previous, using=using, update_fields=changed)
         return previous
 
 
@@ -69,8 +73,12 @@ def create_organization(*, owner, slug, name, settings=None, storage_location="d
         with system_context(reason="organization:create", using=using):
             if not owner.is_active or owner.deleted_at:
                 raise ValidationError(gettext("O responsável pela organização precisa estar ativo."))
+            from .slugs import TAKEN, save_with_slug, slug_availability, taken_message
+
+            if slug_availability(slug, using=using) == TAKEN:
+                raise ValidationError({"slug": taken_message()})
             organization = Organization(name=name, slug=slug)
-            organization.save(using=using)
+            save_with_slug(organization, using=using)
         with system_context(reason="organization:bootstrap", organization_id=organization.pk, using=using):
             roles = {}
             for code, builtin in BUILTIN_ROLES.items():

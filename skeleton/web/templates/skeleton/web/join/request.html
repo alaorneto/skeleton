@@ -1,7 +1,7 @@
 {% extends 'skeleton/web/base.html' %}
 {% block title %}Pedir para entrar · {{ target.name }} · {{ site_name }}{% endblock %}
 {% block content %}
-<div class="max-w-3xl">
+<div>
 <div class="page-header"><div class="min-w-0">
 <nav class="breadcrumbs" aria-label="Caminho"><ol><li><a href="{% url 'web:join' %}">Entrar numa organização</a></li><li><span aria-current="page">{{ target.name }}</span></li></ol></nav>
 <h1>Pedir para entrar em {{ target.name }}</h1>

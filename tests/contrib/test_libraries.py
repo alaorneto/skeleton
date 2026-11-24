@@ -193,6 +193,16 @@ def test_the_platform_shows_libraries_read_only(setup):
     assert CALENDAR not in {item["app_label"] for item in listing.context["applications"]}
     calendar = next(item for item in listing.context["libraries"] if item["app_label"] == CALENDAR)
     assert [item["app_label"] for item in calendar["used_by"]] == [USER]
+    # One card for both kinds (#807): the app names its kind and its dependencies, and the library
+    # has an icon of its own.
+    user_app = next(item for item in listing.context["applications"] if item["app_label"] == USER)
+    assert not user_app["library"] and calendar["library"]
+    assert CALENDAR in {item["app_label"] for item in user_app["requires"]}
+    page = listing.content.decode()
+    assert "Aplicativo" in page and "Biblioteca" in page and "Depende de" in page
+    from skeleton.web.icons import concept_icon
+
+    assert concept_icon("libraries") != concept_icon("apps")
     detail = client.get(reverse("platform:app", kwargs={"app_label": CALENDAR}))
     assert detail.status_code == 200 and detail.context["library"] and detail.context["availability"] is None
     assert client.get(reverse("platform:app-availability", kwargs={"app_label": CALENDAR})).status_code == 404

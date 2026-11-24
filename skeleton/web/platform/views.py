@@ -500,8 +500,10 @@ def organization_create(request):
 def _organization_form(organization, data=None):
     return OrganizationForm(
         data,
+        organization=organization,
         initial={
             "name": organization.name,
+            "slug": organization.slug,
             "is_active": organization.is_active,
             "expected_revision": organization.revision,
         },
@@ -613,6 +615,21 @@ def _site_address(organization):
         return None
     origin = organization_origin(organization.slug)
     return urlsplit(origin).netloc if origin else ""
+
+
+@platform_page
+@require_safe
+def organization_slug(request):
+    """Whether the typed identifier is free (#765); ``?organization=`` names the one being edited."""
+    import uuid
+
+    from skeleton.web.slug_check import slug_check_response
+
+    try:
+        organization_id = uuid.UUID(request.GET["organization"]) if request.GET.get("organization") else None
+    except ValueError:
+        organization_id = None
+    return slug_check_response(request, organization_id=organization_id)
 
 
 @platform_page
@@ -844,14 +861,19 @@ def app_list(request):
     from skeleton.system.administration import application_identity
     from skeleton.system.app_registry import all_apps, dependent_app_labels
 
+    def card(manifest):
+        # One card for apps and libraries (#807): kind, version, origin and dependencies; a
+        # first-party library (#792) also lists the apps that use it.
+        return {
+            **application_identity(manifest),
+            "library": manifest.library,
+            "requires": _app_labels(manifest.dependencies),
+            "used_by": _app_labels(dependent_app_labels(manifest.app_label)) if manifest.library else [],
+        }
+
     manifests = sorted(all_apps(), key=lambda manifest: manifest.label)
-    applications = [application_identity(manifest) for manifest in manifests if not manifest.library]
-    # First-party libraries (#792): read-only, with the apps that use them.
-    libraries = [
-        {**application_identity(manifest), "used_by": _app_labels(dependent_app_labels(manifest.app_label))}
-        for manifest in manifests
-        if manifest.library
-    ]
+    applications = [card(manifest) for manifest in manifests if not manifest.library]
+    libraries = [card(manifest) for manifest in manifests if manifest.library]
     return render(
         request,
         "skeleton/web/platform/apps.html",

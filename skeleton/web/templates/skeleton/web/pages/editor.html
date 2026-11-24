@@ -4,7 +4,7 @@ Editor SSR de páginas em blocos (#619): sem JavaScript; toda mudança é um POS
 revisão lida (CAS). A autorização é da view concreta que monta o PageEditor.
 {% endcomment %}{% block title %}{{ editor.title }} · {{ site_name }}{% endblock %}
 {% block content %}
-<div class="max-w-4xl">
+<div>
 <div class="page-header">
   <div class="min-w-0">{% if editor.eyebrow %}<p class="page-eyebrow">{{ editor.eyebrow }}</p>{% endif %}<h1>{{ editor.title }}</h1>
   {% if editor.description %}<p class="page-description">{{ editor.description }}</p>{% endif %}</div>

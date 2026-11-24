@@ -1,6 +1,6 @@
 {% extends 'skeleton/web/base.html' %}{% load i18n skeleton_format %}{% block title %}{% if endpoint %}{{ endpoint.name }}{% else %}{% translate "Novo webhook" %}{% endif %} · {{ site_name }}{% endblock %}
 {% block content %}
-<div class="max-w-3xl">
+<div>
 <div class="page-header">
   <div class="min-w-0">
     <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'integrations:webhooks' organization_id %}">{% translate "Webhooks" %}</a></li><li><span aria-current="page">{% if endpoint %}{{ endpoint.name }}{% else %}{% translate "Novo" %}{% endif %}</span></li></ol></nav>

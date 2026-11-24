@@ -37,7 +37,7 @@ Configure `FILES_STORAGE_ENCRYPTION_KEYS` e cadastre os buckets em `/platform/st
 
 ## 7. Cadastro do cliente
 
-Ligue `SKELETON_ORGANIZATION_SIGNUP_ENABLED` (e ajuste `SKELETON_ORGANIZATION_SIGNUP_MAX_PER_PERSON`, padrão 1). Uma pessoa autenticada com email verificado cria a própria organização em `/organizations/new/`, escolhe um dos pacotes visíveis no cadastro e vira a administradora; a política das organizações novas e o local padrão se aplicam. Um pacote pago contrata o preço da oferta e leva a pessoa ao pagamento da primeira fatura; as apps chegam com o pagamento. Uma regra da política exigida na criação deixa o cadastro indisponível, e a lista de organizações da plataforma avisa disso. O filtro "Criadas por cadastro" lista as organizações que nasceram assim.
+Ligue `SKELETON_ORGANIZATION_SIGNUP_ENABLED` (e ajuste `SKELETON_ORGANIZATION_SIGNUP_MAX_PER_PERSON`, padrão 1). Uma pessoa autenticada com email verificado cria a própria organização em `/organizations/new/` (o campo do identificador avisa, enquanto ela digita, se ele já está em uso, e o servidor confere de novo ao criar; #765), escolhe um dos pacotes visíveis no cadastro e vira a administradora; a política das organizações novas e o local padrão se aplicam. Um pacote pago contrata o preço da oferta e leva a pessoa ao pagamento da primeira fatura; as apps chegam com o pagamento. Uma regra da política exigida na criação deixa o cadastro indisponível, e a lista de organizações da plataforma avisa disso. O filtro "Criadas por cadastro" lista as organizações que nasceram assim.
 
 ## 8. Cliente da API de plataforma
 

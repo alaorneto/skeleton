@@ -1,7 +1,7 @@
 {% extends "skeleton/web/platform/base.html" %}
 {% load i18n skeleton_format %}{% block page_title %}{% translate "Instâncias remotas" %}{% endblock %}
 {% block content %}
-<div class="max-w-4xl">
+<div>
 <div class="page-header"><div class="min-w-0">
   <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'platform:remote-instances' %}">{% translate "Instâncias remotas" %}</a></li>{% if connection %}<li><span aria-current="page">{{ connection.label }}</span></li>{% endif %}</ol></nav>
   <h1>{% if connection %}{{ connection.label }}{% else %}{% translate "Instâncias remotas" %}{% endif %}</h1>

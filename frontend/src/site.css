@@ -384,6 +384,15 @@
   .link-card {
     @apply flex min-w-0 items-start gap-3 rounded-card border border-default bg-neutral-primary-soft p-4 text-body no-underline shadow-card transition-[border-color,box-shadow,background-color] hover:border-brand-subtle hover:shadow-pop focus-visible:border-brand-subtle;
   }
+  /* Numa lista, o cartão ocupa a altura do item; numa grade, todos os cartões têm a menor altura comum,
+     com ou sem descrição: título e duas linhas de descrição (padding, borda e linhas de .link-card-title/-text).
+     Uma descrição mais longa estica a linha da grade, e os vizinhos acompanham (#804). */
+  li > .link-card {
+    @apply h-full;
+  }
+  :where(.grid) > li > .link-card {
+    min-height: calc(--spacing(8) + 2px + 1.25rem + --spacing(0.5) + 2 * 1.25rem);
+  }
   .link-card-icon {
     @apply grid size-9 shrink-0 place-items-center rounded-base bg-brand-softer text-fg-brand ring-1 ring-brand-subtle/60 transition-colors;
     & svg {

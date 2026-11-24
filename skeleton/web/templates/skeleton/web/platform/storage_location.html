@@ -1,7 +1,7 @@
 {% extends "skeleton/web/platform/base.html" %}
 {% load i18n %}{% block page_title %}{% if location %}{{ location.label }}{% else %}{% translate "Novo local" %}{% endif %}{% endblock %}
 {% block content %}
-<div class="max-w-3xl">
+<div>
 <div class="page-header">
   <div class="min-w-0">
     <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'platform:storage' %}">{% translate "Locais de armazenamento" %}</a></li><li><span aria-current="page">{% if location %}{{ location.label }}{% else %}{% translate "Novo local" %}{% endif %}</span></li></ol></nav>

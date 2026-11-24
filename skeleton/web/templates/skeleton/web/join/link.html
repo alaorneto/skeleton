@@ -1,7 +1,7 @@
 {% extends 'skeleton/web/base.html' %}
 {% block title %}Entrar em {{ proof.organization_name }} · {{ site_name }}{% endblock %}
 {% block content %}
-<div class="max-w-3xl">
+<div>
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">Link de ingresso</p><h1>Entrar em {{ proof.organization_name }}</h1>
 <p class="page-description">{% if proof.mode == "direct" %}Ao confirmar, você entra na organização. Se você já foi membro dela, o link cria um pedido para quem a administra decidir.{% else %}Ao confirmar, você envia um pedido; quem administra a organização decide e você recebe um email com a resposta.{% endif %}</p></div></div>
 <div class="card">

@@ -2,7 +2,7 @@
 {% load i18n %}{% block extrahead %}{% if wait_state == "waiting" %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
 {% block step_title %}{% translate "Atualizando o agente" %}{% endblock %}
 {% block step %}
-<section class="card max-w-3xl" aria-labelledby="agent-wait">
+<section class="card" aria-labelledby="agent-wait">
   <h2 id="agent-wait">{% if wait_state == "failed" %}{% translate "A atualização do agente não terminou" %}{% else %}{% translate "Atualizando o agente" %}{% endif %}</h2>
   {% if wait_state == "failed" %}
   <div class="message warning mt-3" role="status">{% include "skeleton/web/components/icon.html" with name="warning" %}<div class="min-w-0">{% blocktranslate trimmed with required=required %}O agente não chegou à versão {{ required }} em 30 minutos. Nada do núcleo mudou e o site continua no ar.{% endblocktranslate %}</div></div>

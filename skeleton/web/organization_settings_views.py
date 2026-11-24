@@ -91,6 +91,34 @@ class SiteAddressForm(forms.Form):
     site_enabled = forms.BooleanField(label=gettext_lazy("Ativar endereço próprio"), required=False)
 
 
+class OrganizationSlugForm(forms.Form):
+    """The organization's identifier (#765): its own form, with the organization's revision."""
+
+    slug = forms.SlugField(
+        label=gettext_lazy("Identificador"),
+        max_length=63,
+        help_text=gettext_lazy("Letras minúsculas, dígitos e hífen. Aparece no endereço próprio da organização."),
+    )
+    expected_revision = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
+
+    def __init__(self, *args, organization, **kwargs):
+        from .slug_check import slug_check_attrs
+
+        kwargs.setdefault("initial", {"slug": organization.slug, "expected_revision": organization.revision})
+        super().__init__(*args, **kwargs)
+        slug_check_attrs(
+            self.fields["slug"],
+            url=reverse("web:organization-slug-check", kwargs={"organization_id": organization.pk}),
+            current=organization.slug,
+        )
+
+
+def _organization(organization_id):
+    from skeleton.tenancy.models import Organization
+
+    return Organization.objects.get(pk=organization_id)
+
+
 def _site_address(organization_id):
     """``(origin, refusal)``: the address when available, else why the section offers no checkbox."""
     from skeleton.tenancy.models import Organization
@@ -151,8 +179,12 @@ def _apply_error(form: OrganizationSettingsForm, error: ValidationError, site_fo
             form.add_error(field if field in form.fields else None, problems)
 
 
-def _page(request, organization_id, form, *, status=200, logo_errors=(), site_form=None, icon_errors=()):
+def _page(
+    request, organization_id, form, *, status=200, logo_errors=(), site_form=None, icon_errors=(), slug_form=None
+):
     record = current_settings()
+    if slug_form is None:
+        slug_form = OrganizationSlugForm(organization=_organization(organization_id))
     dashboard = reverse("web:dashboard", kwargs={"organization_id": organization_id})
     origin, site_refused = _site_address(organization_id)
     locked = _locked()
@@ -165,6 +197,7 @@ def _page(request, organization_id, form, *, status=200, logo_errors=(), site_fo
         "skeleton/web/organization_settings.html",
         {
             "form": form,
+            "slug_form": slug_form,
             "site_form": site_form if origin else None,
             "site_origin": origin,
             "site_refused": site_refused,
@@ -184,13 +217,18 @@ def _page(request, organization_id, form, *, status=200, logo_errors=(), site_fo
     )
 
 
-def _form(request, record):
+def _initial(record):
     from skeleton.tenancy.business_hours import format_holidays, format_hours
 
     initial = {name: getattr(record, name, "") for name in WRITE_FIELDS}
     initial["business_hours"] = format_hours(getattr(record, "business_hours", None))
     initial["holidays"] = format_holidays(getattr(record, "holidays", None))
     initial["revision"] = revision_of(record)
+    return initial
+
+
+def _form(request, record):
+    initial = _initial(record)
     if request.method != "POST":
         return OrganizationSettingsForm(None, initial=initial)
     data = request.POST.copy()
@@ -243,6 +281,58 @@ def organization_settings(request, organization_id):
         else:
             status = 400
     return _page(request, organization_id, form, status=status, site_form=site_form)
+
+
+@tenant_page(admin=True)
+@never_cache
+@require_POST
+def organization_slug_update(request, organization_id):
+    """The administrator changes the organization's identifier (#765); the service checks it again."""
+    from skeleton.tenancy.slugs import change_own_slug
+
+    organization = _organization(organization_id)
+    slug_form = OrganizationSlugForm(request.POST, organization=organization)
+    status = 400
+    if slug_form.is_valid():
+        try:
+            with transaction.atomic():
+                organization = change_own_slug(
+                    actor=request.user,
+                    slug=slug_form.cleaned_data["slug"],
+                    expected_revision=slug_form.cleaned_data["expected_revision"],
+                )
+        except ConcurrentUpdate:
+            slug_form.add_error(None, gettext("A organização mudou. Atualize a página antes de tentar novamente."))
+            status = 409
+        except ValidationError as exc:
+            _apply_error(slug_form, exc)
+        else:
+            messages.success(request, gettext("Identificador atualizado."))
+            return redirect(_settings_url(request, organization))
+    form = OrganizationSettingsForm(initial=_initial(current_settings()))
+    return _page(request, organization_id, form, status=status, slug_form=slug_form)
+
+
+def _settings_url(request, organization):
+    """The settings page; on the organization's own slug host, at the address of the new slug."""
+    from skeleton.tenancy.routing import site_organization_id
+    from skeleton.tenancy.site import classify_host, organization_origin
+
+    path = reverse("web:organization-settings", kwargs={"organization_id": organization.pk})
+    if site_organization_id() == organization.pk and classify_host(request.get_host()).kind == "organization":
+        origin = organization_origin(organization.slug)
+        if origin:
+            return origin + path
+    return path
+
+
+@tenant_page(admin=True)
+@require_safe
+def organization_slug_check(request, organization_id):
+    """Whether the typed identifier is free for this organization (#765); only for its administrator."""
+    from .slug_check import slug_check_response
+
+    return slug_check_response(request, organization_id=organization_id)
 
 
 @tenant_page(admin=True)

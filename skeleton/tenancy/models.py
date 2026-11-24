@@ -12,7 +12,7 @@ class Organization(SystemRecord):
     name = models.CharField(max_length=200)
     slug = models.SlugField(max_length=100, unique=True)
     is_active = models.BooleanField(default=True)
-    immutable_fields = ("slug",)
+    # The slug changes only through skeleton.tenancy.slugs (#765): unique among every row, checked under lock.
     soft_delete_reference_policy = "retain"
 
     class Meta(SystemRecord.Meta):

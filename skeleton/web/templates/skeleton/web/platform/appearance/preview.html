@@ -2,7 +2,7 @@
 {% load i18n skeleton_format %}{% block page_title %}{% blocktranslate trimmed with name=theme_name %}Pré-visualização: {{ name }}{% endblocktranslate %}{% endblock %}
 {% block theme_link %}<link rel="stylesheet" href="{{ preview_css_url }}{% if color_scheme %}{% if "?" in preview_css_url %}&amp;{% else %}?{% endif %}scheme={{ color_scheme }}{% endif %}">{% endblock %}
 {% block content %}
-<div class="max-w-4xl">
+<div>
 <div class="page-header">
   <div class="min-w-0"><p class="page-eyebrow">{% translate "Pré-visualização" %}</p><h1>{{ theme_name }}</h1><p class="page-description">{% translate "Só esta página usa o tema candidato, com o CSS personalizado. Nada é ativado aqui." %}</p></div>
   <nav class="toolbar" aria-label="{% translate "Voltar" %}"><a class="btn btn-secondary" href="{% url 'platform:appearance' %}">{% include "skeleton/web/components/icon.html" with name="arrow-left" %}{% translate "Voltar para Aparência" %}</a></nav>

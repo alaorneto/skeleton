@@ -1,6 +1,6 @@
 {% extends 'skeleton/web/base.html' %}{% load i18n skeleton_format %}{% block title %}{{ task.step_label }} · {{ site_name }}{% endblock %}
 {% block content %}
-<div class="max-w-3xl">
+<div>
 <div class="page-header"><div class="min-w-0">
   <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'flows:tasks' organization_id %}">{% translate "Tarefas" %}</a></li><li><span aria-current="page">{{ task.step_label }}</span></li></ol></nav>
   <h1>{{ task.step_label }}</h1>

@@ -1,6 +1,6 @@
 {% extends "skeleton/web/base.html" %}{% load i18n skeleton_format %}{% block title %}{{ calendar.name }} · {% translate "Agenda" %} · {{ site_name }}{% endblock %}
 {% block content %}
-<div class="max-w-3xl">
+<div>
 <div class="page-header"><div class="min-w-0"><nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'skeleton_calendar:home' organization_id %}">{% translate "Agenda" %}</a></li><li><a href="{% url 'skeleton_calendar:calendars' organization_id %}">{% translate "Calendários" %}</a></li><li><span aria-current="page">{{ calendar.name }}</span></li></ol></nav><h1>{{ calendar.name }}</h1><p class="page-description">{% if calendar.kind == "personal" %}{% translate "Calendário pessoal" %}{% else %}{% translate "Calendário compartilhado" %}{% endif %} · {% translate "fuso" %} {{ calendar.timezone }}</p></div>
   <nav class="toolbar" aria-label="{% translate "Ações do calendário" %}"><a class="btn btn-secondary" href="{% url 'skeleton_calendar:calendar-link' organization_id calendar.pk %}">{% translate "Link de assinatura" %}</a></nav>
 </div>

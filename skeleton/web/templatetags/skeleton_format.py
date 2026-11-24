@@ -233,7 +233,9 @@ MARKERS = {
     "nullable": (_("Aceita vazio"), "neutral"),
     "sensitive": (_("Sensível"), "warning"),
     "personal": (_("Pessoal"), "warning"),
-    # An app with no availability of its own: active while an app that depends on it is (#792).
+    # The kind of an installed app (#807); a library has no availability of its own: it is
+    # active while an app that depends on it is (#792).
+    "app": (_("Aplicativo"), "neutral"),
     "library": (_("Biblioteca"), "neutral"),
     # A notification type the organization cannot change: the platform's or locked by it (#785).
     "platform_defined": (_("Definido pela plataforma"), "neutral"),

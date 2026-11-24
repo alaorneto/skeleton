@@ -1,7 +1,7 @@
 {% extends "skeleton/web/platform/base.html" %}
 {% load i18n skeleton_format %}{% block page_title %}{% translate "Pacotes de apps" %}{% endblock %}
 {% block content %}
-<div class="max-w-4xl">
+<div>
 <div class="page-header"><div class="min-w-0">
   <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'platform:bundles' %}">{% translate "Pacotes de apps" %}</a></li>{% if bundle %}<li><span aria-current="page">{{ bundle.label }}</span></li>{% endif %}</ol></nav>
   <h1>{% if bundle %}{{ bundle.label }}{% else %}{% translate "Pacotes de apps" %}{% endif %}</h1>
