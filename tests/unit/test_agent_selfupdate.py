@@ -186,6 +186,96 @@ def test_agent_install_from_file_and_unapproved_publisher(agent, tmp_path):
         selfupdate.install_from_file(config, foreign, run=Runner(version="0.7.1"))
 
 
+def legacy_install(agent, tmp_path, **values):
+    """A fixed-virtualenv install (#775): agent.json without agent_root, and a new empty root."""
+    configuration = tmp_path / "legacy" / "agent.json"
+    configuration.parent.mkdir()
+    original = {"storage_root": str(agent.service.store.root), "token_file": "/srv/token", **values}
+    configuration.write_text(json.dumps(original, indent=4))
+    configuration.chmod(0o640)
+    config = {**agent.service.config, "storage_root": str(agent.service.store.root), "config_path": str(configuration)}
+    config.pop("agent_root")
+    config.update(values)
+    root = tmp_path / "new-root"
+    root.mkdir()
+    return SimpleNamespace(config=config, path=configuration, original=original, root=root)
+
+
+def test_agent_install_enable_records_only_agent_root_and_prints_the_drop_in(agent, tmp_path):
+    legacy = legacy_install(agent, tmp_path)
+    result = selfupdate.install_from_file(
+        legacy.config, release(tmp_path, name="enable"), root=legacy.root, enable=True, run=Runner()
+    )
+    assert json.loads(legacy.path.read_text()) == {**legacy.original, "agent_root": str(legacy.root)}
+    assert legacy.path.stat().st_mode & 0o777 == 0o640
+    assert os.readlink(legacy.root / "current").startswith("versions/0.7.0-")
+    assert result["agent_root"] == str(legacy.root)
+    assert result["next_steps"] == [
+        "/etc/systemd/system/skeleton-agent.service.d/agent-root.conf:",
+        "[Service]",
+        "ExecStart=",
+        f"ExecStart={legacy.root}/current/venv/bin/skeleton-deployment-agent --config {legacy.path} serve",
+        "systemctl daemon-reload",
+        "systemctl restart skeleton-agent",
+    ]
+    # Already enabled with the same root: nothing more is written.
+    legacy.config["agent_root"] = str(legacy.root)
+    before = legacy.path.read_bytes()
+    selfupdate.install_from_file(
+        legacy.config, release(tmp_path, "0.7.1", name="again"), enable=True, run=Runner(version="0.7.1")
+    )
+    assert legacy.path.read_bytes() == before
+
+
+def test_agent_install_enable_refusals_change_nothing(agent, tmp_path, monkeypatch, subtests):
+    with subtests.test("agent.json not writable"):
+        legacy = legacy_install(agent, tmp_path)
+        before = legacy.path.read_bytes()
+        monkeypatch.setattr(selfupdate.os, "access", lambda path, mode: False)
+        with pytest.raises(AgentError, match="agent_config_not_writable"):
+            selfupdate.install_from_file(
+                legacy.config, release(tmp_path, name="locked"), root=legacy.root, enable=True, run=Runner()
+            )
+        monkeypatch.undo()
+        assert legacy.path.read_bytes() == before and not (legacy.root / "versions").exists()
+    with subtests.test("another agent_root already recorded"):
+        other = tmp_path / "other-root"
+        other.mkdir()
+        legacy.config["agent_root"] = str(other)
+        with pytest.raises(AgentError, match="agent_root_conflict"):
+            selfupdate.install_from_file(
+                legacy.config, release(tmp_path, name="conflict"), root=legacy.root, enable=True, run=Runner()
+            )
+        assert legacy.path.read_bytes() == before and not (legacy.root / "versions").exists()
+    with subtests.test("without --enable the file is never touched"):
+        legacy.config.pop("agent_root")
+        result = selfupdate.install_from_file(
+            legacy.config, release(tmp_path, name="plain"), root=legacy.root, run=Runner()
+        )
+        assert legacy.path.read_bytes() == before and "agent_root" not in result
+        assert f"ExecStart={legacy.root}/current/venv/bin/skeleton-deployment-agent" in result["next_steps"][3]
+
+
+def test_inventory_tells_how_an_agent_without_agent_root_is_updated(agent, subtests):
+    with subtests.test("agent_root: no manual update"):
+        assert "manual_update" not in agent.service.inventory()["agent"]
+    agent.service.config.pop("agent_root")
+    with subtests.test("systemd: only paths"):
+        manual = agent.service.inventory()["agent"]["manual_update"]
+        assert manual == {
+            "layout": "systemd",
+            "executable": manual["executable"],
+            "config_path": str(agent.tmp / "agent.json"),
+            "suggested_root": "/opt/skeleton-agent",
+            "uploads_dir": str(agent.service.store.root / "uploads"),
+        }
+        assert manual["executable"].endswith("/skeleton-deployment-agent")
+        assert agent.service.inventory()["agent"]["self_update"] is False
+    with subtests.test("container: the image"):
+        agent.service.config["service_control"] = {"control_root": "/control", "state_root": "/state"}
+        assert agent.service.inventory()["agent"]["manual_update"] == {"layout": "container"}
+
+
 def test_core_update_needs_an_agent_on_the_target_line(monkeypatch):
     core = [{"kind": "core", "version": "0.7.0"}]
     monkeypatch.setattr(selfupdate, "agent_version", lambda: "0.6.4")

@@ -9,6 +9,7 @@ attachment bound (``SKELETON_PACKAGE_MAX_BYTES`` instead of ``SKELETON_UPLOAD_MA
 
 import re
 import tempfile
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from django import forms
@@ -18,6 +19,7 @@ from django.core.files.uploadhandler import FileUploadHandler, StopUpload
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods, require_safe
@@ -53,6 +55,7 @@ from .guards import platform_page
 
 __all__ = [
     "add_dependency",
+    "agent_wait",
     "available",
     "fetch_release",
     "installed",
@@ -379,7 +382,7 @@ def _installed_components():
 
 
 def _plan_page(
-    request, form, *, status=200, artifact=None, problems=(), plan_action="", plan_artifacts="", agent_self_update=False
+    request, form, *, status=200, artifact=None, problems=(), plan_action="", plan_artifacts="", agent_offer=None
 ):
     return render(
         request,
@@ -391,7 +394,7 @@ def _plan_page(
             problems=problems,
             plan_action=plan_action,
             plan_artifacts=plan_artifacts,
-            agent_self_update=agent_self_update,
+            agent_offer=agent_offer,
         ),
         status=status,
     )
@@ -414,14 +417,140 @@ def _agent_behind(artifact):
     return None
 
 
-def _agent_self_update(artifact):
-    """Whether the agent can replace itself, asked only when a release package offers a newer one."""
+# A path the screen prints inside a shell command (#775): absolute and without anything a shell
+# would interpret. Anything else falls back to the generic text, never to a half-quoted command.
+SHELL_PATH = re.compile(r"/[A-Za-z0-9._/@+-]{0,400}")
+
+
+def manual_update(agent, digest=None):
+    """The closed shape of the agent's ``manual_update`` (#775), or ``None`` for the generic text.
+
+    ``container``: the agent comes from the image. ``systemd``: the real paths of the one-time
+    migration to ``agent_root``, and the uploaded package's path when its ``digest`` is known.
+    """
+    raw = agent.get("manual_update") if isinstance(agent, dict) else None
+    if not isinstance(raw, dict):
+        return None
+    if raw.get("layout") == "container":
+        return {"layout": "container"}
+    if raw.get("layout") != "systemd":
+        return None
+    paths = {key: raw.get(key) for key in ("executable", "config_path", "suggested_root", "uploads_dir")}
+    if not all(isinstance(value, str) and SHELL_PATH.fullmatch(value) for value in paths.values()):
+        return None
+    result = {"layout": "systemd", **paths}
+    if isinstance(digest, str) and DIGEST.fullmatch(digest):
+        # The same name Store.path("uploads", digest) gives the package in deployment_agent/storage.py.
+        result["package"] = f"{paths['uploads_dir'].rstrip('/')}/{digest}.skapp"
+    return result
+
+
+def _agent_offer(artifact):
+    """How the agent of a release package that offers a newer one gets installed here, or ``None``.
+
+    ``{"self_update": bool, "manual": manual_update(...)}``; the inventory is asked only then.
+    """
     if not (artifact.get("agent") or {}).get("update_required"):
-        return False
+        return None
     try:
-        return bool((agent_client().inventory().get("agent") or {}).get("self_update"))
+        agent = agent_client().inventory().get("agent") or {}
     except (ValueError, RuntimeError, OSError):
-        return False
+        return {"self_update": False, "manual": None}
+    return {"self_update": bool(agent.get("self_update")), "manual": manual_update(agent, artifact.get("digest"))}
+
+
+# The agent update that a core step starts (#773): after the restart, the wait page goes on to the
+# plan by itself. Only identifiers kept in this session, never trust: the new agent fetches and
+# checks the package again, and the operator still confirms the plan.
+AGENT_CONTINUATION_KEY = "platform.updates.agent_continuation"
+AGENT_WAIT_LIMIT = timedelta(minutes=30)
+DIGEST = re.compile("[0-9a-f]{64}")
+
+
+def _identifiers(values):
+    """``component_id``, ``version`` and ``source_id`` of a catalogue step, or ``None``."""
+    identifiers = {name: values.get(name, "") for name in ("component_id", "version", "source_id")}
+    if all(isinstance(value, str) and 0 < len(value) <= 128 for value in identifiers.values()):
+        return identifiers
+    return None
+
+
+def _start_agent_update(request, *, digest, required, action, identifiers=None, artifacts=None):
+    """Ask the agent to replace itself and remember where to go after it restarts (#773).
+
+    Raises what the agent raises, before anything is kept in the session. Without a version to wait
+    for, only the old notice: the operator comes back to the step by hand.
+    """
+    result = request_agent_update(user=request.user, digest=digest)
+    version = _text(result.get("version") if isinstance(result, dict) else None, 64) or _text(required, 64)
+    try:
+        Version(version or "")
+    except InvalidVersion:
+        messages.success(request, gettext("O agente está reiniciando. Atualize a página em alguns segundos."))
+        return redirect("platform:updates")
+    request.session[AGENT_CONTINUATION_KEY] = {
+        "digest": digest,
+        "required": version,
+        "action": action,
+        "identifiers": identifiers,
+        "artifacts": artifacts if isinstance(artifacts, str) and DIGEST.fullmatch(artifacts) else None,
+        "started_at": timezone.now().isoformat(),
+    }
+    return redirect("platform:updates-agent-wait")
+
+
+def _continuation(request):
+    """The continuation kept in the session, checked again; a malformed one is dropped."""
+    raw = request.session.get(AGENT_CONTINUATION_KEY)
+    try:
+        started = datetime.fromisoformat(raw["started_at"])
+        Version(raw["required"])
+        valid = bool(
+            DIGEST.fullmatch(raw["digest"])
+            and raw["action"] == "core_update"
+            and (raw["identifiers"] is None or _identifiers(raw["identifiers"]) == raw["identifiers"])
+            and (raw["artifacts"] is None or DIGEST.fullmatch(raw["artifacts"]))
+            and started.tzinfo is not None
+        )
+    except (KeyError, TypeError, ValueError, AttributeError, InvalidVersion):
+        valid = False
+    if not valid:
+        request.session.pop(AGENT_CONTINUATION_KEY, None)
+        return None
+    return {**raw, "started_at": started}
+
+
+def _agent_first(request, artifact, agent, *, identifiers=None, artifacts=None, automatic=True):
+    """A core step that needs a newer agent (#500, #773).
+
+    With an agent that replaces itself, the step starts by updating it and goes on to the wait page;
+    otherwise (or when the agent refuses), "Atualize o agente primeiro" says what to do here.
+    """
+    offer = artifact.get("agent") or {}
+    if automatic and offer.get("update_required") and agent.get("self_update"):
+        try:
+            return _start_agent_update(
+                request,
+                digest=artifact["digest"],
+                required=offer.get("version"),
+                action="core_update",
+                identifiers=identifiers,
+                artifacts=artifacts,
+            )
+        except (ValueError, RuntimeError, OSError) as exc:
+            _error(request, exc)
+    return render(
+        request,
+        "skeleton/web/platform/updates/agent-first.html",
+        _context(
+            "available",
+            artifact=artifact,
+            agent=agent,
+            identifiers=identifiers,
+            plan_artifacts=artifacts,
+            manual=manual_update(agent, artifact.get("digest")),
+        ),
+    )
 
 
 # --------------------------------------------------------------------------- steps
@@ -440,6 +569,19 @@ def running_core():
 
     core = core_version()
     return {**core, "origin_label": CORE_ORIGIN_LABELS.get(core["origin"], core["origin"])}
+
+
+# The guide section for an agent updated by hand, by layout (#775).
+AGENT_GUIDE_ANCHORS = {"container": "atualizar-o-agente-nos-containers-772", "systemd": "migrar-para-agent_root-775"}
+
+
+def agent_guide(agent):
+    """The documentation of this core release that says how this agent is updated by hand."""
+    manual = manual_update(agent)
+    anchor = AGENT_GUIDE_ANCHORS.get((manual or {}).get("layout"), "atualizar-o-agente")
+    version = running_core().get("version")
+    reference = f"v{version}" if isinstance(version, str) and re.fullmatch(r"\d+\.\d+\.\d+", version) else "main"
+    return f"https://github.com/{UPSTREAM_REPOSITORY}/blob/{reference}/docs/deployment.md#{anchor}"
 
 
 @platform_page(capability="updates.operate", writes=True)
@@ -472,6 +614,7 @@ def installed(request):
             "installed",
             core=running_core(),
             inventory=inventory,
+            agent_guide=agent_guide((inventory or {}).get("agent")),
             cluster=cluster,
             components=ComponentInstallation.objects.order_by("kind", "component_id"),
         ),
@@ -618,17 +761,40 @@ def _source_rows(status):
     return rows
 
 
-def _component_names():
-    """Readable names of installed apps, from the agent inventory; only a nicety."""
+def _inventory():
+    """The agent inventory, or ``{}``, for what is only a nicety on a page."""
     try:
         inventory = agent_client().inventory()
     except (ValueError, RuntimeError, OSError):
         return {}
+    return inventory if isinstance(inventory, dict) else {}
+
+
+def _component_names(inventory):
+    """Readable names of installed apps, from the agent inventory; only a nicety."""
     return {
         entry["manifest"]["app_id"]: entry["manifest"].get("name") or entry["manifest"]["app_id"]
-        for entry in inventory.get("apps", [])
+        for entry in inventory.get("apps") or ()
         if isinstance(entry, dict) and isinstance(entry.get("manifest"), dict) and entry["manifest"].get("app_id")
     }
+
+
+def mark_agent_first(cards, agent):
+    """Mark the core card whose next step needs a newer agent line (#773), as ``_agent_behind`` decides."""
+    from skeleton.versioning import release_line
+
+    installed = _text(agent.get("version"), 64) if isinstance(agent, dict) else None
+    for card in cards:
+        if card["component_id"] != CORE_COMPONENT or not card["steps"] or installed is None:
+            continue
+        step = card["steps"][0]["version"]
+        try:
+            behind = release_line(step) > release_line(installed)
+        except (InvalidVersion, TypeError, ValueError):
+            behind = False
+        if behind:
+            card["agent_first"] = {"from": installed, "to": step, "self_update": bool(agent.get("self_update"))}
+    return cards
 
 
 @platform_page(capability="updates.operate", writes=True)
@@ -648,7 +814,8 @@ def available(request):
     except (ValueError, RuntimeError, OSError) as exc:
         _error(request, exc)
     status = status if isinstance(status, dict) else {}
-    paths = update_paths(status, _component_names() if status.get("paths") else {})
+    inventory = _inventory() if status.get("paths") else {}
+    paths = update_paths(status, _component_names(inventory))
     target = _text(request.GET.get("target"), 64)
     if target is None:
         target = request.session.get(TARGET_SESSION_KEY)
@@ -658,6 +825,7 @@ def available(request):
     paths, reached = toward_target(paths, target)
     if reached:
         request.session.pop(TARGET_SESSION_KEY, None)
+    mark_agent_first(paths, inventory.get("agent"))
     return render(
         request,
         "skeleton/web/platform/updates/available.html",
@@ -716,7 +884,7 @@ def _upload(request):
                 request,
                 PlanForm(initial={"artifacts": digest, "action": action or "install"}),
                 artifact=artifact,
-                agent_self_update=_agent_self_update(artifact),
+                agent_offer=_agent_offer(artifact),
             )
         except (ValueError, RuntimeError, OSError) as exc:
             _error(request, exc)
@@ -887,28 +1055,34 @@ def fetch_release(request):
         elif identifiers["component_id"] == CORE_COMPONENT:
             request.session.pop(TARGET_SESSION_KEY, None)
         artifact = agent_client().fetch_release(**identifiers)
-        digest, action = plan_artifact(artifact)
-        blocking = _agent_behind(artifact)
-        if blocking is not None:
-            return render(
-                request,
-                "skeleton/web/platform/updates/agent-first.html",
-                _context("available", artifact=artifact, agent=blocking),
-            )
-        if action is None and identifiers["component_id"] == "django-skeleton":
-            action = "core_update"
-        elif action is None:
-            action = "update" if identifiers["component_id"] in _installed_components() else "install"
-        messages.success(request, gettext("Versão obtida e verificada. Confira o plano e visualize o impacto."))
-        return _plan_page(
+        return _fetched_plan(
             request,
-            PlanForm(initial={"action": action, "artifacts": digest}),
-            artifact=artifact,
-            agent_self_update=_agent_self_update(artifact),
+            identifiers,
+            artifact,
+            gettext("Versão obtida e verificada. Confira o plano e visualize o impacto."),
         )
     except (ValueError, RuntimeError, OSError) as exc:
         _error(request, exc)
         return redirect("platform:updates-available")
+
+
+def _fetched_plan(request, identifiers, artifact, message, *, automatic=True):
+    """The plan of a fetched step, or the agent update it needs first (#773)."""
+    digest, action = plan_artifact(artifact)
+    blocking = _agent_behind(artifact)
+    if blocking is not None:
+        return _agent_first(request, artifact, blocking, identifiers=identifiers, artifacts=digest, automatic=automatic)
+    if action is None and identifiers["component_id"] == CORE_COMPONENT:
+        action = "core_update"
+    elif action is None:
+        action = "update" if identifiers["component_id"] in _installed_components() else "install"
+    messages.success(request, message)
+    return _plan_page(
+        request,
+        PlanForm(initial={"action": action, "artifacts": digest}),
+        artifact=artifact,
+        agent_offer=_agent_offer(artifact),
+    )
 
 
 def _sources_page(request, form=None, *, listing=None, status=200):
@@ -989,16 +1163,96 @@ def remove_source(request):
 @require_http_methods(["POST"])
 @recent_authentication_required
 def update_agent(request):
-    """Replace the agent with the one of an uploaded release package (#497); the agent restarts."""
+    """Replace the agent with the one of an uploaded release package (#497); the agent restarts.
+
+    The wait page then goes on to the core plan (#773): the fetched step again when the form names
+    one, otherwise the plan of the core package the release carries.
+    """
     digest = request.POST.get("release", "")
-    if not re.fullmatch("[0-9a-f]{64}", digest):
+    if not DIGEST.fullmatch(digest):
         return HttpResponse(gettext("Digest de pacote inválido."), status=400)
     try:
-        request_agent_update(user=request.user, digest=digest)
-        messages.success(request, gettext("O agente está reiniciando. Atualize a página em alguns segundos."))
+        return _start_agent_update(
+            request,
+            digest=digest,
+            required=None,
+            action="core_update",
+            identifiers=_identifiers(request.POST),
+            artifacts=request.POST.get("artifacts", ""),
+        )
     except (ValueError, RuntimeError, OSError) as exc:
         _error(request, exc)
     return redirect("platform:updates")
+
+
+def _agent_progress(required):
+    """Where the agent update stands: ``ready`` with this agent, and every alive node, on ``required``."""
+    try:
+        inventory = agent_client().inventory()
+    except (ValueError, RuntimeError, OSError):
+        return {"ready": False, "reachable": False, "current": None, "cluster": None, "problem": None}
+    current = _text((inventory.get("agent") or {}).get("version"), 64)
+    ready = _version_at_least(current, required)
+    try:
+        cluster = agent_client().cluster()
+    except (ValueError, RuntimeError, OSError):
+        cluster = {"mode": "single"}
+    nodes, problem = None, None
+    if cluster.get("mode") == "cluster":
+        alive = [node for node in cluster.get("nodes") or () if node.get("alive")]
+        behind = [node for node in alive if not _version_at_least(node.get("agent_version"), required)]
+        ready = ready and not behind
+        nodes = {
+            "total": len(alive),
+            "done": len(alive) - len(behind),
+            "behind": [{"node_id": node.get("node_id"), "agent_version": node.get("agent_version")} for node in behind],
+        }
+        if cluster.get("problem"):
+            problem = ERROR_TEXT.get(cluster["problem"]) or gettext(
+                "O agente deste nó informou um problema (%(code)s); veja o log dele no servidor."
+            ) % {"code": cluster["problem"]}
+    return {"ready": ready, "reachable": True, "current": current, "cluster": nodes, "problem": problem}
+
+
+@platform_page(capability="updates.operate", writes=True)
+@require_safe
+@recent_authentication_required(allow_get=True)
+def agent_wait(request):
+    """Wait for the agent a core step updated (#773), then show that step's plan; only reads the agent."""
+    continuation = _continuation(request)
+    if continuation is None:
+        return redirect("platform:updates-available")
+    required = continuation["required"]
+    if timezone.now() - continuation["started_at"] > AGENT_WAIT_LIMIT:
+        request.session.pop(AGENT_CONTINUATION_KEY, None)
+        return render(
+            request,
+            "skeleton/web/platform/updates/agent-wait.html",
+            _context("available", wait_state="failed", required=required),
+        )
+    progress = _agent_progress(required)
+    if not progress["ready"]:
+        return render(
+            request,
+            "skeleton/web/platform/updates/agent-wait.html",
+            _context("available", wait_state="waiting", required=required, progress=progress),
+        )
+    request.session.pop(AGENT_CONTINUATION_KEY, None)
+    message = gettext("Agente atualizado para %(version)s. Confira o plano e visualize o impacto.") % {
+        "version": required
+    }
+    identifiers = continuation["identifiers"]
+    if identifiers is None:
+        messages.success(request, message)
+        initial = {"artifacts": continuation["artifacts"] or "", "action": continuation["action"]}
+        return _plan_page(request, PlanForm(initial=initial))
+    try:
+        # The package is already in uploads/: no download, and the new agent checks it again.
+        artifact = agent_client().fetch_release(**identifiers)
+        return _fetched_plan(request, identifiers, artifact, message, automatic=False)
+    except (ValueError, RuntimeError, OSError) as exc:
+        _error(request, exc)
+        return redirect("platform:updates-available")
 
 
 @platform_page(capability="updates.operate", writes=True)

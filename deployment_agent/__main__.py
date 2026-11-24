@@ -81,6 +81,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     install.add_argument("--release", required=True)
     install.add_argument("--root", help="Agent root directory instead of agent_root")
+    install.add_argument(
+        "--enable", action="store_true", help="Also record the root as agent_root in agent.json (one-time migration)"
+    )
     rollback = commands.add_parser("agent-rollback", help="Offline: point the agent back at its previous version")
     rollback.add_argument("--root", help="Agent root directory instead of agent_root")
     cluster = commands.add_parser("cluster", help="The agents of a cluster: status, handover, forget (#678)")
@@ -130,7 +133,7 @@ OFFLINE = {
     ),
     "revoke-status-tickets": lambda service, options: revoke_status_tickets(service),
     "agent-install": lambda service, options: selfupdate.install_from_file(
-        service.config, options.release, root=options.root
+        service.config, options.release, root=options.root, enable=options.enable
     ),
     "agent-rollback": lambda service, options: selfupdate.rollback(service.config, root=options.root),
 }

@@ -390,11 +390,113 @@ def follow_agent_target(service: "DeploymentService", *, run: Runner = subproces
     return True
 
 
+# The root the screen suggests for the one-time migration of a fixed-virtualenv install (#775).
+SUGGESTED_ROOT = "/opt/skeleton-agent"
+SYSTEMD_DROP_IN = "/etc/systemd/system/skeleton-agent.service.d/agent-root.conf"
+
+
+def _config_path(config: "Config | Mapping[str, Any]") -> Path | None:
+    value = getattr(config, "path", None) or config.get("config_path")
+    return Path(value) if value else None
+
+
+def manual_update(config: "Config | Mapping[str, Any]", storage_root: StrPath) -> JSON:
+    """How this agent is updated by hand when it has no ``agent_root`` (#775); only paths, never content.
+
+    A container configuration (``service_control``) gets its agent from the image; anything else is
+    an install with a fixed virtualenv, migrated once to ``agent_root`` by ``agent-install --enable``.
+    """
+    if config.get("service_control"):
+        return {"layout": "container"}
+    configuration = _config_path(config)
+    return {
+        "layout": "systemd",
+        "executable": str(Path(sys.executable).parent / DISTRIBUTION),
+        "config_path": str(configuration) if configuration else None,
+        "suggested_root": SUGGESTED_ROOT,
+        "uploads_dir": str(Path(storage_root) / "uploads"),
+    }
+
+
+def _check_enable(config: "Config | Mapping[str, Any]", root: Path) -> Path | None:
+    """The ``agent.json`` that ``--enable`` writes, checked before anything changes; None: already enabled."""
+    current = config.get("agent_root")
+    if current:
+        if Path(current) != root:
+            raise AgentError("agent_root_conflict", 409)
+        return None
+    path = _config_path(config)
+    if path is None or not path.is_file() or path.is_symlink():
+        raise AgentError("agent_config_not_writable", 409)
+    if not os.access(path, os.R_OK | os.W_OK) or not os.access(path.parent, os.W_OK | os.X_OK):
+        raise AgentError("agent_config_not_writable", 409)
+    return path
+
+
+def enable_agent_root(path: Path, root: Path) -> None:
+    """Add ``agent_root`` to ``agent.json`` atomically; mode, owner and every other key stay (#775)."""
+    try:
+        values = json.loads(path.read_bytes())
+    except (OSError, ValueError):
+        raise AgentError("invalid_agent_config") from None
+    if not isinstance(values, dict):
+        raise AgentError("invalid_agent_config")
+    if values.get("agent_root"):
+        if Path(values["agent_root"]) != root:
+            raise AgentError("agent_root_conflict", 409)
+        return
+    values["agent_root"] = str(root)
+    metadata = path.stat()
+    mode = metadata.st_mode & 0o7777
+    temporary = path.with_name(f".{path.name}.{uuid4()}.tmp")
+    try:
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+    except OSError:
+        raise AgentError("agent_config_not_writable", 409) from None
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write((json.dumps(values, indent=2) + "\n").encode("utf-8"))
+            stream.flush()
+            os.fchmod(stream.fileno(), mode)  # The umask never loosens nor tightens the file.
+            if (metadata.st_uid, metadata.st_gid) != (os.geteuid(), os.getegid()):
+                os.fchown(stream.fileno(), metadata.st_uid, metadata.st_gid)  # Run as root: keep the owner.
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    except OSError:
+        raise AgentError("agent_config_not_writable", 409) from None
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def next_steps(root: Path, configuration: Path | None) -> list[str]:
+    """The systemd drop-in that runs the agent from ``<root>/current`` and the commands that apply it."""
+    executable = root / "current" / "venv" / "bin" / DISTRIBUTION
+    return [
+        f"{SYSTEMD_DROP_IN}:",
+        "[Service]",
+        "ExecStart=",
+        f"ExecStart={executable} --config {configuration or '<agent.json>'} serve",
+        "systemctl daemon-reload",
+        "systemctl restart skeleton-agent",
+    ]
+
+
 def install_from_file(
-    config: "Config", path: StrPath, *, root: StrPath | None = None, run: Runner = subprocess.run
+    config: "Config",
+    path: StrPath,
+    *,
+    root: StrPath | None = None,
+    enable: bool = False,
+    run: Runner = subprocess.run,
 ) -> JSON:
-    """``agent-install``: install or update the agent from a release package file (offline CLI)."""
+    """``agent-install``: install or update the agent from a release package file (offline CLI).
+
+    ``enable`` (#775) also records the root as ``agent_root`` in ``agent.json``: the one-time
+    migration of an install with a fixed virtualenv. It is checked before anything is built, so a
+    refusal (``agent_config_not_writable``, ``agent_root_conflict``) changes nothing.
+    """
     directory_root = agent_root(config, root)
+    writable = _check_enable(config, directory_root) if enable else None
     with deployment_lock(config["storage_root"], blocking=True):
         verified = _verified(config, Path(path))
         # From a file, the operator chose the package: any approved publisher may provide it.
@@ -403,14 +505,12 @@ def install_from_file(
         state = switch(
             directory_root, directory, release=verified.digest, version=verified.manifest["agent"]["version"]
         )
-    return {
-        **state,
-        "next_steps": [
-            f"ExecStart={directory_root / 'current' / 'venv' / 'bin' / 'skeleton-deployment-agent'} --config <agent.json> serve",
-            "systemctl daemon-reload",
-            "systemctl restart skeleton-agent",
-        ],
-    }
+        if writable is not None:
+            enable_agent_root(writable, directory_root)
+    result = {**state, "next_steps": next_steps(directory_root, _config_path(config))}
+    if enable:
+        result["agent_root"] = str(directory_root)
+    return result
 
 
 def rollback(config: "Config | Mapping[str, Any]", *, root: StrPath | None = None) -> JSON:

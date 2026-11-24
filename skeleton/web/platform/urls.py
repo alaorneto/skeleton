@@ -268,6 +268,7 @@ urlpatterns = [
     path("updates/fetch/", updates.fetch_release, name="updates-fetch"),
     path("updates/upload/", updates.upload, name="updates-upload"),
     path("updates/agent/", updates.update_agent, name="updates-agent"),
+    path("updates/agent/wait/", updates.agent_wait, name="updates-agent-wait"),
     path("updates/plan/", updates.plan, name="updates-plan"),
     path("updates/plan/add-dependency/", updates.add_dependency, name="updates-add-dependency"),
     path("updates/plan/<uuid:plan_id>/", updates.preview, name="updates-preview"),
