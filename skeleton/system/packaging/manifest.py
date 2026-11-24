@@ -31,6 +31,7 @@ from .limits import (
     INSTANCE_THEME_SLUG,
     INSTANCE_THEMES_CORE_MINIMUM,
     MAX_INSTANCE_THEMES,
+    NAVIGATION_ICON_CORE_MINIMUM,
     PLATFORM_MANAGED_CONFIG_CORE_MINIMUM,
     PORTAL_CORE_MINIMUM,
     RESERVED_NAMES,
@@ -216,9 +217,12 @@ def _validate_configuration_fields(m, r):
             _fail("managed_by platform requires a core minimum of " + PLATFORM_MANAGED_CONFIG_CORE_MINIMUM + ".")
 
 
-def _validate_navigation(r, label):
+def _validate_navigation(m, r, label):
+    fields = ("label", "url_name", "table_key", "action")
+    if m["manifest_version"] == 2:
+        fields += ("icon", "icon_svg")
     for entry in r["navigation"]:
-        _object(entry, ("label", "url_name", "table_key", "action"), ("label", "url_name", "table_key"))
+        _object(entry, fields, ("label", "url_name", "table_key"))
         _string(entry["label"], 200)
         _string(entry["url_name"], 200)
         if (
@@ -228,6 +232,34 @@ def _validate_navigation(r, label):
             not in ("read", "create", "update", "delete", "restore", "manage_access", "audit")
         ):
             _fail("Invalid navigation ownership/action.")
+        _validate_navigation_icon(m, entry)
+
+
+def _validate_navigation_icon(m, entry):
+    """The icon of a menu entry (#842): a concept name or a stroke SVG inside the app, not both.
+
+    Only the shape is checked here (no Django, no files): the concept and the SVG itself are
+    checked against the icons of the core and of the other apps by ``skeleton.E051``.
+    """
+    if "icon" not in entry and "icon_svg" not in entry:
+        return
+    if "icon" in entry and "icon_svg" in entry:
+        _fail("A navigation entry declares either icon or icon_svg, not both.")
+    if "icon" in entry and (
+        not isinstance(entry["icon"], str) or not re.fullmatch(r"[a-z][a-z_]{0,63}", entry["icon"])
+    ):
+        _fail("navigation icon must name a concept (lowercase letters and underscores).")
+    if "icon_svg" in entry:
+        _path(entry["icon_svg"])
+        if not entry["icon_svg"].endswith(".svg") or entry["icon_svg"].split("/")[0] in {
+            "migrations",
+            "templates",
+            "docs",
+            "wheels",
+        }:
+            _fail("navigation icon_svg must be an .svg file outside migrations, templates, docs or wheels.")
+    if not _core_floor_at_least(m["compatibility"]["skeleton"], NAVIGATION_ICON_CORE_MINIMUM):
+        _fail("navigation icon requires a core minimum of " + NAVIGATION_ICON_CORE_MINIMUM + ".")
 
 
 def _validate_presentation(m, r, label, prefix):
@@ -291,7 +323,7 @@ def _validate_runtime(m, label, prefix, bundled):
     if not isinstance(r["configuration_fields"], list) or not isinstance(r["navigation"], list):
         _fail("Runtime fields and navigation require lists.")
     _validate_configuration_fields(m, r)
-    _validate_navigation(r, label)
+    _validate_navigation(m, r, label)
     if m["manifest_version"] == 2:
         _validate_presentation(m, r, label, prefix)
     if "instance_themes" in r:

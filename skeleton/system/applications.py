@@ -535,6 +535,9 @@ def navigation_for_user(user, *, permissions=None):
     if not entries:
         return []
     allowed = permissions if permissions is not None else table_permissions(user)
+    from .app_icons import entry_icon, icons_shared_between_apps
+
+    shared = icons_shared_between_apps()
     result = []
     for manifest, entry in entries:
         try:
@@ -548,14 +551,44 @@ def navigation_for_user(user, *, permissions=None):
             continue
         if (spec.model._meta.label_lower, entry.action) not in allowed:
             continue
+        icon = entry_icon(manifest, entry, shared=shared)
         result.append(
             {
                 "app_label": manifest.app_label,
                 "label": entry.label,
                 "url": reverse(entry.url_name, kwargs={"organization_id": current_context().organization_id}),
+                # The concept whose icon the menu draws, or the app's own stroke icon (#842).
+                "concept": icon.concept,
+                "icon_svg": icon.markup,
             }
         )
     return result
+
+
+def mark_current_entry(entries, path):
+    """Mark the one menu entry the page belongs to (#842), in place, and return the entries.
+
+    The entry whose address is the longest prefix of the path wins (``/apps/x/accounts/`` over
+    ``/apps/x/``); on another page of the app (a record, a form) its first entry is marked. Only
+    presentation: every page still authorizes on the server.
+    """
+
+    def app_root(entry):
+        marker = f"/apps/{entry['app_label']}/"
+        index = entry["url"].find(marker)
+        return entry["url"][: index + len(marker)] if index >= 0 else entry["url"]
+
+    for entry in entries:
+        entry["current"] = False
+    by_address = [entry for entry in entries if path.startswith(entry["url"])]
+    if by_address:
+        max(by_address, key=lambda entry: len(entry["url"]))["current"] = True
+        return entries
+    for entry in entries:
+        if path.startswith(app_root(entry)):
+            entry["current"] = True
+            break
+    return entries
 
 
 def active_applications_for(user):
@@ -606,7 +639,9 @@ def application_navigation(request):
         "table_permissions": permissions,
     }
     return {
-        "application_navigation": navigation_for_user(request.user, permissions=permissions),
+        "application_navigation": mark_current_entry(
+            navigation_for_user(request.user, permissions=permissions), request.path
+        ),
         "can_manage_applications": APPS_MANAGE in capabilities,
         "can_manage_organization": is_admin,
         # The billing area (#404), only when the platform is sold with billing on.

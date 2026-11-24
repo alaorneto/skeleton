@@ -111,7 +111,7 @@ def test_counter_excludes_inactive_memberships_and_is_capped(scenario):
         membership.save(update_fields={"is_active"})
     with request_context(actor=scenario.member, request_id=None, source="test:inbox-count-after"):
         assert unread_count(scenario.member) == 1
-    assert (counter_label(5), counter_label(99), counter_label(100)) == ("5", "99", "99+")
+    assert (counter_label(0), counter_label(5), counter_label(9), counter_label(10)) == ("0", "5", "9", "9+")
 
 
 def test_counter_query_count_is_constant(scenario):

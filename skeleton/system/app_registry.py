@@ -35,6 +35,10 @@ class MenuEntry:
     url_name: str
     table_key: str
     action: str = "read"
+    # The icon of the entry in the menu (#842): a concept of skeleton.common.icons.CONCEPT_ICONS
+    # or the path, inside the app, of a stroke icon it ships. Resolved by skeleton.system.app_icons.
+    icon: str = ""
+    icon_svg: str = ""
 
 
 @dataclass(frozen=True)
@@ -86,6 +90,8 @@ class AppManifest:
     portal_api_urls: str | None = None
     # Instance themes shipped with the app (#642); read by skeleton.appearance.app_themes, never here.
     instance_themes: tuple[AppThemeDeclaration, ...] = ()
+    # Absolute and resolved package directory of the app; never shown, logged or put in a URL.
+    root: str | None = None
 
     @classmethod
     def from_json(cls, path, *, app_config):
@@ -182,6 +188,7 @@ class AppManifest:
             portal_urls=module(runtime.get("portal_urls")),
             portal_api_urls=module(runtime.get("portal_api_urls")),
             instance_themes=tuple(themes),
+            root=str(root),
         )
 
 

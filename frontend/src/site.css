@@ -233,8 +233,10 @@
       @apply text-fg-brand;
     }
   }
-  /* Notificações e Tarefas numa pílula dividida (#816): os dois lugares de atividade nova, com
-     contador numérico. Cada metade arredonda o próprio lado, sem overflow que corte o foco. */
+  /* Notificações e Tarefas numa pílula (#816, #843): os ícones nas pontas e, no centro, as duas
+     contagens juntas numa pílula de largura fixa (cabe "9+"), sempre visível: 0 em cinza, o número
+     na cor da marca. Cada link é a sua metade e arredonda o próprio lado, sem overflow que corte o
+     foco; os rótulos ficam para leitor de tela. */
   .activity-pill {
     @apply flex items-stretch rounded-full border border-default bg-neutral-primary-soft;
   }
@@ -242,13 +244,19 @@
     @apply max-md:py-0;
   }
   .activity-pill > a {
-    @apply flex flex-1 items-center justify-center gap-2 px-3 py-2 text-sm/5 font-medium text-heading no-underline transition-colors first:rounded-s-full last:rounded-e-full hover:bg-neutral-tertiary md:flex-none md:py-1.5;
+    @apply flex flex-1 items-center justify-between gap-2 py-2 text-heading no-underline transition-colors hover:bg-neutral-tertiary md:flex-none md:py-1.5;
     & svg {
       @apply text-body-subtle;
     }
   }
+  .activity-pill > a:first-child {
+    @apply rounded-s-full ps-3;
+  }
+  .activity-pill > a:last-child {
+    @apply rounded-e-full pe-3;
+  }
   .activity-pill > a + a {
-    @apply border-s border-default;
+    @apply ps-px;
   }
   .activity-pill > a[aria-current] {
     @apply bg-brand-softer text-fg-brand;
@@ -256,9 +264,17 @@
       @apply text-fg-brand;
     }
   }
-  /* Entre md e lg o cabeçalho é estreito: só os ícones, com o rótulo para leitor de tela. */
-  .activity-pill-label {
-    @apply md:max-lg:sr-only;
+  .activity-count {
+    @apply inline-flex h-5 w-6 shrink-0 items-center justify-center bg-brand text-xs/4 font-semibold text-white tabular-nums;
+  }
+  .activity-pill > a:first-child .activity-count {
+    @apply rounded-s-full;
+  }
+  .activity-pill > a:last-child .activity-count {
+    @apply rounded-e-full;
+  }
+  .activity-count-empty {
+    @apply bg-neutral-quaternary font-medium text-body-subtle;
   }
   .dropdown-panel {
     @apply z-40 max-md:static! max-md:block! max-md:transform-none! md:rounded-card md:border md:border-default md:bg-neutral-primary-soft md:p-1.5 md:shadow-pop;
