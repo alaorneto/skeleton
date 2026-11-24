@@ -218,6 +218,11 @@ def login(user):
     return client
 
 
+# The location's code, label and directory in ``test_pages``. The hyphens keep it from turning up by
+# chance inside the page's CSRF tokens, which are only letters and digits.
+HIDDEN = "hidden-location-l1"
+
+
 def test_pages(setup):
     platform, org_a, admin_b, _, root = setup
     client = login(platform)
@@ -229,10 +234,10 @@ def test_pages(setup):
     created = post(
         reverse("platform:storage-create"),
         {
-            "code": "l1",
-            "label": "L1",
+            "code": HIDDEN,
+            "label": HIDDEN.upper(),
             "backend": "filesystem",
-            "directory": "l1",
+            "directory": HIDDEN,
             "addressing_style": "auto",
             "expected_revision": 0,
         },
@@ -240,7 +245,7 @@ def test_pages(setup):
     assert created.status_code == 302
     from skeleton.files.models import StorageLocation
 
-    l1 = StorageLocation.objects.get(code="l1")
+    l1 = StorageLocation.objects.get(code=HIDDEN)
     page = client.get(reverse("platform:storage-location", kwargs={"sysid": l1.pk}))
     assert page.status_code == 200 and "very-secret" not in page.content.decode()
     tested = post(reverse("platform:storage-location-test", kwargs={"sysid": l1.pk}), {})
@@ -253,6 +258,9 @@ def test_pages(setup):
     assert shown.context["storage_location"]["current"] == l1
     other = login(admin_b)
     assert other.get(reverse("platform:storage")).status_code in (403, 404)
-    # The organization's own pages never name the location.
+    # The organization's own pages never name the location: not its code, label or directory
+    # (all ``HIDDEN``, case aside), nor its sysid.
     settings_page = client.get(reverse("web:organization-settings", kwargs={"organization_id": org_a.pk}))
-    assert settings_page.status_code == 200 and "l1" not in settings_page.content.decode().lower().split("<main")[-1]
+    assert settings_page.status_code == 200
+    main = settings_page.content.decode().lower().split("<main")[-1]
+    assert HIDDEN not in main and str(l1.pk) not in main
