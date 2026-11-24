@@ -1,0 +1,189 @@
+[
+  {
+    "name": "negrito",
+    "markdown": "**negrito** e __também__",
+    "html": "<p><strong>negrito</strong> e <strong>também</strong></p>\n"
+  },
+  {
+    "name": "italico",
+    "markdown": "*itálico* e _também_",
+    "html": "<p><em>itálico</em> e <em>também</em></p>\n"
+  },
+  {
+    "name": "sublinhado",
+    "markdown": "++sublinhado++",
+    "html": "<p><u>sublinhado</u></p>\n"
+  },
+  {
+    "name": "sublinhado-impar",
+    "markdown": "+++a+++",
+    "html": "<p>+<u>a</u>+</p>\n"
+  },
+  {
+    "name": "sublinhado-sem-fechar",
+    "markdown": "++a ++",
+    "html": "<p>++a ++</p>\n"
+  },
+  {
+    "name": "sublinhado-no-meio",
+    "markdown": "a++b++c",
+    "html": "<p>a<u>b</u>c</p>\n"
+  },
+  {
+    "name": "tachado",
+    "markdown": "~~tachado~~",
+    "html": "<p><s>tachado</s></p>\n"
+  },
+  {
+    "name": "codigo",
+    "markdown": "`código` e ``a`b``",
+    "html": "<p><code>código</code> e <code>a`b</code></p>\n"
+  },
+  {
+    "name": "combinado",
+    "markdown": "***a*** ++**b**++ ~~*c*~~",
+    "html": "<p><em><strong>a</strong></em> <u><strong>b</strong></u> <s><em>c</em></s></p>\n"
+  },
+  {
+    "name": "quebra-simples",
+    "markdown": "linha 1\\\nlinha 2",
+    "html": "<p>linha 1<br>\nlinha 2</p>\n"
+  },
+  {
+    "name": "quebra-forcada",
+    "markdown": "linha 1\\\nlinha 2",
+    "html": "<p>linha 1<br>\nlinha 2</p>\n"
+  },
+  {
+    "name": "paragrafos",
+    "markdown": "um\n\ndois",
+    "html": "<p>um</p>\n<p>dois</p>\n"
+  },
+  {
+    "name": "lista",
+    "markdown": "- a\n- b\n  - b1",
+    "html": "<ul>\n<li>a</li>\n<li>b\n<ul>\n<li>b1</li>\n</ul>\n</li>\n</ul>\n"
+  },
+  {
+    "name": "lista-numerada",
+    "markdown": "1. x\n2. y\n\n3) z",
+    "html": "<ol>\n<li>x</li>\n<li>y</li>\n</ol>\n<ol start=\"3\">\n<li>z</li>\n</ol>\n"
+  },
+  {
+    "name": "lista-mais",
+    "markdown": "+ a\n* b",
+    "html": "<ul>\n<li>a</li>\n</ul>\n<ul>\n<li>b</li>\n</ul>\n"
+  },
+  {
+    "name": "lista-solta",
+    "markdown": "- a\n\n- b",
+    "html": "<ul>\n<li>\n<p>a</p>\n</li>\n<li>\n<p>b</p>\n</li>\n</ul>\n"
+  },
+  {
+    "name": "titulos",
+    "markdown": "# Um\n## Dois\n### Três\n#### Quatro",
+    "html": "<h1>Um</h1>\n<h2>Dois</h2>\n<h3>Três</h3>\n<h3>Quatro</h3>\n"
+  },
+  {
+    "name": "citacao",
+    "markdown": "> citação\n> **forte**",
+    "html": "<blockquote>\n<p>citação<br>\n<strong>forte</strong></p>\n</blockquote>\n"
+  },
+  {
+    "name": "link",
+    "markdown": "[site](https://exemplo.test/a?b=1&c=2) e [local](/o/x/)",
+    "html": "<p><a href=\"https://exemplo.test/a?b=1&amp;c=2\" rel=\"nofollow noopener noreferrer\">site</a> e <a href=\"/o/x/\" rel=\"nofollow noopener noreferrer\">local</a></p>\n"
+  },
+  {
+    "name": "link-titulo",
+    "markdown": "[a](https://exemplo.test \"título\")",
+    "html": "<p><a href=\"https://exemplo.test\" title=\"título\" rel=\"nofollow noopener noreferrer\">a</a></p>\n"
+  },
+  {
+    "name": "link-recusado",
+    "markdown": "[a](javascript:alert(1)) [b](JAVASCRIPT:x) [c](data:text/html,x) [d](//evil.test) [e](http://exemplo.test) [f](mailto:a@b.test) [g](\\evil)",
+    "html": "<p>[a](javascript:alert(1)) [b](JAVASCRIPT:x) [c](data:text/html,x) [d](//evil.test) [e](http://exemplo.test) [f](mailto:a@b.test) [g](\\evil)</p>\n"
+  },
+  {
+    "name": "html",
+    "markdown": "<script>alert(1)</script> <b>x</b> <img src=x onerror=alert(1)>",
+    "html": "<p>&lt;script&gt;alert(1)&lt;/script&gt; &lt;b&gt;x&lt;/b&gt; &lt;img src=x onerror=alert(1)&gt;</p>\n"
+  },
+  {
+    "name": "html-bloco",
+    "markdown": "<div>\n<p>x</p>\n</div>",
+    "html": "<p>&lt;div&gt;<br>\n&lt;p&gt;x&lt;/p&gt;<br>\n&lt;/div&gt;</p>\n"
+  },
+  {
+    "name": "entidades",
+    "markdown": "&amp; &lt;b&gt; &copy; &#x3C;",
+    "html": "<p>&amp; &lt;b&gt; © &lt;</p>\n"
+  },
+  {
+    "name": "imagem",
+    "markdown": "![alt](https://exemplo.test/i.png)",
+    "html": "<p>!<a href=\"https://exemplo.test/i.png\" rel=\"nofollow noopener noreferrer\">alt</a></p>\n"
+  },
+  {
+    "name": "autolink",
+    "markdown": "<https://exemplo.test> https://exemplo.test",
+    "html": "<p>&lt;https://exemplo.test&gt; https://exemplo.test</p>\n"
+  },
+  {
+    "name": "referencia",
+    "markdown": "[a]\n\n[a]: https://exemplo.test",
+    "html": "<p>[a]</p>\n<p>[a]: https://exemplo.test</p>\n"
+  },
+  {
+    "name": "codigo-indentado",
+    "markdown": "    não é código",
+    "html": "<p>não é código</p>\n"
+  },
+  {
+    "name": "cerca",
+    "markdown": "```\nx\n```",
+    "html": "<p><code>x</code></p>\n"
+  },
+  {
+    "name": "setext",
+    "markdown": "Título\n===",
+    "html": "<p>Título<br>\n===</p>\n"
+  },
+  {
+    "name": "linha-horizontal",
+    "markdown": "a\n\n---\n\nb",
+    "html": "<p>a</p>\n<p>---</p>\n<p>b</p>\n"
+  },
+  {
+    "name": "tabela",
+    "markdown": "| a | b |\n|---|---|\n| 1 | 2 |",
+    "html": "<p>| a | b |<br>\n|---|---|<br>\n| 1 | 2 |</p>\n"
+  },
+  {
+    "name": "escape",
+    "markdown": "\\*não\\* \\++não\\++",
+    "html": "<p>*não* ++não++</p>\n"
+  },
+  {
+    "name": "restrito-lista",
+    "markdown": "# título\n**b** ++u++\n- item",
+    "features": [
+      "lists"
+    ],
+    "html": "<p># título<br>\n**b** ++u++</p>\n<ul>\n<li>item</li>\n</ul>\n"
+  },
+  {
+    "name": "restrito-vazio",
+    "markdown": "**b** [l](https://exemplo.test) > q",
+    "features": [],
+    "html": "<p>**b** [l](https://exemplo.test) &gt; q</p>\n"
+  },
+  {
+    "name": "restrito-enfase",
+    "markdown": "**b** ~~s~~ `c`",
+    "features": [
+      "emphasis"
+    ],
+    "html": "<p><strong>b</strong> ~~s~~ `c`</p>\n"
+  }
+]
