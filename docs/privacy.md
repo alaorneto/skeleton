@@ -46,7 +46,7 @@ Um administrador da plataforma decide em `/platform/privacy/`, por POST com CSRF
 - `auth_version` incrementado, então toda sessão aberta termina na próxima requisição;
 - perfil de volta ao padrão (nome de exibição, idioma, fuso e tema vazios);
 - emails, contas sociais e autenticadores MFA da allauth apagados;
-- tokens de API revogados e excluídos, preferências de notificação e inscrições de push excluídas.
+- tokens de API revogados e excluídos, preferências de notificação e inscrições de push excluídas, e as linhas da caixa da plataforma apagadas ([avisos da plataforma](notifications.md#avisos-da-plataforma)).
 
 A aprovação passa pela mesma guarda da desativação (`skeleton.assert_user_deactivation`): quem é o último administrador ativo de alguma organização não é anonimizado, e a mensagem pede que outro administrador seja designado antes. A guarda mantém as travas das organizações até o commit, então ninguém torna a pessoa a última administradora no meio da operação. Qualquer recusa desfaz a transação inteira e o pedido continua pendente.
 

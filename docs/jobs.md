@@ -154,7 +154,7 @@ Com o extra `[metrics]` e `SKELETON_METRICS_TOKEN` definidos (#175), `/metrics` 
 | Métrica | O que mede |
 |---|---|
 | `skeleton_jobs{job_type,state}` | Jobs por tipo registrado e estado, todas as organizações juntas; tipos não registrados entram como `other` |
-| `skeleton_delivery_jobs{channel,state}` | Entregas: `webhooks.deliver` (`webhook`), `notifications.email` (`email`) e `notifications.push` (`push`) |
+| `skeleton_delivery_jobs{channel,state}` | Entregas: `webhooks.deliver` (`webhook`), `notifications.email` e `notifications.platform_email` (`email`) e `notifications.push` (`push`) |
 | `skeleton_jobs_due` | Jobs `queued` com `run_after` vencido |
 | `skeleton_jobs_oldest_due_lag_seconds` | Atraso do job vencido mais antigo |
 | `skeleton_jobs_dead` | Jobs esgotados |

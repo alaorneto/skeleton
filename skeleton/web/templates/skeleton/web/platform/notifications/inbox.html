@@ -1,0 +1,29 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% load i18n skeleton_format %}{% block page_title %}{% translate "Caixa da plataforma" %}{% endblock %}
+{% block content %}
+<div class="max-w-5xl">
+<div class="page-header">
+  <div class="min-w-0">
+    <p class="page-eyebrow">{% translate "Notificações" %}</p>
+    <h1>{% translate "Caixa da plataforma" %}</h1>
+    <p class="page-description">{% translate "Avisos da plataforma para você: o que aconteceu na instância e precisa da sua atenção." %}</p>
+  </div>
+  <nav class="toolbar" aria-label="{% translate "Ações" %}"><form method="post" action="{% url 'platform:notification-read-all' %}">{% csrf_token %}<button class="btn btn-secondary btn-sm" type="submit">{% include "skeleton/web/components/icon.html" with name="check" %}{% translate "Marcar todas como lidas" %}</button></form></nav>
+</div>
+{% include "skeleton/web/platform/notifications/_tabs.html" %}
+<div class="mb-4">{% include "skeleton/web/components/segmented.html" with options=views label=_("Mostrar") %}</div>
+<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Aviso" %}</th><th scope="col" class="col-date">{% translate "Quando" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
+{% for row in rows %}<tr>
+  <td><a class="{% if row.read_at %}text-heading no-underline{% else %}cell-primary{% endif %}" href="{% url 'platform:notification-open' row.pk %}">{{ row.title }}</a>{% if row.count > 1 %} <span class="badge badge-brand">{{ row.count }}</span>{% endif %}{% if row.body %}<span class="cell-secondary cell-truncate">{{ row.body }}</span>{% endif %}</td>
+  <td class="col-date">{{ row.updated_at|moment }}</td>
+  <td>{% if row.archived_at %}{{ "archived"|status_badge:_("Arquivada") }}{% elif row.read_at %}{{ "read"|status_badge }}{% else %}{{ "unread"|status_badge }}{% endif %}</td>
+  <td class="col-actions"><div class="row-actions">
+    {% if row.read_at %}<form method="post" action="{% url 'platform:notification-change' row.pk 'unread' %}">{% csrf_token %}<button class="btn btn-secondary btn-sm" type="submit">{% translate "Marcar como não lida" %}</button></form>
+    {% else %}<form method="post" action="{% url 'platform:notification-change' row.pk 'read' %}">{% csrf_token %}<button class="btn btn-secondary btn-sm" type="submit">{% translate "Marcar como lida" %}</button></form>{% endif %}
+    {% if not row.archived_at %}<form method="post" action="{% url 'platform:notification-change' row.pk 'archive' %}">{% csrf_token %}<button class="btn btn-secondary btn-sm" type="submit">{% include "skeleton/web/components/icon.html" with name="archive" %}{% translate "Arquivar" %}</button></form>{% endif %}
+  </div></td>
+</tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhum aviso da plataforma.") icon="bell" %}{% endfor %}
+</tbody></table></div>
+{% if rows.paginator.num_pages > 1 %}{% include 'skeleton/web/pagination.html' %}{% endif %}
+</div>
+{% endblock %}

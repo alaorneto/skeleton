@@ -51,17 +51,108 @@ def _revision(request):
 def tabs(request, current):
     """The tabs of the notifications area of the platform; each only for who may open it."""
     from skeleton.accounts.platform import is_platform_admin
+    from skeleton.notifications.platform import unread_count
 
-    items = []
+    items = [
+        {
+            "label": gettext("Caixa"),
+            "url": reverse("platform:notifications"),
+            "key": "inbox",
+            "count": unread_count(request.user),
+        }
+    ]
     if is_platform_admin(request.user):
         items.append({"label": gettext("Avisos"), "url": reverse("platform:notification-types"), "key": "types"})
     return [{**item, "current": item["key"] == current} for item in items]
 
 
-@platform_page
+VIEWS = {"unread": "", "all": "all", "archived": "archived"}
+
+
+@platform_page(any_role=True)
 @require_safe
 def notifications_home(request):
-    return redirect("platform:notification-types")
+    """The person's own platform inbox (#787): unread by default, all or archived."""
+    from skeleton.notifications.platform import inbox_queryset
+    from skeleton.web.views import pagination
+
+    view = request.GET.get("view", "unread")
+    if view not in VIEWS:
+        view = "unread"
+    filters = {"view": view} if view != "unread" else {}
+    page = pagination(request, inbox_queryset(request.user, view=view), validated_filters=filters)
+    base = reverse("platform:notifications")
+    return render(
+        request,
+        "skeleton/web/platform/notifications/inbox.html",
+        {
+            "platform_section": SECTION,
+            "tabs": tabs(request, "inbox"),
+            "rows": page,
+            "view": view,
+            "views": [
+                {"label": gettext("Não lidas"), "url": base, "current": view == "unread"},
+                {"label": gettext("Todas"), "url": f"{base}?view=all", "current": view == "all"},
+                {"label": gettext("Arquivadas"), "url": f"{base}?view=archived", "current": view == "archived"},
+            ],
+        },
+    )
+
+
+@platform_page(any_role=True)
+@require_POST
+def notification_change(request, sysid, action):
+    from skeleton.notifications.platform import change
+
+    if action not in ("read", "unread", "archive"):
+        raise Http404
+    if not change(request.user, sysid, action):
+        raise Http404
+    return redirect(
+        request.POST.get("next") if request.POST.get("next") in _back_targets() else "platform:notifications"
+    )
+
+
+def _back_targets():
+    base = reverse("platform:notifications")
+    return {base, f"{base}?view=all", f"{base}?view=archived"}
+
+
+@platform_page(any_role=True)
+@require_POST
+def notification_read_all(request):
+    from skeleton.notifications.platform import read_all
+
+    read_all(request.user)
+    messages.success(request, gettext("Todos os avisos foram marcados como lidos."))
+    return redirect("platform:notifications")
+
+
+@platform_page(any_role=True)
+@require_safe
+def notification_open(request, sysid):
+    """Mark the notice read and go where its type leads, re-authorized; else show the notice."""
+    from skeleton.notifications.platform import change, destination, own_row
+
+    row = own_row(request.user, sysid)
+    if row is None:
+        raise Http404
+    change(request.user, sysid, "read")
+    target = destination(request.user, row)
+    if target:
+        return redirect(target)
+    return render(
+        request,
+        "skeleton/web/platform/notifications/notice.html",
+        {
+            "platform_section": SECTION,
+            "row": row,
+            "breadcrumbs": [
+                {"label": gettext("Caixa"), "url": reverse("platform:notifications")},
+                {"label": row.title, "url": ""},
+            ],
+        },
+    )
 
 
 @platform_page

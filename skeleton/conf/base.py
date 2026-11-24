@@ -108,6 +108,7 @@ TEMPLATES = [
                 "skeleton.web.navigation.organization_shell",
                 "skeleton.accounts.platform.platform_admin_context",
                 "skeleton.web.platform.context.platform_update_notice",
+                "skeleton.web.platform.context.platform_notifications",
             ]
         },
     }

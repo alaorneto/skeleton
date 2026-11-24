@@ -1,0 +1,15 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% load i18n skeleton_format %}{% block page_title %}{{ row.title }}{% endblock %}
+{% block content %}
+<div class="max-w-3xl">
+<div class="page-header">
+  <div class="min-w-0">
+    {% include "skeleton/web/components/breadcrumbs.html" %}
+    <h1>{{ row.title }}</h1>
+    <p class="page-description">{% translate "Recebido em" %} {{ row.updated_at|moment }}</p>
+  </div>
+</div>
+<div class="card">{% if row.body %}<p class="text-sm/6 text-body">{{ row.body|linebreaksbr }}</p>{% else %}<p class="text-sm/6 text-body-subtle">{% translate "Este aviso não tem mais detalhes." %}</p>{% endif %}
+<div class="form-actions"><a class="btn btn-secondary" href="{% url 'platform:notifications' %}">{% include "skeleton/web/components/icon.html" with name="arrow-left" %}{% translate "Voltar para a caixa" %}</a></div></div>
+</div>
+{% endblock %}

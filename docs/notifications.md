@@ -165,6 +165,16 @@ Toda organização tem avisos sobre as próprias pessoas, sem depender de app ([
 
 Os avisos são criados no mesmo ponto em que o núcleo publica os [eventos de domínio](events.md) do vínculo (`membership_changed`), na transação da mudança, como o aviso de limite de membros: um rollback não deixa aviso. O payload leva só o UUID da pessoa; o nome aparece no texto de quem pode gerir membros ([campo `person`](#texto-do-aviso)) e sai com a eliminação dela. Não geram aviso: contas de serviço, o primeiro vínculo de uma organização (quem a criou não tem a quem avisar) e um tipo desligado pela plataforma ou pela organização, que nem cria a notificação. A própria pessoa nunca recebe o aviso sobre si.
 
+## Avisos da plataforma
+
+A plataforma tem uma caixa própria para os seus administradores ([#787](https://github.com/alaorneto/skeleton/issues/787)), fora de qualquer organização. Um tipo com `audience="platform"` (só do núcleo, contexto `platform`) é registrado por `skeleton.notifications.platform.notify_platform(type_code, payload=..., dedupe_key=...)`, que recusa ser chamado dentro de um tenant, grava `PlatformNotification` e enfileira o job global `notifications.platform_fanout` na mesma transação. Não existe na API de serviços: uma app não envia avisos à plataforma.
+
+- **Quem recebe:** os administradores da plataforma ativos e, quando o tipo declara `platform_capability`, quem tem um papel limitado com essa capacidade (por exemplo `updates.operate`). Nunca contas de serviço nem clientes da plataforma.
+- **Canais:** a caixa (`in_app`) e o email, pelas preferências da pessoa e pelos canais padrão da plataforma; resumo diário ou semanal contam como imediato, e não há push. O email usa a marca da instância e leva ao aviso em `/platform/notifications/<id>/open/`; ele é reconferido no envio (papel, preferência, tipo ligado) e segue o mesmo calendário de retentativas do email da organização.
+- **Caixa:** `PlatformNotificationRecipient`, uma linha por pessoa com o texto renderizado no idioma dela, lida, arquivada, agrupada por `group_key` e o estado do email. Tabelas globais operacionais: só o código as lê, sempre filtrado pela pessoa da requisição.
+- **Telas:** **Plataforma › Notificações › Caixa** (`/platform/notifications/`), para qualquer papel da plataforma, com Não lidas, Todas e Arquivadas, marcar como lida ou não lida, arquivar e marcar todas. Abrir um aviso o marca como lido e leva ao destino do tipo (`open_url`, reautorizado); sem destino, mostra o aviso. A linha de outra pessoa responde 404. O contador de não lidas aparece no menu da plataforma e no link "Plataforma" do cabeçalho, limitado a `99+`.
+- **Retenção:** o job global `notifications.platform_retention` (diário, 03:45 UTC) usa os mesmos prazos das caixas das organizações; a eliminação da pessoa apaga as linhas dela.
+
 ## Caixa de notificações
 
 | Rota | O que faz |

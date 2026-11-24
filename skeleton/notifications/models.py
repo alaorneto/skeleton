@@ -336,3 +336,70 @@ class OrganizationNotificationText(OrganizationRecord):
 
     def __str__(self):
         return f"{self.type_code} {self.language}"
+
+
+class PlatformNotification(OperationalRecord):
+    """A notice of the platform to its own administrators (#787): global, without an organization.
+
+    Written only by ``notify_platform``; the payload carries numbers, codes and identifiers only.
+    """
+
+    type_code = models.CharField(max_length=100)
+    payload = models.JSONField(default=dict)
+    group_key = models.CharField(max_length=200, blank=True, default="")
+    dedupe_key = models.CharField(max_length=200, null=True, blank=True)  # noqa: DJ001 - NULL means "no key"
+    fanned_out_at = models.DateTimeField(null=True, blank=True)
+    immutable_fields = ("type_code", "payload", "group_key", "dedupe_key")
+
+    class Meta(OperationalRecord.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                fields=("type_code", "dedupe_key"),
+                condition=Q(dedupe_key__isnull=False),
+                name="sk_notif_platform_dedupe",
+                violation_error_code="unique",
+            ),
+        ]
+
+    def __str__(self):
+        return self.type_code
+
+
+class PlatformNotificationRecipient(OperationalRecord):
+    """A platform administrator's copy of a platform notice: the inbox row and its email (#787).
+
+    Global like the notice; only code reads it, always filtered by the person of the request.
+    """
+
+    notification = models.ForeignKey(PlatformNotification, on_delete=models.PROTECT, related_name="recipients")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    type_code = models.CharField(max_length=100)
+    payload = models.JSONField(default=dict)
+    title = models.CharField(max_length=150, blank=True, default="")
+    body = models.TextField(blank=True, default="")
+    group_key = models.CharField(max_length=200, blank=True, default="")
+    count = models.PositiveIntegerField(default=1)
+    # False: only the email (the person turned the inbox off for this notice).
+    in_app = models.BooleanField(default=True)
+    read_at = models.DateTimeField(null=True, blank=True)
+    archived_at = models.DateTimeField(null=True, blank=True)
+    # "" (no email), then the states of NotificationDelivery: pending, retrying, sent, skipped, dead.
+    email_state = models.CharField(max_length=16, blank=True, default="")
+    email_attempts = models.PositiveIntegerField(default=0)
+    email_next_attempt_at = models.DateTimeField(null=True, blank=True)
+    email_sent_at = models.DateTimeField(null=True, blank=True)
+    email_error_code = models.CharField(max_length=64, blank=True, default="")
+    immutable_fields = ("notification_id", "user_id")
+
+    class Meta(OperationalRecord.Meta):
+        indexes = [
+            models.Index(
+                fields=("user",),
+                condition=Q(in_app=True, read_at__isnull=True, archived_at__isnull=True),
+                name="sk_notif_platform_unread",
+            ),
+            models.Index(fields=("user", "updated_at"), name="sk_notif_platform_inbox"),
+        ]
+
+    def __str__(self):
+        return f"{self.user_id} {self.notification_id}"

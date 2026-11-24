@@ -506,6 +506,18 @@ def register_core_specs():
             "organization",
             (),
         ),
+        "sk_notifications.platformnotification": (
+            gettext_lazy("Avisos da plataforma"),
+            gettext_lazy("Aviso da plataforma aos seus administradores, sem organização; só números e códigos."),
+            "global",
+            (),
+        ),
+        "sk_notifications.platformnotificationrecipient": (
+            gettext_lazy("Caixa da plataforma"),
+            gettext_lazy("Cópia de um aviso da plataforma para cada administrador, com lida, arquivada e o email."),
+            "global",
+            (),
+        ),
         "sk_notifications.notificationdelivery": (
             gettext_lazy("Entregas de notificação"),
             gettext_lazy("Email, resumo ou push de uma notificação a uma pessoa, com tentativas e último resultado."),

@@ -191,6 +191,13 @@ urlpatterns = [
     ),
     path("jobs/", jobs_views.jobs, name="jobs"),
     path("notifications/", notifications_views.notifications_home, name="notifications"),
+    path("notifications/read-all/", notifications_views.notification_read_all, name="notification-read-all"),
+    path("notifications/<uuid:sysid>/open/", notifications_views.notification_open, name="notification-open"),
+    path(
+        "notifications/<uuid:sysid>/<slug:action>/",
+        notifications_views.notification_change,
+        name="notification-change",
+    ),
     path("notifications/types/", notifications_views.notification_types, name="notification-types"),
     path("notifications/types/<str:type_code>/", notifications_views.notification_type, name="notification-type"),
     path(

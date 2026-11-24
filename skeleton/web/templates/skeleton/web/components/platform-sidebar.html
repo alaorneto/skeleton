@@ -9,10 +9,11 @@
       <p class="page-eyebrow">{% translate "Plataforma" %}</p>
       <p class="truncate text-sm font-semibold text-heading">{% translate "Administração" %}</p>
     </div>
-{% if platform_admin %}    <ul class="sidebar-list">
-      <li><a class="sidebar-link" href="{% url 'platform:overview' %}"{% if platform_section == "overview" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="home" %}{% translate "Visão geral" %}</a></li>
+    <ul class="sidebar-list">
+{% if platform_admin %}      <li><a class="sidebar-link" href="{% url 'platform:overview' %}"{% if platform_section == "overview" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="home" %}{% translate "Visão geral" %}</a></li>
+{% endif %}      <li><a class="sidebar-link" href="{% url 'platform:notifications' %}"{% if platform_section == "notifications" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="bell" %}{% translate "Notificações" %}{% if platform_unread %} <span class="badge badge-brand ms-auto" aria-label="{{ platform_unread }} {% translate "avisos não lidos" %}">{{ platform_unread_label }}</span>{% endif %}</a></li>
     </ul>
-{% endif %}{% if platform_admin %}    <p class="sidebar-heading" id="platform-identity">{% translate "Identidade" %}</p>
+{% if platform_admin %}    <p class="sidebar-heading" id="platform-identity">{% translate "Identidade" %}</p>
     <ul class="sidebar-list" aria-labelledby="platform-identity">
       <li><a class="sidebar-link" href="{% url 'platform:users' %}"{% if platform_section == "users" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="users" %}{% translate "Usuários" %}</a></li>
       <li><a class="sidebar-link" href="{% url 'platform:organizations' %}"{% if platform_section == "organizations" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="building" %}{% translate "Organizações" %}</a></li>
@@ -41,7 +42,6 @@
       <li><a class="sidebar-link" href="{% url 'platform:billing' %}"{% if platform_section == "billing" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="key" %}{% translate "Cobrança" %}</a></li>
       <li><a class="sidebar-link" href="{% url 'platform:appearance' %}"{% if platform_section == "appearance" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="grid" %}{% translate "Aparência" %}</a></li>
       <li><a class="sidebar-link" href="{% url 'platform:jobs' %}"{% if platform_section == "jobs" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="server" %}{% translate "Jobs" %}</a></li>
-      <li><a class="sidebar-link" href="{% url 'platform:notifications' %}"{% if platform_section == "notifications" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="bell" %}{% translate "Notificações" %}</a></li>
       <li><a class="sidebar-link" href="{% url 'platform:privacy' %}"{% if platform_section == "privacy" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="shield" %}{% translate "Pedidos de eliminação" %}</a></li>
     </ul>
 {% endif %}{% if not platform_admin and "billing.operate" in platform_capabilities %}    <p class="sidebar-heading" id="platform-billing">{% translate "Operação" %}</p>

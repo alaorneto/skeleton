@@ -192,6 +192,10 @@ def _anonymize(person: User, *, using: str, now: Any) -> None:
     for model in (UserNotificationPreference, WebPushSubscription):
         for row in model.objects.filter(user_id=person.pk).order_by("sysid"):
             row.delete()
+    # The person's platform inbox (#787): global, so it goes here and not in an organization's job.
+    from skeleton.notifications.platform import forget_platform_person
+
+    forget_platform_person(person.pk)
 
 
 def _enqueue_forgetting(user_id: UUID, request_id: UUID) -> None:

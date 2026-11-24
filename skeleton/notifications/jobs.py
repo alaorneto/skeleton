@@ -84,3 +84,6 @@ def register_notification_jobs() -> None:
         )
     )
     register_periodic(RETENTION_JOB, RETENTION_JOB, daily_at=time(3, 30))
+    from .platform import register_platform_jobs
+
+    register_platform_jobs()  # The platform's own inbox (#787).
