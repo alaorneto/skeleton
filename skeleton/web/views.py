@@ -660,11 +660,53 @@ def access_delete(request, organization_id, resource, sysid):
                 status = form_error(form, exc)
         else:
             status = 400
+    title, submit_label, confirmation = _access_delete_texts(resource)
     return render(
         request,
         "skeleton/web/form.html",
-        {"title": "Revogar / remover", "form": form, "organization_id": organization_id},
+        {
+            "title": title,
+            "form": form,
+            "organization_id": organization_id,
+            "operation": "delete",
+            "submit_label": submit_label,
+            "confirmation": confirmation,
+            "cancel_url": reverse("web:access-list", kwargs={"organization_id": organization_id, "resource": resource}),
+        },
         status=status,
+    )
+
+
+def _access_delete_texts(resource):
+    """Title, button and consequence of removing one access resource (#771)."""
+    if resource == "memberships":
+        return (
+            gettext("Remover pessoa"),
+            gettext("Remover pessoa"),
+            gettext("A pessoa perde o acesso a esta organização e aos dados dela na hora."),
+        )
+    if resource == "invitations":
+        return (
+            gettext("Revogar convite"),
+            gettext("Revogar convite"),
+            gettext("O link do convite deixa de funcionar. Para convidar de novo, envie outro convite."),
+        )
+    if resource == "roles":
+        return (
+            gettext("Remover papel"),
+            gettext("Remover papel"),
+            gettext("Quem recebia acesso por este papel deixa de recebê-lo."),
+        )
+    if resource == "groups":
+        return (
+            gettext("Remover grupo"),
+            gettext("Remover grupo"),
+            gettext("Os membros do grupo deixam de receber o acesso concedido a ele."),
+        )
+    return (
+        gettext("Revogar acesso"),
+        gettext("Revogar"),
+        gettext("O acesso concedido por esta ligação deixa de valer na hora."),
     )
 
 

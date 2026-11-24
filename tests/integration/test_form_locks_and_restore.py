@@ -121,3 +121,30 @@ def test_post_forms_still_lock_the_row(records):
             response = records.client.post(url, data)
         assert response.status_code == 409, url
         assert [query["sql"] for query in captured if "FOR UPDATE" in query["sql"]], url
+
+
+def test_access_delete_confirms_with_a_danger_button(records):
+    """Removing an access resource shows the consequence and a red button, never "Salvar" (#771)."""
+    cases = (
+        ("memberships", records.bob_membership.pk, "A pessoa perde o acesso"),
+        ("roles", records.member_role.pk, "Quem recebia acesso por este papel"),
+        ("groups", records.group.pk, "Os membros do grupo deixam de receber"),
+    )
+    for resource, sysid, consequence in cases:
+        url = reverse(
+            "web:access-delete", kwargs={"organization_id": records.a.pk, "resource": resource, "sysid": sysid}
+        )
+        response = records.client.get(url)
+        html = response.content.decode()
+        assert response.status_code == 200, resource
+        assert 'class="btn btn-danger"' in html, resource
+        assert '<p class="confirmation">' in html and consequence in html, resource
+        assert ">Salvar<" not in html, resource
+
+
+def test_access_delete_of_another_organization_stays_not_found(records):
+    url = reverse(
+        "web:access-delete",
+        kwargs={"organization_id": records.a.pk, "resource": "groups", "sysid": records.foreign_group.pk},
+    )
+    assert records.client.get(url).status_code == 404
