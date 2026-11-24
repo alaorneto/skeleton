@@ -68,6 +68,10 @@ def test_the_agent_writes_releases_and_control_and_only_reads_the_launcher_state
         assert f"      - {mount}\n" in agent, mount
     assert "      - control_state:/control-state:ro\n" in agent
     assert "agent_private" not in "".join(services[service] for service in APPLICATION)
+    # The agent's own code (#772): agent_root, mounted in the agent only (it runs with the owner).
+    assert "      - agent_code:/agent/code\n" in agent
+    for service, block in services.items():
+        assert service == "agent" or "agent_code" not in block, service
     assert (
         "SKELETON_AGENT_PUBLISHER_KEY: ${SKELETON_AGENT_PUBLISHER_KEY:-/opt/agent/publishers/skeleton.pub.pem}" in agent
     )
@@ -123,3 +127,7 @@ def test_the_images_create_the_volume_mount_points_for_the_service_user():
     agent = dockerfile.split(" AS agent\n", 1)[1].split(" AS runtime\n", 1)[0]
     assert "pip install --no-cache-dir --no-deps /core-wheel/*.whl /agent-wheel/*.whl" in agent
     assert "PYTHONPATH" not in agent  # The agent's hooks run without it: the package is installed.
+    # The code volume of the self-update (#772) and the entrypoint that picks the volume or the image.
+    assert "/agent/code" in agent.split("mkdir -p ", 1)[1].split("\n", 1)[0]
+    assert "chmod 755 /agent/code" in agent
+    assert 'CMD ["python", "-m", "deployment_agent.entry"]' in agent

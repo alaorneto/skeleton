@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 
 from packaging.version import InvalidVersion, Version
 
+from .entry import DEFAULT_ROOT
 from .releases import (
     _core_from_package,
     _finalize,
@@ -52,6 +53,8 @@ BOOTSTRAP_PREFIX = "0-bootstrap"
 OFFICIAL_PUBLISHER = "skeleton"
 OFFICIAL_PUBLISHER_KEY = "/opt/agent/publishers/skeleton.pub.pem"
 OFFICIAL_SOURCE = "alaorneto/skeleton"
+# The agent_code volume (#772): agent_root of the container, read the same way by deployment_agent.entry.
+DEFAULT_AGENT_CODE = DEFAULT_ROOT
 CORE = "django-skeleton"
 # The switches that change INSTALLED_APPS go to every profile, so the build, the migrations and the
 # runtime see the same apps. Billing only turns a feature on: its keyring (E037) exists only in the
@@ -140,7 +143,9 @@ def container_config(environ: Mapping[str, str]) -> tuple[JSON, dict[str, str]]:
     ``none`` for no source). Optional:
     ``SKELETON_HEALTH_URL`` (``http://web:8000``), ``SKELETON_PUBLIC_HOST`` (the Host of the
     health checks), the instance paths and the feature switches (the app switches in every profile,
-    billing only at runtime, where its keyring is).
+    billing only at runtime, where its keyring is). ``SKELETON_AGENT_CODE`` (``/agent/code``, the
+    ``agent_code`` volume; ``none`` switches it off) becomes ``agent_root`` when the directory exists,
+    so the agent updates itself there and ``deployment_agent.entry`` runs that version (#772).
     """
     private = Path(environ.get("SKELETON_AGENT_PRIVATE", "/agent/private"))
     state = Path(environ.get("SKELETON_AGENT_STATE", "/agent/state"))
@@ -221,6 +226,9 @@ def container_config(environ: Mapping[str, str]) -> tuple[JSON, dict[str, str]]:
     }
     if environ.get("SKELETON_PUBLIC_HOST"):
         values["health_host"] = environ["SKELETON_PUBLIC_HOST"]
+    code = agent_code(environ)
+    if code is not None:
+        values["agent_root"] = str(code)
     cluster, cluster_files = _cluster_values(environ, private, control)
     if cluster is not None:
         values["cluster"] = cluster
@@ -234,8 +242,35 @@ def container_config(environ: Mapping[str, str]) -> tuple[JSON, dict[str, str]]:
     return values, files
 
 
+def agent_code(environ: Mapping[str, str]) -> Path | None:
+    """The agent's code volume (``SKELETON_AGENT_CODE``) when it exists; None when off or absent (#772)."""
+    value = environ.get("SKELETON_AGENT_CODE") or DEFAULT_AGENT_CODE  # Compose passes "" when unset.
+    if value.lower() == "none":
+        return None
+    path = Path(value)
+    if not path.is_absolute():
+        raise AgentError("invalid_bootstrap_path")
+    return path if path.is_dir() and not path.is_symlink() else None
+
+
+def _add_agent_root(config_path: Path, agent_root: str | None) -> None:
+    """An ``agent.json`` written before #772 gains ``agent_root`` only; nothing else ever changes."""
+    import json
+
+    if agent_root is None:
+        return
+    values = json.loads(config_path.read_text(encoding="utf-8"))
+    if not isinstance(values, dict) or "agent_root" in values:
+        return
+    values["agent_root"] = agent_root
+    temporary = config_path.with_name(".agent.json.new")
+    temporary.write_text(json.dumps(values, indent=2, sort_keys=True), encoding="utf-8")
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, config_path)
+
+
 def write_container_config(environ: Mapping[str, str]) -> Path:
-    """Write the private configuration once; an existing ``agent.json`` is kept as it is."""
+    """Write the private configuration once; an existing ``agent.json`` only gains ``agent_root`` (#772)."""
     import json
 
     values, files = container_config(environ)
@@ -255,6 +290,7 @@ def write_container_config(environ: Mapping[str, str]) -> Path:
         finally:
             os.close(descriptor)
     if config_path.exists():
+        _add_agent_root(config_path, values.get("agent_root"))
         return config_path
     for name, content in files.items():
         target = private / name

@@ -476,6 +476,9 @@ def serve(service: "DeploymentService") -> int:
     os.chmod(path, 0o660)
     if service.config.get("socket_gid") is not None:
         os.chown(path, -1, service.config["socket_gid"])
+    from .selfupdate import confirm_start
+
+    confirm_start(service.config)  # The container entrypoint stops counting this version's starts (#772).
     status_server: Any = None  # ThreadingHTTPServer with service and tickets, when configured.
     if service.config.get("status_http"):
         options = service.config["status_http"]

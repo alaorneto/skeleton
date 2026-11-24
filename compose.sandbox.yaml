@@ -116,6 +116,9 @@ services:
       SKELETON_AGENT_PUBLISHER_KEY: ${SKELETON_AGENT_PUBLISHER_KEY:-/opt/agent/publishers/skeleton.pub.pem}
     volumes:
       - agent_private:/agent/private
+      # The agent's own code (#772): agent_root, where it updates itself. It holds the code of the
+      # process with the owner credential: mount it in this service only, never in web, worker or scheduler.
+      - agent_code:/agent/code
       - agent_state:/agent/state
       - releases:/releases
       - control:/control
@@ -200,6 +203,7 @@ volumes:
   instance:
   files:
   agent_private:
+  agent_code:
   agent_state:
   releases:
   control:

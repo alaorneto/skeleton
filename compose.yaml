@@ -113,6 +113,9 @@ services:
     extra_hosts: ["host.docker.internal:host-gateway"]
     volumes:
       - agent_private:/agent/private
+      # The agent's own code (#772): agent_root, where it updates itself. It holds the code of the
+      # process with the owner credential: mount it in this service only, never in web, worker or scheduler.
+      - agent_code:/agent/code
       # Shared by the candidates when there are two or more (#678): a host path of a shared volume.
       - ${SKELETON_AGENT_STATE_SOURCE:-agent_state}:/agent/state
       - releases:/releases
@@ -198,6 +201,7 @@ services:
 volumes:
   files:
   agent_private:
+  agent_code:
   agent_state:
   releases:
   control:

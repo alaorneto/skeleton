@@ -33,6 +33,7 @@ Tudo fica num host. No Coolify, o nome real de cada volume leva o identificador 
 | `agent_state` | O estado do agente (`/agent/state`): `active.json` (o release ativo e a geração), o journal das operações, os planos, os **pacotes enviados** (core e apps, em `uploads/`), as fontes (`sources.json`), os backups de atualização e os logs | **Sim** |
 | `releases` | Os releases montados (o virtualenv do núcleo e das apps de cada geração) e o ponteiro `current` | **Sim** (grande, mas é o que faz o `active.json` voltar sem remontar nada) |
 | `agent_private` | `agent.json` e os arquivos de ambiente do agente (com a credencial owner), escritos na primeira partida a partir das variáveis do Coolify | Recomendado (cifrado); regenerável |
+| `agent_code` | As versões do próprio agente instaladas pela auto-atualização (`agent_root`, #772) | Não: sem ele, o container sobe o agente da imagem até a próxima "Atualizar agente" |
 | `control`, `control_state` | Socket, token de controle e estado do inicializador | Não: o agente os recria |
 | Redis (sem volume) | Cache, limites de taxa, antirreuso do TOTP, códigos OIDC | Não: tudo tem validade curta |
 

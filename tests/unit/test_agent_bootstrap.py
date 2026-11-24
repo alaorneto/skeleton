@@ -124,6 +124,50 @@ def test_written_once_private_and_loadable(tmp_path):
     assert config["service_control"]["control_root"] == str(tmp_path / "control" / "services")
 
 
+def test_the_code_volume_becomes_agent_root_when_it_exists(tmp_path, subtests):
+    code = tmp_path / "agent" / "code"
+    with subtests.test(case="no volume mounted"):
+        values, _files = container_config(environ(tmp_path, SKELETON_AGENT_CODE=str(code)))
+        assert "agent_root" not in values
+    code.mkdir(parents=True)
+    with subtests.test(case="volume mounted"):
+        values, _files = container_config(environ(tmp_path, SKELETON_AGENT_CODE=str(code)))
+        assert values["agent_root"] == str(code)
+    with subtests.test(case="empty, as Compose passes an unset variable: the default path"):
+        values, _files = container_config(environ(tmp_path, SKELETON_AGENT_CODE=""))
+        assert values.get("agent_root") == ("/agent/code" if Path("/agent/code").is_dir() else None)
+    with subtests.test(case="switched off"):
+        values, _files = container_config(environ(tmp_path, SKELETON_AGENT_CODE="none"))
+        assert "agent_root" not in values
+    with subtests.test(case="relative"):
+        with pytest.raises(AgentError) as error:
+            container_config(environ(tmp_path, SKELETON_AGENT_CODE="agent/code"))
+        assert error.value.code == "invalid_bootstrap_path"
+
+
+def test_an_existing_configuration_only_gains_agent_root(tmp_path):
+    """Installations from before #772 keep every key; a new image adds agent_root and nothing else."""
+    from deployment_agent.config import Config
+
+    (tmp_path / "publisher.pub.pem").write_text("key")
+    code = tmp_path / "agent" / "code"
+    variables = environ(tmp_path, SKELETON_AGENT_CODE=str(code))
+    path = write_container_config(variables)  # Written before the volume existed: no agent_root.
+    before = json.loads(path.read_text())
+    assert "agent_root" not in before
+    code.mkdir()
+    write_container_config({**variables, "SKELETON_PUBLIC_HOST": "changed.example"})
+    after = json.loads(path.read_text())
+    assert after == {**before, "agent_root": str(code)}
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert Config.load(path)["agent_root"] == str(code)
+    # Never replaced once there, not even by another volume path.
+    other = tmp_path / "other-code"
+    other.mkdir()
+    write_container_config({**variables, "SKELETON_AGENT_CODE": str(other)})
+    assert json.loads(path.read_text())["agent_root"] == str(code)
+
+
 # --------------------------------------------------------------------------- the first installation
 
 
