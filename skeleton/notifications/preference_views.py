@@ -26,10 +26,14 @@ HOURS = tuple(range(24))
 
 
 def _item(line, channel):
+    from .registry import type_context
+
     state, row = line.channels[channel]
     return {
         "type_code": line.type_code,
         "label": line.label,
+        "context": type_context(line.kind) if line.kind is not None and line.type_code != DEFAULT_TYPE else "",
+        "description": str(getattr(line.kind, "description", "") or ""),
         "mandatory": line.mandatory,
         "channel": channel,
         "mode": state.mode,
@@ -51,6 +55,8 @@ PREFERENCE = obj(
     {
         "type_code": string(),
         "label": string(),
+        "context": string(),
+        "description": string(),
         "mandatory": BOOLEAN,
         "channel": string(enum=list(preferences.CHANNELS)),
         "mode": string(),
@@ -95,19 +101,21 @@ class PreferenceAPI(SessionAPI):
             response["ETag"] = f'"{item["revision"]}"'
         return response
 
-    def _channel(self, type_code, channel):
+    def _channel(self, type_code, channel, user=None):
         if channel not in preferences.CHANNELS:
             raise Http404
         if type_code != DEFAULT_TYPE and preferences.known_type(type_code) is None:
             raise Http404
+        if user is not None:
+            _line(user, type_code)  # A type the person cannot receive answers like an unknown one (#790).
 
     def get(self, request, type_code, channel):
-        self._channel(type_code, channel)
+        self._channel(type_code, channel, request.user)
         return self._respond(request, type_code, channel)
 
     @transaction.atomic
     def put(self, request, type_code, channel):
-        self._channel(type_code, channel)
+        self._channel(type_code, channel, request.user)
         data = request_fields(request)
         if set(data) - {"mode", "digest_hour"} or "mode" not in data:
             raise BoundaryError("invalid_request", gettext("Envie mode e, opcionalmente, digest_hour."))
@@ -133,7 +141,7 @@ class PreferenceAPI(SessionAPI):
 
     @transaction.atomic
     def delete(self, request, type_code, channel):
-        self._channel(type_code, channel)
+        self._channel(type_code, channel, request.user)
         expected = parse_revision(request.headers.get("If-Match"))
         try:
             preferences.clear_preference(request.user, type_code=type_code, channel=channel, expected_revision=expected)
@@ -209,6 +217,8 @@ def preferences_page(request):
         {
             "type_code": line.type_code,
             "label": line.label,
+            "description": getattr(line.kind, "description", "") if line.type_code != DEFAULT_TYPE else "",
+            "kind": line.kind,
             "mandatory": line.mandatory,
             "cells": [
                 {
@@ -219,6 +229,7 @@ def preferences_page(request):
                     "revision": line.channels[channel][1].revision if line.channels[channel][1] else "",
                     "modes": preferences.MODES[channel],
                     "locked": line.mandatory and channel == "in_app",
+                    "unavailable": channel in line.unavailable,
                     "mode_name": _field("mode", line.type_code, channel),
                     "hour_name": _field("hour", line.type_code, channel),
                     "revision_name": _field("revision", line.type_code, channel),
@@ -228,12 +239,18 @@ def preferences_page(request):
         }
         for line in lines
     ]
+    from .catalog import group_types
+
+    default_rows = [row for row in rows if row["type_code"] == DEFAULT_TYPE]
+    groups = group_types([row for row in rows if row["type_code"] != DEFAULT_TYPE], kind_of=lambda row: row["kind"])
     return render(
         request,
         "account/notification_preferences.html",
         {
             "title": gettext("Notificações"),
             "rows": rows,
+            "default_rows": default_rows,
+            "groups": groups,
             "errors": errors,
             "hours": HOURS,
             "mode_labels": dict(preferences.MODE_LABELS),

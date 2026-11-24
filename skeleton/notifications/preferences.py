@@ -118,6 +118,64 @@ class PreferenceLine:
     label: str
     mandatory: bool
     channels: dict[str, tuple[Effective, Any]]  # channel -> (effective, live row or None)
+    kind: Any = None
+    # Channels this type never uses: push of the platform's own notices (#787).
+    unavailable: tuple[str, ...] = ()
+
+
+def _apps_of_people(user: Any) -> frozenset[str] | None:
+    """Apps active in at least one organization of the person, from the instance summary (#790).
+
+    ``None`` when some organization has no summary yet: every installed app then counts, so a
+    notice is never hidden by a summary that did not run.
+    """
+    from skeleton.insights.models import OrganizationSnapshot
+    from skeleton.tenancy.context import memberships_for_user
+
+    organizations = {row["organization_id"] for row in memberships_for_user(user, all_organizations=True)}
+    if not organizations:
+        return frozenset()
+    snapshots = dict(
+        OrganizationSnapshot.objects.filter(subject_organization_id__in=organizations).values_list(
+            "subject_organization_id", "apps_effective"
+        )
+    )
+    if set(snapshots) != organizations:
+        return None
+    return frozenset(label for labels in snapshots.values() for label in labels or ())
+
+
+def available_kinds(user: Any) -> list[NotificationType]:
+    """The types this person can receive (#790), in code order.
+
+    Members' types turned on in the instance (or not turned off) and owned by the core or by an app
+    active in one of the person's organizations; the platform's own notices only for its
+    administrators and, with ``platform_capability``, its holders; never the external people's.
+    """
+    from skeleton.accounts.platform import is_platform_admin, platform_capabilities
+
+    from .instance_settings import instance_state
+    from .registry import is_core_owner
+
+    instance = instance_state()
+    admin = is_platform_admin(user)
+    capabilities = platform_capabilities(user)
+    apps = _apps_of_people(user)
+    result = []
+    for kind in all_notification_types():
+        state = instance.get(kind.code)
+        if not kind.mandatory and state is not None and not state.enabled:
+            continue
+        if kind.audience == "external":
+            continue
+        if kind.audience == "platform":
+            if admin or (kind.platform_capability and kind.platform_capability in capabilities):
+                result.append(kind)
+            continue
+        if kind.owner_app and not is_core_owner(kind.owner_app) and apps is not None and kind.owner_app not in apps:
+            continue
+        result.append(kind)
+    return result
 
 
 def preference_lines(user: Any) -> list[PreferenceLine]:
@@ -127,7 +185,7 @@ def preference_lines(user: Any) -> list[PreferenceLine]:
     instance = instance_state()
     defaults = NotificationType(DEFAULT_TYPE, gettext("Padrão para todos os tipos"), default_channels=("in_app",))
     lines = []
-    for kind in (defaults, *all_notification_types()):
+    for kind in (defaults, *available_kinds(user)):
         channels = {}
         for channel in CHANNELS:
             row = rows.get((kind.code, channel))
@@ -141,7 +199,8 @@ def preference_lines(user: Any) -> list[PreferenceLine]:
                 chosen = instance.get(kind.code)
                 state = resolve(kind, channel, rows, chosen.default_channels if chosen else None)
             channels[channel] = (state, row)
-        lines.append(PreferenceLine(kind.code, kind.label, kind.mandatory, channels))
+        unavailable = ("push",) if kind.audience == "platform" else ()
+        lines.append(PreferenceLine(kind.code, kind.label, kind.mandatory, channels, kind, unavailable))
     return lines
 
 
@@ -193,6 +252,9 @@ def set_preference(
     ``expected_revision=None``. Anything else is ``ConcurrentUpdate``.
     """
     hour = _validate(type_code, channel, mode, digest_hour)
+    kind = known_type(type_code)
+    if kind is not None and kind.audience == "platform" and channel == "push" and mode != "off":
+        raise ValidationError(gettext("Os avisos da plataforma não usam push."))  # #787
     row = _live(user, type_code, channel)
     if row is None:
         if expected_revision is not None:

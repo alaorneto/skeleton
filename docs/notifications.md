@@ -221,6 +221,8 @@ O envio marca o comunicado `sent` e enfileira um job global (`notifications.anno
 
 Cada pessoa escolhe, por tipo e canal, como recebe as notificações em todas as organizações (`UserNotificationPreference`, `SystemRecord` global, auditado e com revisão). A página fica em `/profile/notifications/` (formulário comum, sem JavaScript) e a API de sessão em `/api/v1/me/notification-preferences/`.
 
+A página e a API mostram só os avisos que a pessoa pode receber ([#790](https://github.com/alaorneto/skeleton/issues/790)): os de membros que a plataforma não desligou, do núcleo ou de uma app ativa em ao menos uma organização dela (pelo resumo de gestão da instância; uma organização ainda sem resumo conta todas as apps instaladas); os da plataforma só para os administradores dela e para quem tem a capacidade do tipo; nunca os de pessoas externas. A página agrupa os avisos por contexto (Da plataforma, Da organização, um grupo por aplicativo), com a descrição de cada um e sem os códigos técnicos; os avisos da plataforma não têm push ("Não disponível"). Na API, cada item traz `context` e `description`, e um tipo que a pessoa não recebe responde 404, como um inexistente.
+
 | Canal | Modos |
 |---|---|
 | `in_app` | `off`, `immediate` |
