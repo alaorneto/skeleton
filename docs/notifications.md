@@ -175,6 +175,21 @@ A plataforma tem uma caixa própria para os seus administradores ([#787](https:/
 - **Telas:** **Plataforma › Notificações › Caixa** (`/platform/notifications/`), para qualquer papel da plataforma, com Não lidas, Todas e Arquivadas, marcar como lida ou não lida, arquivar e marcar todas. Abrir um aviso o marca como lido e leva ao destino do tipo (`open_url`, reautorizado); sem destino, mostra o aviso. A linha de outra pessoa responde 404. O contador de não lidas aparece no menu da plataforma e no link "Plataforma" do cabeçalho, limitado a `99+`.
 - **Retenção:** o job global `notifications.platform_retention` (diário, 03:45 UTC) usa os mesmos prazos das caixas das organizações; a eliminação da pessoa apaga as linhas dela.
 
+## Alertas da plataforma
+
+A plataforma avisa sozinha quem precisa agir ([#788](https://github.com/alaorneto/skeleton/issues/788)). O job periódico global `notifications.platform_watch` roda a cada 15 minutos, lê só contagens e estados e chama `notify_platform`; a `dedupe_key` de cada aviso carrega a janela, então uma situação é avisada uma vez por janela. Cada verificação roda numa transação própria: uma que falha fica no log (`platform_watch.failed`) e as outras seguem.
+
+| Tipo | Quando | Quem recebe | Uma vez por |
+|---|---|---|---|
+| `platform.jobs_dead` | há jobs `dead`; de novo ao passar de 1, 10, 100 e 1000 | administradores | dia e faixa |
+| `platform.queue_lagging` | o job vencido mais antigo espera mais que `SKELETON_PLATFORM_ALERT_QUEUE_LAG_S` (900 s); nunca com a fila pausada por manutenção | administradores | hora |
+| `platform.update_available` | o aviso de atualização da plataforma tem versão nova do núcleo ou de apps | `updates.operate` | par de versões |
+| `platform.operation_failed` | uma operação de atualização terminou `failed`, `interrupted` ou `restored` nas últimas 24 h | `updates.operate` | operação |
+| `platform.erasure_requested` | uma pessoa pede a eliminação dos dados (na própria requisição, sem esperar o vigia) | administradores | pedido |
+| `platform.organization_suspended` | o resumo de gestão da organização (`OrganizationSnapshot`) está `suspended` pela cobrança | `billing.operate` | organização e dia |
+
+Os payloads só têm números, códigos e identificadores: nunca nome, email, segredo nem mensagem de erro; o aviso leva à tela da plataforma onde a pessoa vê o resto. Cada tipo pode ser desligado ou ter os canais trocados em [Avisos](#configuração-da-plataforma), e `SKELETON_PLATFORM_ALERTS_ENABLED=False` desliga o vigia e o aviso de eliminação. Sem worker vivo nenhum job roda: a falta de worker continua sendo vista pela sonda de saúde e por `check_jobs`.
+
 ## Caixa de notificações
 
 | Rota | O que faz |

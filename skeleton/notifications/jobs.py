@@ -87,3 +87,7 @@ def register_notification_jobs() -> None:
     from .platform import register_platform_jobs
 
     register_platform_jobs()  # The platform's own inbox (#787).
+    from .platform_alerts import register_platform_alerts, register_platform_watch
+
+    register_platform_alerts()  # The notices the platform sends by itself (#788).
+    register_platform_watch()

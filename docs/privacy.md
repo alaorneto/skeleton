@@ -36,7 +36,7 @@ A exportação é montada na própria requisição. Ela é uma rota agregada que
 
 ## Eliminação da identidade
 
-Os acessos externos ao portal (#536) são desativados pelo job de cada organização e ficam como histórico, como os vínculos; um convite posterior exige um novo aceite, que reativa a mesma linha.
+Os acessos externos ao portal (#536) são desativados pelo job de cada organização e ficam como histórico, como os vínculos; um convite posterior exige um novo aceite, que reativa a mesma linha. Ao abrir o pedido, os administradores da plataforma recebem um aviso, sem nenhum dado da pessoa ([alertas da plataforma](notifications.md#alertas-da-plataforma)).
 
 A pessoa pede a eliminação na mesma página, `/profile/privacy/` ([#191](https://github.com/alaorneto/skeleton/issues/191)). O pedido exige autenticação recente e só cria um `ErasureRequest` (`sk_accounts.erasurerequest`, global e auditado) em `pending`: nada mais muda. Enquanto está pendente, a pessoa pode retirá-lo. Há no máximo um pedido pendente por pessoa, e contas de serviço são recusadas (elas se desativam pela organização).
 

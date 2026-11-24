@@ -377,6 +377,10 @@ SKELETON_SENTRY_DSN = env("SKELETON_SENTRY_DSN", default="")
 SKELETON_NOTIFICATION_READ_RETENTION_DAYS = env.int("SKELETON_NOTIFICATION_READ_RETENTION_DAYS", default=90)
 SKELETON_NOTIFICATION_UNREAD_RETENTION_DAYS = env.int("SKELETON_NOTIFICATION_UNREAD_RETENTION_DAYS", default=180)
 SKELETON_NOTIFICATION_DELIVERY_RETENTION_DAYS = env.int("SKELETON_NOTIFICATION_DELIVERY_RETENTION_DAYS", default=30)
+# Notices of the platform to its administrators (#788): the watcher on or off, and the queue lag
+# (seconds of the oldest due job) that counts as late.
+SKELETON_PLATFORM_ALERTS_ENABLED = env.bool("SKELETON_PLATFORM_ALERTS_ENABLED", default=True)
+SKELETON_PLATFORM_ALERT_QUEUE_LAG_S = env.int("SKELETON_PLATFORM_ALERT_QUEUE_LAG_S", default=900)
 # Web push (#56): off until a P-256 key file (manage.py generate_vapid_keys) and a subject exist.
 WEBPUSH_VAPID_PRIVATE_KEY_FILE = env("WEBPUSH_VAPID_PRIVATE_KEY_FILE", default="")
 WEBPUSH_VAPID_SUBJECT = env("WEBPUSH_VAPID_SUBJECT", default="")
