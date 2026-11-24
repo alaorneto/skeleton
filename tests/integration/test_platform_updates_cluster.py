@@ -54,6 +54,7 @@ def agent(monkeypatch, cluster=CLUSTER, restart=None):
     double = SimpleNamespace(
         inventory=lambda: {"generation": 7, "apps": [], "core": {}, "agent": {"version": "0.4.0"}},
         cluster=lambda: sanitize_cluster(cluster),
+        update_status=lambda: {},
         cluster_restart=restart or (lambda: calls.append("restart") or {"state": "started"}),
     )
     monkeypatch.setattr(updates, "agent_client", lambda: double)

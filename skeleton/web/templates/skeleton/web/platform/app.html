@@ -15,7 +15,7 @@
     <dl class="meta-list">
       <div><dt>{% translate "Identidade" %}</dt><dd>{{ application.app_id }}</dd></div>
       <div><dt>{% translate "Namespace" %}</dt><dd>{{ application.app_label }}</dd></div>
-      <div><dt>{% translate "Versão do código ativo" %}</dt><dd>{{ application.version }}</dd></div>
+      <div><dt>{% translate "Versão do código ativo" %}</dt><dd>{{ application.version }}{% if application.origin == "installed" %} · <a href="{% url 'platform:updates-apps' %}#app-{{ application.app_id|slugify }}">{% translate "Atualizar ou retirar" %}</a>{% endif %}</dd></div>
       <div><dt>{% translate "Origem" %}</dt><dd>{{ application.origin }}</dd></div>
     </dl>
     <h3 class="mt-6 mb-2 text-sm">{% translate "Compatibilidade" %}</h3>

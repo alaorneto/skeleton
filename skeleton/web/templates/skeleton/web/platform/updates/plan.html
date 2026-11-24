@@ -1,8 +1,11 @@
 {% extends "skeleton/web/platform/updates/base.html" %}
-{% load i18n %}{% block step_title %}{% translate "Preparar plano" %}{% endblock %}
+{% load i18n %}{% comment %}Etapa 1 de um plano (#823): o que vai ser feito, com um botão para conferir o impacto. O plano manual (operação, digests e IDs) é o caminho avançado.{% endcomment %}{% block step_title %}{% translate "Preparar a atualização" %}{% endblock %}
+{% block crumb %}{% translate "Preparar a atualização" %}{% endblock %}
+{% block heading %}{% if plan_manual %}{% translate "Plano manual" %}{% else %}{{ plan_heading }}{% endif %}{% endblock %}
+{% block description %}{% if plan_manual %}{% translate "Monte um plano a partir dos pacotes já verificados pelo agente. O plano passa por uma prévia do impacto antes de qualquer aprovação." %}{% else %}{% translate "Confira o que será feito e peça a prévia do impacto. Nada é aplicado nesta etapa." %}{% endif %}{% endblock %}
 {% block step %}
 {% if artifact %}
-<section class="message success mb-5" aria-labelledby="plan-artifact">{% include "skeleton/web/components/icon.html" with name="check-circle" %}<div class="min-w-0"><h2 id="plan-artifact" class="text-sm font-semibold text-inherit">{% translate "Pacote verificado:" %} {{ artifact.manifest.name|default:_("pacote") }} {{ artifact.manifest.version }}</h2><p class="mt-1">{% translate "Digest" %} <code class="uuid text-inherit!">{{ artifact.digest }}</code></p>{% if artifact.kind == "release" %}<p class="mt-1">{% translate "Pacote de release: o plano usa o pacote do núcleo que veio nele" %} <code class="uuid text-inherit!">{{ artifact.core.digest }}</code></p>{% endif %}</div></section>
+<section class="message success mb-5" aria-labelledby="plan-artifact">{% include "skeleton/web/components/icon.html" with name="check-circle" %}<div class="min-w-0"><h2 id="plan-artifact" class="text-sm font-semibold text-inherit">{% translate "Pacote verificado:" %} {{ artifact.manifest.name|default:_("pacote") }} {{ artifact.manifest.version }}</h2><p class="mt-1">{% translate "A assinatura do publicador e o conteúdo do pacote foram conferidos pelo agente." %}</p></div></section>
 {% if artifact.kind == "release" and artifact.agent.update_required %}
 <section class="card mb-5" aria-labelledby="plan-agent">
   <h2 id="plan-agent">{% translate "Agente de deployment" %} {{ artifact.agent.version }}</h2>
@@ -25,12 +28,22 @@
   </li>{% endfor %}</ul>
 </section>
 {% endif %}
-<form method="post" action="{% url 'platform:updates-plan' %}" class="card">
-  {% csrf_token %}
-  <h2>{% translate "Plano" %}</h2>
-  <p class="mt-1 mb-5 text-sm/6 text-body">{% translate 'Escolha a operação e os pacotes. "Visualizar impacto" pede ao agente uma prévia; o agente a prepara em segundo plano e, quando ficar pronta, a aprovação acontece na tela da operação.' %}</p>
-  {% with form=plan_form %}{% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" %}{% endwith %}
-  <p class="mt-5 text-sm/6 text-body-subtle">{% translate "Desinstalar remove código e integrações ativas, preservando dados e migrations históricas. Não existe exclusão de dados pela interface." %}</p>
-  <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Visualizar impacto" %}{% include "skeleton/web/components/icon.html" with name="arrow-right" %}</button></div>
+{% if not plan_manual %}
+<form method="post" action="{% url 'platform:updates-plan' %}" class="card" aria-labelledby="plan-next">
+  {% csrf_token %}<input type="hidden" name="action" value="{{ plan_values.action }}"><input type="hidden" name="artifacts" value="{{ plan_values.artifacts }}"><input type="hidden" name="app_ids" value="{{ plan_values.app_ids }}">
+  <h2 id="plan-next">{% translate "Próxima etapa: conferir o impacto" %}</h2>
+  <p class="mt-1 text-sm/6 text-body">{% translate "O agente prepara uma cópia da instalação com a mudança, instala os pacotes e roda os checks, sem tocar no site. Leva alguns instantes; a página seguinte se atualiza sozinha." %}</p>
+  {% if plan_values.action == "uninstall" %}<p class="mt-3 text-sm/6 text-body">{% translate "Retirar o código preserva os dados e as migrations históricas. Não existe exclusão de dados pela interface." %}</p>{% endif %}
+  <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Conferir o impacto" %}{% include "skeleton/web/components/icon.html" with name="arrow-right" %}</button><a class="btn btn-ghost" href="{{ area_meta.url }}">{% translate "Voltar" %}</a></div>
 </form>
+{% endif %}
+<details class="mt-6"{% if plan_manual %} open{% endif %}>
+  <summary class="section-heading">{% translate "Plano manual (avançado)" %}</summary>
+  <form method="post" action="{% url 'platform:updates-plan' %}" class="card mt-3">
+    {% csrf_token %}
+    <p class="mb-5 text-sm/6 text-body">{% translate "Para combinar pacotes num só plano ou repetir um plano pelo digest. Os digests vêm do envio de pacote ou das sugestões do plano." %}</p>
+    {% with form=plan_form %}{% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" %}{% endwith %}
+    <div class="form-actions"><button type="submit" class="btn btn-secondary">{% translate "Conferir o impacto" %}</button></div>
+  </form>
+</details>
 {% endblock %}

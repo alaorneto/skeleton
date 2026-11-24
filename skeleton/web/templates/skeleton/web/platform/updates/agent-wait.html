@@ -1,6 +1,9 @@
 {% extends "skeleton/web/platform/updates/base.html" %}
 {% load i18n %}{% block extrahead %}{% if wait_state == "waiting" %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
 {% block step_title %}{% translate "Atualizando o agente" %}{% endblock %}
+{% block crumb %}{% translate "Atualizando o agente" %}{% endblock %}
+{% block heading %}{% translate "Atualizando o agente" %}{% endblock %}
+{% block description %}{% translate "O agente de deployment se atualiza antes do passo do núcleo. O site continua no ar." %}{% endblock %}
 {% block step %}
 <section class="card" aria-labelledby="agent-wait">
   <h2 id="agent-wait">{% if wait_state == "failed" %}{% translate "A atualização do agente não terminou" %}{% else %}{% translate "Atualizando o agente" %}{% endif %}</h2>
@@ -10,7 +13,7 @@
     <li>{% translate "Nos containers, o iniciador volta sozinho ao agente da imagem depois de 3 partidas sem sucesso da versão nova; confira o log do serviço agent." %}</li>
     <li>{% translate "Num servidor systemd, rode agent-rollback e reinicie o serviço do agente (systemctl restart skeleton-agent); veja o diário do agente." %}</li>
   </ul>
-  <p class="mt-4 text-sm/6"><a href="{% url 'platform:updates' %}">{% translate "Ver as versões instaladas" %}</a></p>
+  <p class="mt-4 text-sm/6"><a href="{% url 'platform:updates' %}">{% translate "Voltar a Atualizações da plataforma" %}</a></p>
   {% else %}
   <div class="message info mt-3" role="status" aria-live="polite">{% include "skeleton/web/components/icon.html" with name="refresh" %}<div class="min-w-0">{% translate "O agente de deployment monta a versão nova, testa e reinicia. Só o agente reinicia; o site continua no ar. Esta página se atualiza sozinha e, com o agente novo de pé, mostra o plano do núcleo." %}</div></div>
   <dl class="mt-4 grid gap-3 text-sm/6 sm:grid-cols-2">

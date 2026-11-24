@@ -168,9 +168,9 @@ def test_platform_sidebar_groups_by_subject_and_hides_empty_groups(setup):
     """The menu order of #799; each link keeps its visibility, and a role never sees an empty heading."""
     admin_menu = sidebar(login(setup["admin"]), reverse("platform:overview"))
     assert admin_menu == [
-        (None, ["", "instance", "organizations", "api-clients", "remote-instances", "notifications"]),
+        (None, ["", "instance", "updates", "organizations", "api-clients", "remote-instances", "notifications"]),
         ("Identidade", ["users", "identity-providers", "privacy"]),
-        ("Aplicativos", ["apps", "bundles", "updates", "native-clients"]),
+        ("Aplicativos", ["apps", "bundles", "updates/apps", "native-clients"]),
         ("Dados", ["catalog", "storage", "audit"]),
         ("Operação", ["insights", "domains", "billing", "appearance", "jobs"]),
     ]
@@ -180,8 +180,8 @@ def test_platform_sidebar_groups_by_subject_and_hides_empty_groups(setup):
         ("Operação", ["insights"]),
     ]
     assert sidebar(login(setup["operator"]), reverse("platform:notifications")) == [
-        (None, ["notifications"]),
-        ("Aplicativos", ["updates", "native-clients"]),
+        (None, ["updates", "notifications"]),
+        ("Aplicativos", ["updates/apps", "native-clients"]),
     ]
     billing = person("billing-operator@example.test")
     with request_context(actor=setup["admin"], request_id=uuid4(), source="test:platform-sidebar-billing"):

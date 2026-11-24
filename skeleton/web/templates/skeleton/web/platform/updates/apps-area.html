@@ -1,0 +1,33 @@
+{% extends "skeleton/web/platform/updates/base.html" %}
+{% load i18n skeleton_format %}{% comment %}Atualizações de aplicativos (#822): atualizar, instalar, reinstalar e retirar o código de uma app sem digitar digest nem ID. Cada ação leva à prévia do impacto, que já é a confirmação.{% endcomment %}
+{% block toolbar %}{% include "skeleton/web/platform/updates/check-button.html" %}{% endblock %}
+{% block step %}
+{% include "skeleton/web/platform/updates/pending.html" %}
+<section aria-labelledby="apps-updates">
+  <h2 id="apps-updates" class="section-heading">{% translate "Atualizações disponíveis" %}</h2>
+  <div class="table-scroll table-stack"><table><thead><tr><th scope="col">{% translate "Aplicativo" %}</th><th scope="col">{% translate "Instalada" %}</th><th scope="col">{% translate "Nova versão" %}</th><th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
+  {% for app in updates %}{% with card=app.update %}<tr><td data-label="{% translate "Aplicativo" %}" class="font-medium text-heading">{{ app.name }}</td><td data-label="{% translate "Instalada" %}">{{ app.version }}</td><td data-label="{% translate "Nova versão" %}">{% if card.steps %}{% with first=card.steps.0 %}{{ first.version }}{% endwith %}{% if card.steps|length > 1 %} <span class="text-body-subtle">({% blocktranslate with latest=card.latest %}depois até {{ latest }}{% endblocktranslate %})</span>{% endif %}{% else %}<span class="text-body-subtle">{{ card.blocked }}</span>{% endif %}</td>
+    <td data-label="" class="col-actions"><div class="row-actions">{% if card.steps %}{% with first=card.steps.0 %}<form method="post" action="{% url 'platform:updates-fetch' %}">{% csrf_token %}<input type="hidden" name="component_id" value="{{ app.app_id }}"><input type="hidden" name="version" value="{{ first.version }}"><input type="hidden" name="source_id" value="{{ first.source_id }}"><button type="submit" class="btn btn-secondary btn-sm">{% translate "Preparar atualização" %}</button></form>{% endwith %}{% endif %}</div></td></tr>{% endwith %}
+  {% empty %}{% if loaded %}{% translate "Todos os aplicativos estão atualizados nas fontes consultadas." as empty_message %}{% else %}{% translate "O agente não respondeu; não é possível ver as atualizações agora." as empty_message %}{% endif %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=empty_message icon="updates"|concept_icon %}{% endfor %}
+  </tbody></table></div>
+  {% include "skeleton/web/platform/updates/check-status.html" %}
+</section>
+<section class="mt-8" aria-labelledby="apps-install">
+  <h2 id="apps-install" class="section-heading">{% translate "Disponíveis para instalar" %}</h2>
+  <p class="mb-3 text-sm/6 text-body">{% translate "Aplicativos publicados nas fontes que esta instância ainda não tem. Instalar não libera o aplicativo para nenhuma organização: isso é feito depois, em Aplicativos instalados." %}</p>
+  <div class="table-scroll table-stack"><table><thead><tr><th scope="col">{% translate "Aplicativo" %}</th><th scope="col">{% translate "Versão" %}</th><th scope="col">{% translate "Notas" %}</th><th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
+  {% for candidate in candidates %}<tr><td data-label="{% translate "Aplicativo" %}" class="font-medium text-heading">{{ candidate.component_id }}</td><td data-label="{% translate "Versão" %}">{{ candidate.version }}</td><td data-label="{% translate "Notas" %}">{{ candidate.notes|default:"—" }}</td>
+    <td data-label="" class="col-actions"><div class="row-actions"><form method="post" action="{% url 'platform:updates-fetch' %}">{% csrf_token %}<input type="hidden" name="component_id" value="{{ candidate.component_id }}"><input type="hidden" name="version" value="{{ candidate.version }}"><input type="hidden" name="source_id" value="{{ candidate.source_id }}"><button type="submit" class="btn btn-secondary btn-sm">{% translate "Preparar instalação" %}</button></form></div></td></tr>
+  {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhum aplicativo novo nas fontes consultadas. Um pacote recebido por fora entra por Enviar pacote.") icon="apps"|concept_icon %}{% endfor %}
+  </tbody></table></div>
+</section>
+<section class="mt-8" aria-labelledby="apps-installed">
+  <h2 id="apps-installed" class="section-heading">{% translate "Instalados" %}</h2>
+  <p class="mb-3 text-sm/6 text-body">{% translate "Retirar o código preserva os dados e as migrations históricas; reinstalar devolve o aplicativo com os mesmos registros. Não existe exclusão de dados pela interface." %}</p>
+  <div class="table-scroll table-stack"><table><thead><tr><th scope="col">{% translate "Aplicativo" %}</th><th scope="col">{% translate "Versão" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
+  {% for app in apps %}<tr id="app-{{ app.app_id|slugify }}"><td data-label="{% translate "Aplicativo" %}"><span class="cell-primary">{{ app.name }}</span>{% if app.name != app.app_id %}<span class="cell-secondary"><code class="uuid">{{ app.app_id }}</code></span>{% endif %}</td><td data-label="{% translate "Versão" %}">{{ app.version }}</td><td data-label="{% translate "Estado" %}">{{ app.state|status_badge:"components" }}</td>
+    <td data-label="" class="col-actions"><div class="row-actions">{% if not app.managed %}<span class="text-sm text-body-subtle">{% translate "Código do projeto" %}</span>{% elif app.state == "schema_retained" %}{% if app.digest %}<form method="post" action="{% url 'platform:updates-plan' %}">{% csrf_token %}<input type="hidden" name="action" value="reinstall"><input type="hidden" name="artifacts" value="{{ app.digest }}"><button type="submit" class="btn btn-secondary btn-sm">{% translate "Reinstalar código" %}</button></form>{% endif %}{% else %}<form method="post" action="{% url 'platform:updates-plan' %}">{% csrf_token %}<input type="hidden" name="action" value="uninstall"><input type="hidden" name="app_ids" value="{{ app.app_id }}"><button type="submit" class="btn btn-danger-outline btn-sm">{% translate "Retirar o código" %}</button></form>{% endif %}</div></td></tr>
+  {% empty %}{% if loaded %}{% translate "Nenhum aplicativo instalado por pacote." as empty_message %}{% else %}{% translate "O agente não respondeu; o inventário está indisponível." as empty_message %}{% endif %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=empty_message icon="apps"|concept_icon %}{% endfor %}
+  </tbody></table></div>
+</section>
+{% endblock %}

@@ -101,6 +101,7 @@ def _search(request):
 @require_safe
 def overview(request):
     from skeleton.system.app_registry import all_apps
+    from skeleton.system.releases import CLOSED_PREVIEW_STATES
 
     from .updates import running_core
 
@@ -132,7 +133,10 @@ def overview(request):
                     reverse("platform:catalog"),
                 ),
             ],
-            "operations": DeploymentOperation.objects.order_by("-created_at")[:5],
+            # Plans closed without running (#821) are history, not recent operations.
+            "operations": DeploymentOperation.objects.exclude(state__in=CLOSED_PREVIEW_STATES).order_by("-created_at")[
+                :5
+            ],
         },
     )
 

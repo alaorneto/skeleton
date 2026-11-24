@@ -1,27 +1,27 @@
 {% extends "skeleton/web/platform/updates/base.html" %}
-{% load i18n skeleton_format %}{% block step_title %}{% translate "Versões instaladas" %}{% endblock %}
+{% load i18n skeleton_format %}{% comment %}Atualizações da plataforma (#822): o núcleo e o agente, o próximo passo e o que aguarda aprovação. Os detalhes técnicos ficam recolhidos.{% endcomment %}
+{% block toolbar %}{% include "skeleton/web/platform/updates/check-button.html" %}{% endblock %}
 {% block step %}
 {% if inventory.error %}<div class="message error mb-5" role="alert">{% include "skeleton/web/components/icon.html" with name="error" %}<div class="min-w-0"><strong>{% translate "Divergência operacional:" %}</strong> {{ inventory.error }}. {% translate "O inventário não comprova um deployment coerente." %}</div></div>{% endif %}
+{% include "skeleton/web/platform/updates/pending.html" %}
 <div class="grid gap-5 lg:grid-cols-3">
-  <section class="card" aria-labelledby="installed-core">
-    <h2 id="installed-core" class="mb-4">{% translate "Núcleo" %}</h2>
-    <dl class="meta-list sm:grid-cols-1!">
-      <div><dt>{% translate "Versão em execução" %}</dt><dd>{{ core.version|default:"—" }} <span class="text-body-subtle">· {{ core.origin_label|default:"—" }}</span></dd></div>
-      {% if inventory %}
-      <div><dt>{% translate "Geração ativa" %}</dt><dd>{{ inventory.generation }}</dd></div>
-      <div><dt>{% translate "Núcleo ativo no agente" %}</dt><dd>{{ inventory.core.version }} <span class="text-body-subtle">· {{ inventory.core.origin }}, {% translate "publicador" %} {{ inventory.core.publisher }}</span></dd></div>
-      <div><dt>{% translate "Digest" %}</dt><dd><code class="uuid">{{ inventory.core.digest }}</code></dd></div>
-      <div><dt>{% translate "Agente de deployment" %}</dt><dd>{{ inventory.agent.version|default:_("versão desconhecida") }}{% if inventory.agent and not inventory.agent.self_update %} <span class="text-body-subtle">· {% translate "Atualização do agente: manual" %} (<a href="{{ agent_guide }}" rel="noopener noreferrer">{% translate "veja o guia" %}</a>)</span>{% endif %}</dd></div>
-      {% endif %}
+  <div class="min-w-0 lg:col-span-2">
+    {% if core_card %}{% include "skeleton/web/platform/updates/path.html" with card=core_card choose_target=True %}
+    {% else %}<section class="card" aria-labelledby="core-card">
+      <h2 id="core-card">{% translate "Núcleo" %}</h2>
+      <p class="mt-1 text-sm/6 text-body">{% translate "Instalado:" %} <span class="font-medium text-heading">{{ core.version|default:"—" }}</span> <span class="text-body-subtle">· {{ core.origin_label|default:"—" }}</span></p>
+      {% if inventory %}<p class="mt-3 text-sm/6 text-body-subtle">{% translate "Ainda não há resultado de consulta às fontes. Use Verificar agora para procurar versões novas." %}</p>{% else %}<p class="mt-3 text-sm/6 text-body-subtle">{% translate "O agente de deployment não respondeu: não é possível procurar nem aplicar atualizações agora." %}</p>{% endif %}
+    </section>{% endif %}
+    {% include "skeleton/web/platform/updates/check-status.html" %}
+  </div>
+  <section class="card" aria-labelledby="agent-card">
+    <h2 id="agent-card">{% translate "Agente de deployment" %}</h2>
+    <p class="mt-1 text-sm/6 text-body">{% translate "É ele que verifica, instala e reverte as atualizações no servidor." %}</p>
+    <dl class="meta-list mt-4 sm:grid-cols-1!">
+      <div><dt>{% translate "Versão" %}</dt><dd>{{ inventory.agent.version|default:_("desconhecida") }}</dd></div>
+      <div><dt>{% translate "Atualização do agente" %}</dt><dd>{% if not inventory.agent %}—{% elif inventory.agent.self_update %}{% translate "Automática, quando o núcleo pede" %}{% else %}{% translate "Manual" %} · <a href="{{ agent_guide }}" rel="noopener noreferrer">{% translate "veja o guia" %}</a>{% endif %}</dd></div>
     </dl>
-    {% if not inventory %}<p class="mt-4 text-sm/6 text-body-subtle">{% translate "O agente não respondeu; o inventário gerenciado está indisponível." %}</p>{% endif %}
-  </section>
-  <section class="min-w-0 lg:col-span-2" aria-labelledby="installed-apps">
-    <h2 id="installed-apps" class="section-heading">{% translate "Apps gerenciadas pelo agente" %}</h2>
-    <div class="table-scroll table-stack"><table><thead><tr><th scope="col">{% translate "App" %}</th><th scope="col">{% translate "Versão" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col">{% translate "Digest" %}</th></tr></thead><tbody>
-    {% for entry in inventory.apps %}<tr><td data-label="{% translate "App" %}" class="font-medium text-heading">{{ entry.manifest.app_id }}</td><td data-label="{% translate "Versão" %}">{{ entry.manifest.version }}</td><td data-label="{% translate "Estado" %}">{{ entry.state|status_badge:"components" }}</td><td data-label="{% translate "Digest" %}"><code class="uuid">{{ entry.digest }}</code></td></tr>
-    {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhuma app gerenciada.") icon="updates"|concept_icon %}{% endfor %}
-    </tbody></table></div>
+    {% if app_updates %}<p class="mt-5 border-t border-default pt-4 text-sm/6 text-body">{% blocktranslate trimmed count counter=app_updates %}{{ counter }} aplicativo tem atualização.{% plural %}{{ counter }} aplicativos têm atualização.{% endblocktranslate %} <a href="{% url 'platform:updates-apps' %}">{% translate "Ver em Atualizações de aplicativos" %}</a></p>{% endif %}
   </section>
 </div>
 {% if cluster.mode == "cluster" %}<section class="mt-8" aria-labelledby="installed-cluster">
@@ -37,15 +37,22 @@
   {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=6 message=_("Nenhum nó registrado.") icon="updates"|concept_icon %}{% endfor %}
   </tbody></table></div>
 </section>{% endif %}
-<section class="mt-8" aria-labelledby="installed-components">
-  <h2 id="installed-components" class="section-heading">{% translate "Inventário confirmado no banco" %}</h2>
+<details class="mt-8">
+  <summary class="section-heading">{% translate "Detalhes técnicos" %}</summary>
+  <dl class="meta-list mt-3">
+    <div><dt>{% translate "Núcleo em execução" %}</dt><dd>{{ core.version|default:"—" }} <span class="text-body-subtle">· {{ core.origin_label|default:"—" }}</span></dd></div>
+    {% if inventory %}<div><dt>{% translate "Núcleo ativo no agente" %}</dt><dd>{{ inventory.core.version }} <span class="text-body-subtle">· {{ inventory.core.origin }}, {% translate "publicador" %} {{ inventory.core.publisher }}</span></dd></div>
+    <div><dt>{% translate "Geração ativa" %}</dt><dd>{{ inventory.generation }}</dd></div>
+    <div><dt>{% translate "Digest do núcleo" %}</dt><dd><code class="uuid">{{ inventory.core.digest }}</code></dd></div>{% endif %}
+  </dl>
+  <h3 class="mt-6 mb-2 text-sm">{% translate "Componentes confirmados no banco" %}</h3>
   <div class="table-scroll table-stack"><table><thead><tr><th scope="col">{% translate "Componente" %}</th><th scope="col">{% translate "Versão" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col">{% translate "Geração" %}</th></tr></thead><tbody>
   {% for component in components %}<tr><td data-label="{% translate "Componente" %}" class="font-medium text-heading">{{ component.component_id }}</td><td data-label="{% translate "Versão" %}">{{ component.version }}</td><td data-label="{% translate "Estado" %}">{{ component.state|status_badge:"components" }}</td><td data-label="{% translate "Geração" %}">{{ component.generation }}</td></tr>
   {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhum componente confirmado.") icon="updates"|concept_icon %}{% endfor %}
   </tbody></table></div>
-</section>
-<div class="mt-8 flex flex-wrap gap-3">
-  <a class="btn btn-primary" href="{% url 'platform:updates-available' %}">{% translate "Procurar novas versões" %}{% include "skeleton/web/components/icon.html" with name="arrow-right" %}</a>
-  <a class="btn btn-secondary" href="{% url 'platform:updates-upload' %}">{% include "skeleton/web/components/icon.html" with name="arrow-up-tray" %}{% translate "Enviar pacote" %}</a>
-</div>
+  {% if releases %}<h3 class="mt-6 mb-2 text-sm">{% translate "Versões do núcleo publicadas nas fontes" %}</h3>
+  <div class="table-scroll table-stack"><table><thead><tr><th scope="col">{% translate "Versão" %}</th><th scope="col">{% translate "Situação" %}</th><th scope="col">{% translate "Fonte" %}</th><th scope="col">{% translate "Notas" %}</th></tr></thead><tbody>
+  {% for release in releases %}<tr><td data-label="{% translate "Versão" %}">{{ release.version }}</td><td data-label="{% translate "Situação" %}">{{ release.state|status_badge:"releases" }}</td><td data-label="{% translate "Fonte" %}">{{ release.source_id }}</td><td data-label="{% translate "Notas" %}">{{ release.notes }}</td></tr>{% endfor %}
+  </tbody></table></div>{% endif %}
+</details>
 {% endblock %}
