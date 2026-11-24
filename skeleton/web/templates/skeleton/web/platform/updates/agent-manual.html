@@ -1,0 +1,17 @@
+{% load i18n %}{% if manual.layout == "container" %}<p class="mt-3 text-sm/6 text-body">{% translate "O agente deste servidor vem da imagem. Atualize a imagem do agente e recrie o serviço" %} (<code>docker compose pull agent &amp;&amp; docker compose up -d agent</code>; {% translate "no Coolify, Redeploy" %}). {% translate "A partir da versão que traz o volume agent_code, ele passa a se atualizar sozinho." %}</p>
+{% elif manual.layout == "systemd" %}<p class="mt-3 text-sm/6 text-body">{% translate "Este agente roda de um virtualenv fixo e não se atualiza sozinho. Uma migração única no servidor, como root, o passa para o leiaute agent_root:" %}</p>
+<pre class="mt-3 overflow-x-auto rounded-base border border-default bg-neutral-secondary-soft p-4 text-sm text-heading">install -d -o skeleton-agent -g skeleton-agent -m 0755 {{ manual.suggested_root }}
+sudo -u skeleton-agent {{ manual.executable }} \
+  --config {{ manual.config_path }} agent-install \
+  --release {% if manual.package %}{{ manual.package }}{% else %}&lt;pacote de release&gt;{% endif %} \
+  --root {{ manual.suggested_root }} --enable
+install -d /etc/systemd/system/skeleton-agent.service.d
+cat &gt; /etc/systemd/system/skeleton-agent.service.d/agent-root.conf &lt;&lt;'EOF'
+[Service]
+ExecStart=
+ExecStart={{ manual.suggested_root }}/current/venv/bin/skeleton-deployment-agent --config {{ manual.config_path }} serve
+EOF
+systemctl daemon-reload
+systemctl restart skeleton-agent</pre>
+<p class="mt-3 text-sm/6 text-body">{% translate "Depois disso, o agente se atualiza sozinho nos próximos passos." %}</p>
+{% else %}<p class="mt-3 text-sm/6 text-body">{% translate "Este agente não se atualiza sozinho. No servidor, rode" %} <code>skeleton-deployment-agent --config &lt;agent.json&gt; agent-install --release &lt;pacote&gt; --root &lt;diretório&gt;</code> {% translate "e reinicie o serviço do agente (veja o guia de atualização)." %}</p>{% endif %}

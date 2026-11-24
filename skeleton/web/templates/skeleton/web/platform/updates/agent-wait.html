@@ -1,0 +1,26 @@
+{% extends "skeleton/web/platform/updates/base.html" %}
+{% load i18n %}{% block extrahead %}{% if wait_state == "waiting" %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
+{% block step_title %}{% translate "Atualizando o agente" %}{% endblock %}
+{% block step %}
+<section class="card max-w-3xl" aria-labelledby="agent-wait">
+  <h2 id="agent-wait">{% if wait_state == "failed" %}{% translate "A atualização do agente não terminou" %}{% else %}{% translate "Atualizando o agente" %}{% endif %}</h2>
+  {% if wait_state == "failed" %}
+  <div class="message warning mt-3" role="status">{% include "skeleton/web/components/icon.html" with name="warning" %}<div class="min-w-0">{% blocktranslate trimmed with required=required %}O agente não chegou à versão {{ required }} em 30 minutos. Nada do núcleo mudou e o site continua no ar.{% endblocktranslate %}</div></div>
+  <ul class="mt-4 list-disc space-y-2 ps-5 text-sm/6 text-body">
+    <li>{% translate "Nos containers, o iniciador volta sozinho ao agente da imagem depois de 3 partidas sem sucesso da versão nova; confira o log do serviço agent." %}</li>
+    <li>{% translate "Num servidor systemd, rode agent-rollback e reinicie o serviço do agente (systemctl restart skeleton-agent); veja o diário do agente." %}</li>
+  </ul>
+  <p class="mt-4 text-sm/6"><a href="{% url 'platform:updates' %}">{% translate "Ver as versões instaladas" %}</a></p>
+  {% else %}
+  <div class="message info mt-3" role="status" aria-live="polite">{% include "skeleton/web/components/icon.html" with name="refresh" %}<div class="min-w-0">{% translate "O agente de deployment monta a versão nova, testa e reinicia. Só o agente reinicia; o site continua no ar. Esta página se atualiza sozinha e, com o agente novo de pé, mostra o plano do núcleo." %}</div></div>
+  <dl class="mt-4 grid gap-3 text-sm/6 sm:grid-cols-2">
+    <div><dt class="text-body-subtle">{% translate "Agente agora" %}</dt><dd class="font-medium text-heading">{% if progress.reachable %}{{ progress.current|default:_("versão desconhecida") }}{% else %}{% translate "reiniciando…" %}{% endif %}</dd></div>
+    <div><dt class="text-body-subtle">{% translate "Versão esperada" %}</dt><dd class="font-medium text-heading">{{ required }}</dd></div>
+  </dl>
+  {% if progress.cluster %}<p class="mt-4 text-sm/6 text-body">{% blocktranslate trimmed with done=progress.cluster.done count total=progress.cluster.total %}{{ done }} de {{ total }} nó vivo na versão nova.{% plural %}{{ done }} de {{ total }} nós vivos na versão nova.{% endblocktranslate %}</p>
+  {% if progress.cluster.behind %}<ul class="mt-2 space-y-1 text-sm/6 text-body">{% for node in progress.cluster.behind %}<li><span class="font-medium text-heading">{{ node.node_id }}</span> · {{ node.agent_version|default:"—" }}</li>{% endfor %}</ul>{% endif %}{% endif %}
+  {% if progress.problem %}<div class="message warning mt-4" role="status">{% include "skeleton/web/components/icon.html" with name="warning" %}<div class="min-w-0">{{ progress.problem }}</div></div>{% endif %}
+  <p class="mt-4"><a class="btn btn-secondary btn-sm" href="{% url 'platform:updates-agent-wait' %}">{% include "skeleton/web/components/icon.html" with name="refresh" %}{% translate "Atualizar estado" %}</a></p>
+  {% endif %}
+</section>
+{% endblock %}

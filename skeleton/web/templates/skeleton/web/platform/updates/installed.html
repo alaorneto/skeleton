@@ -11,7 +11,7 @@
       <div><dt>{% translate "Geração ativa" %}</dt><dd>{{ inventory.generation }}</dd></div>
       <div><dt>{% translate "Núcleo ativo no agente" %}</dt><dd>{{ inventory.core.version }} <span class="text-body-subtle">· {{ inventory.core.origin }}, {% translate "publicador" %} {{ inventory.core.publisher }}</span></dd></div>
       <div><dt>{% translate "Digest" %}</dt><dd><code class="uuid">{{ inventory.core.digest }}</code></dd></div>
-      <div><dt>{% translate "Agente de deployment" %}</dt><dd>{{ inventory.agent.version|default:_("versão desconhecida") }}{% if inventory.agent and not inventory.agent.self_update %} <span class="text-body-subtle">· {% translate "Atualização do agente: manual (veja o guia)" %}</span>{% endif %}</dd></div>
+      <div><dt>{% translate "Agente de deployment" %}</dt><dd>{{ inventory.agent.version|default:_("versão desconhecida") }}{% if inventory.agent and not inventory.agent.self_update %} <span class="text-body-subtle">· {% translate "Atualização do agente: manual" %} (<a href="{{ agent_guide }}" rel="noopener noreferrer">{% translate "veja o guia" %}</a>)</span>{% endif %}</dd></div>
       {% endif %}
     </dl>
     {% if not inventory %}<p class="mt-4 text-sm/6 text-body-subtle">{% translate "O agente não respondeu; o inventário gerenciado está indisponível." %}</p>{% endif %}

@@ -6,9 +6,9 @@
 {% if artifact.kind == "release" and artifact.agent.update_required %}
 <section class="card mb-5" aria-labelledby="plan-agent">
   <h2 id="plan-agent">{% translate "Agente de deployment" %} {{ artifact.agent.version }}</h2>
-  {% if agent_self_update %}<p class="mt-1 mb-4 text-sm/6 text-body">{% translate "Este pacote traz um agente mais novo. Atualize o agente antes do núcleo: ele monta um ambiente novo, testa e reinicia." %}</p>
-  <form method="post" action="{% url 'platform:updates-agent' %}">{% csrf_token %}<input type="hidden" name="release" value="{{ artifact.digest }}"><button type="submit" class="btn btn-secondary">{% translate "Atualizar agente" %}</button></form>
-  {% else %}<p class="mt-1 text-sm/6 text-body">{% translate "Este pacote traz um agente mais novo, e este agente não se atualiza sozinho. No servidor, rode" %} <code>skeleton-deployment-agent --config &lt;agent.json&gt; agent-install --release &lt;pacote&gt; --root &lt;diretório&gt;</code> {% translate "e reinicie o serviço do agente." %}</p>{% endif %}
+  {% if agent_offer.self_update %}<p class="mt-1 mb-4 text-sm/6 text-body">{% translate "Este pacote traz um agente mais novo. Atualize o agente antes do núcleo: ele monta um ambiente novo, testa e reinicia. Só o agente reinicia; o site continua no ar, e depois a página segue sozinha para o plano do núcleo." %}</p>
+  <form method="post" action="{% url 'platform:updates-agent' %}">{% csrf_token %}<input type="hidden" name="release" value="{{ artifact.digest }}">{% if artifact.core.digest %}<input type="hidden" name="artifacts" value="{{ artifact.core.digest }}">{% endif %}<button type="submit" class="btn btn-secondary">{% translate "Atualizar agente" %}</button></form>
+  {% else %}<p class="mt-1 text-sm/6 text-body">{% translate "Este pacote traz um agente mais novo, e este agente não se atualiza sozinho." %}</p>{% include "skeleton/web/platform/updates/agent-manual.html" with manual=agent_offer.manual %}{% endif %}
 </section>
 {% endif %}
 {% if artifact.kind == "release" and not artifact.target %}

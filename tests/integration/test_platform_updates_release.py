@@ -141,7 +141,8 @@ def test_installed_versions_show_the_agent(admin, monkeypatch):
     agent_double(monkeypatch, self_update=False)
     client = support.login(admin, password=PASSWORD, csrf=False)
     body = client.get(reverse("platform:updates")).content.decode()
-    assert "Agente de deployment" in body and "Atualização do agente: manual (veja o guia)" in body
+    assert "Agente de deployment" in body and "Atualização do agente: manual" in body
+    assert "docs/deployment.md#atualizar-o-agente" in body and "veja o guia" in body
 
 
 def test_release_upload_offers_the_agent_update(admin, monkeypatch):
@@ -160,7 +161,7 @@ def test_agent_update_posts_the_digest_and_redirects(admin, monkeypatch):
     calls = agent_double(monkeypatch)
     client = support.login(admin, password=PASSWORD, csrf=False)
     response = client.post(reverse("platform:updates-agent"), {"release": RELEASE_DIGEST})
-    assert response.status_code == 302 and response["Location"] == reverse("platform:updates")
+    assert response.status_code == 302 and response["Location"] == reverse("platform:updates-agent-wait")
     assert calls == [(RELEASE_DIGEST, admin.pk)]
     assert client.post(reverse("platform:updates-agent"), {"release": "../x"}).status_code == 400
     assert client.get(reverse("platform:updates-agent")).status_code == 405
@@ -382,9 +383,18 @@ STATUS = {
 
 
 class PathAgent:
-    def __init__(self, status=STATUS, *, agent=None, fetched=None):
+    def __init__(self, status=STATUS, *, agent=None, fetched=None, cluster=None, refuse=None):
         self.calls, self.status, self.fetched = [], status, fetched
         self.agent = agent or {"version": "0.7.0", "self_update": True}
+        self.cluster_status, self.refuse, self.down = cluster or {"mode": "single"}, refuse, False
+
+    def update_agent(self, digest, *, actor_id):
+        self.calls.append(("update_agent", digest))
+        if self.refuse:
+            from skeleton.system.deployment_client import AgentError
+
+            raise AgentError(self.refuse, 409)
+        return {"state": "restarting", "version": (self.fetched or {}).get("agent", {}).get("version", "0.7.1")}
 
     def update_status(self, **options):
         self.calls.append("update_status")
@@ -398,6 +408,8 @@ class PathAgent:
 
     def inventory(self):
         self.calls.append("inventory")
+        if self.down:
+            raise OSError("restarting")
         return {
             "generation": 1,
             "apps": [{"state": "installed", "manifest": {"app_id": "org.example.notes", "name": "Notas"}}],
@@ -409,7 +421,7 @@ class PathAgent:
         return self.fetched
 
     def cluster(self):
-        return {"mode": "single"}
+        return self.cluster_status
 
     def preview(self, action, artifacts=None, app_ids=None):
         self.calls.append(("preview", action, artifacts))
@@ -493,13 +505,239 @@ def fetch(client, component="django-skeleton", version="0.7.1"):
 def test_step_needing_a_newer_agent_stops_before_the_preview(admin, monkeypatch):
     double = path_agent(monkeypatch, agent={"version": "0.6.4", "self_update": True}, fetched=release_fetch())
     client = support.login(admin, password=PASSWORD, csrf=False)
+    response = fetch(client)
+    assert response.status_code == 302 and response["Location"] == reverse("platform:updates-agent-wait")
+    assert ("update_agent", RELEASE_DIGEST) in double.calls
+    assert not any(call[0] == "preview" for call in double.calls if isinstance(call, tuple))
+    double = path_agent(monkeypatch, agent={"version": "0.6.4", "self_update": False}, fetched=release_fetch())
     body = fetch(client).content.decode()
     assert "Atualize o agente primeiro" in body and "O agente instalado é 0.6.4" in body
-    assert reverse("platform:updates-agent") in body and RELEASE_DIGEST in body
-    assert not any(call[0] == "preview" for call in double.calls if isinstance(call, tuple))
-    path_agent(monkeypatch, agent={"version": "0.6.4", "self_update": False}, fetched=release_fetch())
-    body = fetch(client).content.decode()
     assert "agent-install" in body and reverse("platform:updates-agent") not in body
+    assert not any(call[0] == "update_agent" for call in double.calls if isinstance(call, tuple))
+
+
+def continuation(client):
+    return client.session.get(updates.AGENT_CONTINUATION_KEY)
+
+
+def has_call(double, name):
+    return any(isinstance(call, tuple) and call[0] == name for call in double.calls)
+
+
+def test_preparing_the_step_updates_the_agent_and_the_wait_ends_in_the_plan(admin, monkeypatch, subtests):
+    double = path_agent(monkeypatch, agent={"version": "0.6.4", "self_update": True}, fetched=release_fetch())
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    fetch(client)
+    kept = continuation(client)
+    with subtests.test("the continuation keeps only identifiers"):
+        assert kept["digest"] == RELEASE_DIGEST and kept["required"] == "0.7.1" and kept["action"] == "core_update"
+        assert kept["identifiers"] == {"component_id": "django-skeleton", "version": "0.7.1", "source_id": "official"}
+    wait = reverse("platform:updates-agent-wait")
+    with subtests.test("agent down: wait with refresh"):
+        double.down = True
+        response = client.get(wait)
+        body = response.content.decode()
+        assert response.status_code == 200 and '<meta http-equiv="refresh" content="5">' in body
+        assert "reiniciando" in body and continuation(client)
+    with subtests.test("old agent: still waiting"):
+        double.down = False
+        body = client.get(wait).content.decode()
+        assert '<meta http-equiv="refresh" content="5">' in body and "0.6.4" in body and "0.7.1" in body
+    with subtests.test("new agent: the plan of the step, fetched again"):
+        double.agent["version"] = "0.7.1"
+        double.calls.clear()
+        response = client.get(wait)
+        body = response.content.decode()
+        assert response.status_code == 200 and "Visualizar impacto" in body
+        assert response.context["plan_form"].initial == {"action": "core_update", "artifacts": CORE_DIGEST}
+        assert "Agente atualizado para 0.7.1" in body and 'http-equiv="refresh"' not in body
+        assert ("fetch_release", kept["identifiers"]) in double.calls and not has_call(double, "update_agent")
+        assert continuation(client) is None
+    with subtests.test("without a continuation the wait goes back to the new versions"):
+        response = client.get(wait)
+        assert response.status_code == 302 and response["Location"] == reverse("platform:updates-available")
+
+
+def test_the_wait_ends_only_with_every_alive_node_on_the_new_agent(admin, monkeypatch):
+    cluster = {
+        "mode": "cluster",
+        "nodes": [
+            {"node_id": "node-a", "alive": True, "agent_version": "0.7.1"},
+            {"node_id": "node-b", "alive": True, "agent_version": "0.6.4"},
+            {"node_id": "node-c", "alive": False, "agent_version": "0.6.4"},
+        ],
+        "problem": "agent_update_manual",
+    }
+    double = path_agent(
+        monkeypatch, agent={"version": "0.6.4", "self_update": True}, fetched=release_fetch(), cluster=cluster
+    )
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    fetch(client)
+    double.agent["version"] = "0.7.1"
+    body = client.get(reverse("platform:updates-agent-wait")).content.decode()
+    assert 'http-equiv="refresh"' in body and "1 de 2 nós vivos na versão nova" in body
+    assert "node-b" in body and "node-c" not in body and "atualize a imagem dele" in body
+    cluster["nodes"][1]["agent_version"] = "0.7.1"
+    response = client.get(reverse("platform:updates-agent-wait"))
+    assert "Visualizar impacto" in response.content.decode() and continuation(client) is None
+
+
+def test_a_wait_past_thirty_minutes_says_what_to_do(admin, monkeypatch):
+    path_agent(monkeypatch, agent={"version": "0.6.4", "self_update": True}, fetched=release_fetch())
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    fetch(client)
+    session = client.session
+    session[updates.AGENT_CONTINUATION_KEY] = {
+        **session[updates.AGENT_CONTINUATION_KEY],
+        "started_at": "2026-01-01T00:00:00+00:00",
+    }
+    session.save()
+    response = client.get(reverse("platform:updates-agent-wait"))
+    body = response.content.decode()
+    assert response.status_code == 200 and "A atualização do agente não terminou" in body
+    assert 'http-equiv="refresh"' not in body and "agent-rollback" in body and "3 partidas" in body
+    assert reverse("platform:updates") in body and continuation(client) is None
+
+
+def test_a_malformed_continuation_is_dropped(admin, monkeypatch):
+    path_agent(monkeypatch)
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    session = client.session
+    session[updates.AGENT_CONTINUATION_KEY] = {"digest": "../x", "required": "0.7.1"}
+    session.save()
+    response = client.get(reverse("platform:updates-agent-wait"))
+    assert response.status_code == 302 and continuation(client) is None
+
+
+def test_the_upload_button_also_waits_and_ends_in_the_core_plan(admin, monkeypatch):
+    double = path_agent(monkeypatch, agent={"version": "0.6.4", "self_update": True}, fetched=release_fetch())
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    response = client.post(reverse("platform:updates-agent"), {"release": RELEASE_DIGEST, "artifacts": CORE_DIGEST})
+    assert response["Location"] == reverse("platform:updates-agent-wait")
+    assert continuation(client)["identifiers"] is None
+    double.agent["version"] = "0.7.1"
+    response = client.get(reverse("platform:updates-agent-wait"))
+    assert response.context["plan_form"].initial == {"artifacts": CORE_DIGEST, "action": "core_update"}
+    assert "Agente atualizado para 0.7.1" in response.content.decode()
+    assert not has_call(double, "fetch_release")
+
+
+def test_the_plan_page_says_it_goes_on_by_itself():
+    html = render_to_string(
+        "skeleton/web/platform/updates/plan.html",
+        {"artifact": offer(), "agent_offer": {"self_update": True, "manual": None}, "plan_form": updates.PlanForm()},
+    )
+    assert "a página segue sozinha para o plano do núcleo" in html
+    assert f'name="artifacts" value="{CORE_DIGEST}"' in html
+
+
+def test_an_agent_refusal_is_translated_and_nothing_is_kept(admin, monkeypatch):
+    double = path_agent(
+        monkeypatch,
+        agent={"version": "0.6.4", "self_update": True},
+        fetched=release_fetch(),
+        refuse="agent_build_failed",
+    )
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    response = fetch(client)
+    body = response.content.decode()
+    assert response.status_code == 200 and "Atualize o agente primeiro" in body
+    assert "A montagem do agente novo falhou" in body and continuation(client) is None
+    assert 'name="version" value="0.7.1"' in body  # The button keeps the step to come back to.
+    assert ("update_agent", RELEASE_DIGEST) in double.calls
+
+
+def test_the_wait_needs_the_capability(admin, monkeypatch):
+    path_agent(monkeypatch)
+    with system_context(reason="test:agent-wait-auditor"):
+        auditor = create_identity(email="agent-wait-auditor@example.test", password=PASSWORD)
+        from allauth.account.models import EmailAddress
+
+        EmailAddress.objects.create(user=auditor, email=auditor.email, verified=True, primary=True)
+    with request_context(actor=admin, request_id=uuid4(), source="test:agent-wait"):
+        grant_platform_role(actor=admin, user=auditor, role="auditor")
+    denied = support.login(auditor, password=PASSWORD, csrf=False)
+    assert denied.get(reverse("platform:updates-agent-wait")).status_code == 403
+
+
+def test_the_chosen_target_survives_the_agent_update(admin, monkeypatch):
+    steps = [{"version": "0.6.4", "source_id": "official"}, {"version": "0.7.1", "source_id": "official"}]
+    status = {**STATUS, "paths": [{**STATUS["paths"][0], "targets": [{"version": "0.7.1", "steps": steps}]}]}
+    double = path_agent(
+        monkeypatch, status=status, agent={"version": "0.5.2", "self_update": True}, fetched=release_fetch("0.6.4")
+    )
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    response = client.post(
+        reverse("platform:updates-fetch"),
+        {"component_id": "django-skeleton", "version": "0.6.4", "source_id": "official", "target": "0.7.1"},
+    )
+    assert response["Location"] == reverse("platform:updates-agent-wait")
+    double.agent["version"] = "0.6.4"
+    assert "Visualizar impacto" in client.get(reverse("platform:updates-agent-wait")).content.decode()
+    assert client.session[updates.TARGET_SESSION_KEY] == "0.7.1"
+
+
+def test_available_warns_when_the_step_starts_with_the_agent(admin, monkeypatch, subtests):
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    with subtests.test("self update"):
+        path_agent(monkeypatch, agent={"version": "0.5.2", "self_update": True})
+        body = client.get(reverse("platform:updates-available")).content.decode()
+        assert "Este passo começa atualizando o agente de deployment (0.5.2 → 0.6.4)" in body
+    with subtests.test("manual"):
+        path_agent(monkeypatch, agent={"version": "0.5.2", "self_update": False})
+        body = client.get(reverse("platform:updates-available")).content.decode()
+        assert "que neste servidor é atualizado à mão" in body
+    with subtests.test("agent on the line"):
+        path_agent(monkeypatch, agent={"version": "0.6.0", "self_update": True})
+        body = client.get(reverse("platform:updates-available")).content.decode()
+        assert "começa atualizando o agente" not in body
+
+
+SYSTEMD = {
+    "layout": "systemd",
+    "executable": "/opt/skeleton-agent/venv/bin/skeleton-deployment-agent",
+    "config_path": "/srv/skeleton/private/agent.json",
+    "suggested_root": "/opt/skeleton-agent",
+    "uploads_dir": "/srv/skeleton/agent-state/uploads",
+}
+
+
+@pytest.mark.parametrize(
+    ("manual", "expected", "absent"),
+    [
+        ({"layout": "container"}, "docker compose pull agent", "agent-install"),
+        (SYSTEMD, f"--release /srv/skeleton/agent-state/uploads/{RELEASE_DIGEST}.skapp", "docker compose"),
+        (None, "agent-install --release &lt;pacote&gt;", "docker compose"),
+        ({**SYSTEMD, "config_path": "/srv/x; rm -rf /"}, "agent-install --release &lt;pacote&gt;", "rm -rf"),
+    ],
+)
+def test_agent_first_says_what_to_do_for_each_layout(admin, monkeypatch, manual, expected, absent):
+    agent = {"version": "0.6.4", "self_update": False, **({"manual_update": manual} if manual else {})}
+    path_agent(monkeypatch, agent=agent, fetched=release_fetch())
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    body = fetch(client).content.decode()
+    assert "Atualize o agente primeiro" in body and expected in body and absent not in body
+    if manual == SYSTEMD:
+        assert "--root /opt/skeleton-agent --enable" in body and "--config /srv/skeleton/private/agent.json" in body
+        assert "ExecStart=/opt/skeleton-agent/current/venv/bin/skeleton-deployment-agent" in body
+        assert "se atualiza sozinho nos próximos passos" in body
+
+
+def test_plan_page_shows_the_manual_layout(admin, monkeypatch):
+    agent_double(monkeypatch, self_update=False)
+    updates.agent_client().inventory()["agent"]["manual_update"] = {"layout": "container"}
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    package = SimpleUploadedFile("release.skapp", b"PK\x05\x06" + b"\0" * 18)
+    body = client.post(reverse("platform:updates-upload"), {"package": package}).content.decode()
+    assert "docker compose pull agent" in body and "Atualizar agente" not in body
+
+
+def test_installed_links_the_guide_of_the_layout(admin, monkeypatch):
+    agent_double(monkeypatch, self_update=False)
+    updates.agent_client().inventory()["agent"]["manual_update"] = SYSTEMD
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    body = client.get(reverse("platform:updates")).content.decode()
+    assert "docs/deployment.md#migrar-para-agent_root-775" in body
 
 
 def test_step_with_a_current_agent_goes_to_the_plan(admin, monkeypatch):
