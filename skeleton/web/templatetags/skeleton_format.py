@@ -146,8 +146,113 @@ STATUS = {
     "payment:failed": (_("Recusado"), "danger"),
     "item:pending": (_("Aguardando pagamento"), "warning"),
     "checkout:open": (_("Aberta"), "brand"),
+    # Lifecycle of records and settings shown across the core screens (#767).
+    "deleted": (_("Excluído"), "neutral"),
+    "reversed": (_("Estornado"), "neutral"),
+    "revoked": (_("Revogado"), "neutral"),
+    "disabled": (_("Desativado"), "neutral"),
+    "published": (_("Publicada"), "success"),
+    "unpublished": (_("Não publicada"), "neutral"),
+    "unavailable": (_("Indisponível"), "warning"),
+    "over_limit": (_("Acima do limite"), "warning"),
+    "alive": (_("Com sinal"), "success"),
+    "no_signal": (_("Sem sinal"), "warning"),
+    "done": (_("Feito"), "success"),
+    "preview": (_("Prévia"), "brand"),
+    "restored": (_("Revertida"), "warning"),
+    "submission_failed": (_("Envio falhou"), "danger"),
+    "installed": (_("Instalado"), "success"),
+    "bundled": (_("Incluído no núcleo"), "success"),
+    "project-local": (_("Local"), "success"),
+    "schema_retained": (_("Dados preservados"), "warning"),
+    "not_contracted": (_("Não contratada"), "warning"),
+    "all": (_("Todas"), "success"),
+    "selected": (_("Selecionadas"), "brand"),
+    "none": (_("Nenhuma"), "neutral"),
+    # Apps of an organization.
+    "apps:active": (_("Ativa"), "success"),
+    "apps:disabled": (_("Desativada"), "neutral"),
+    "apps:not_contracted": (_("Não contratada"), "warning"),
+    "apps:unavailable": (_("Indisponibilizada pela plataforma"), "warning"),
+    # Availability of an installed app to the organizations.
+    "availability:all": (_("Todas as organizações"), "success"),
+    "availability:selected": (_("Organizações selecionadas"), "brand"),
+    "availability:none": (_("Indisponível"), "neutral"),
+    # Setup steps.
+    "setup:done": (_("Feito"), "success"),
+    "setup:skipped": (_("Depois"), "warning"),
+    "setup:pending": (_("Pendente"), "neutral"),
+    # Deployment operations and installed components.
+    "updates:preview": (_("Prévia"), "brand"),
+    "updates:approved": (_("Aprovada"), "brand"),
+    "updates:submission_failed": (_("Envio falhou"), "danger"),
+    "updates:succeeded": (_("Concluída"), "success"),
+    "updates:completed": (_("Concluída"), "success"),
+    "updates:restored": (_("Revertida"), "warning"),
+    "updates:failed": (_("Falhou"), "danger"),
+    "components:installed": (_("Instalado"), "success"),
+    "components:project-local": (_("Local"), "success"),
+    "components:bundled": (_("Incluído no núcleo"), "success"),
+    "components:schema_retained": (_("Dados preservados"), "warning"),
+    "releases:available": (_("Disponível"), "brand"),
+    "releases:installed": (_("Instalada"), "success"),
+    "sources:available": (_("Respondendo"), "success"),
+    # Rules of the platform for new organizations.
+    "policy:ignored": (_("Configuração indisponível: ignorada"), "warning"),
 }
 DOMAINS = {key.split(":", 1)[0] for key in STATUS if ":" in key}
+
+MARKER_TONES = {"brand", "warning", "danger", "neutral"}
+# Marker code -> (label, tone): a fixed property that changes behaviour or access (#767). A marker
+# is a pill without the dot; a state (status_badge) keeps the dot. The argument replaces the label
+# when the text depends on data: {{ "managed"|marker:label }}.
+MARKERS = {
+    "mandatory": (_("Obrigatório"), "brand"),
+    "read_only": (_("Somente leitura"), "warning"),
+    "secret": (_("Segredo"), "neutral"),
+    "platform_admin": (_("Administrador da plataforma"), "brand"),
+    "partial_admin": (_("Acesso parcial"), "warning"),
+    "default": (_("Padrão"), "neutral"),
+    "managed": (_("Gerenciado por outra app"), "neutral"),
+    "resend": (_("Reenvio"), "neutral"),
+    "returning": (_("Já foi membro: aprovar reativa o vínculo"), "warning"),
+    "cancel_at_period_end": (_("Cancela no fim do período"), "warning"),
+    "hidden_from_login": (_("Fora da tela de login"), "neutral"),
+    "via_group": (_("Via grupo"), "neutral"),
+    "fixed": (_("Fixo"), "neutral"),
+    "locked": (_("Travada"), "warning"),
+    "primary": (_("Primário"), "brand"),
+    "private": (_("Privado"), "neutral"),
+    "primary_key": (_("Chave primária"), "brand"),
+    "nullable": (_("Aceita vazio"), "neutral"),
+    "sensitive": (_("Sensível"), "warning"),
+    "personal": (_("Pessoal"), "warning"),
+}
+
+# Code -> translated text of a value or category shown as plain text (#767): never a pill.
+CODE_LABELS = {
+    "table_origin": {
+        "core": _("Núcleo"),
+        "application": _("Aplicativo"),
+        "framework": _("Django"),
+        "third_party": _("Biblioteca de terceiros"),
+        "unclassified": _("Não classificada"),
+    },
+    "table_scope": {"organization": _("Organização"), "global": _("Global"), "technical": _("Técnica")},
+    "audit_mode": {
+        "append_only": _("Somente acréscimo"),
+        "operational": _("Operacional"),
+        "trigger": _("Por gatilho"),
+        "library": _("Da biblioteca"),
+        "none": _("Sem auditoria"),
+    },
+    "app_origin": {
+        "bundled": _("Incluído no núcleo"),
+        "project-local": _("Do projeto"),
+        "installed": _("Instalado por pacote"),
+    },
+    "setting_origin": {"env": _("Ambiente"), "instance": _("Configuração da instância"), "default": _("Padrão")},
+}
 
 
 @register.filter(is_safe=True)
@@ -165,6 +270,31 @@ def status_badge(code, label=None):
     if label is not None and domain is None:
         text = label
     return format_html('<span class="badge badge-{} badge-dot">{}</span>', tone, text)
+
+
+@register.filter(is_safe=True)
+def marker(code, label=None):
+    """A pill without the dot for a fixed property (#767); unknown codes render neutral."""
+    if code is None or code == "":
+        return ""
+    text, tone = MARKERS.get(str(code)) or (str(code), "neutral")
+    return format_html('<span class="badge badge-{}">{}</span>', tone, text if label is None else label)
+
+
+@register.filter(name="concept_icon")
+def concept_icon_filter(concept):
+    """``with name="billing"|concept_icon``: the one icon of a concept (#768)."""
+    from skeleton.web.icons import concept_icon
+
+    return concept_icon(concept)
+
+
+@register.filter
+def code_label(code, domain):
+    """``{{ row.origin|code_label:"table_origin" }}``: the translated text of a code, as plain text."""
+    if code is None or code == "":
+        return EMPTY
+    return CODE_LABELS.get(str(domain), {}).get(str(code), str(code))
 
 
 def _required(field) -> bool:

@@ -9,6 +9,6 @@
   <td class="col-date">{{ device.last_used_at|moment }}</td>
   <td>{% if device.usable %}{{ "active"|status_badge }}{% else %}{{ "inactive"|status_badge:_("Inválido") }}{% endif %}</td>
   <td class="col-actions"><form method="post" action="{{ device.revoke_url }}" class="row-actions">{% csrf_token %}<button type="submit" class="btn btn-danger-outline btn-sm">{% include "skeleton/web/components/icon.html" with name="trash" %}{% translate "Revogar" %}</button></form></td>
-</tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=5 message=_("Nenhum dispositivo conectado.") icon="link" %}{% endfor %}
+</tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=5 message=_("Nenhum dispositivo conectado.") icon="connected_devices"|concept_icon %}{% endfor %}
 </tbody></table></div>
 {% endblock %}

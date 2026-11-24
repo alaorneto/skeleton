@@ -17,6 +17,7 @@ from django.contrib import messages
 from django.core.files.uploadhandler import FileUploadHandler, StopUpload
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods, require_safe
@@ -46,6 +47,7 @@ from skeleton.system.releases import (
     update_sources,
 )
 from skeleton.system.releases import update_agent as request_agent_update
+from skeleton.web.confirm import PLATFORM_TEMPLATE, Confirmation, confirmation_step
 
 from .guards import platform_page
 
@@ -197,6 +199,10 @@ def _context(step, **values):
 
 # Operator-facing text of the agent update codes (#497); any other code is shown as is.
 ERROR_TEXT = {
+    # The agent did not answer on its control socket (#776): say what it means, not the code.
+    "agent_unavailable": gettext_lazy(
+        "O agente de deployment não respondeu. Confira se o serviço do agente está no ar e tente de novo."
+    ),
     "agent_update_required": gettext_lazy(
         "O agente de deployment é mais antigo que a linha do núcleo de destino: atualize o agente primeiro."
     ),
@@ -312,7 +318,10 @@ def _error(request, exc):
     if code in ERROR_TEXT:
         messages.error(request, ERROR_TEXT[code])
         return
-    messages.error(request, gettext("Operação indisponível: %(value1)s.") % {"value1": code})
+    messages.error(
+        request,
+        gettext("Não foi possível concluir a operação. Código para o suporte: %(value1)s.") % {"value1": code},
+    )
 
 
 PROBLEM_TEXT = {
@@ -469,7 +478,23 @@ def installed(request):
     )
 
 
+def _describe_cluster_restart(request):
+    return Confirmation(
+        title=gettext("Reiniciar os nós em rolagem"),
+        message=gettext(
+            "Os nós reiniciam um de cada vez com o mesmo release. A instância continua no ar, mas cada nó deixa "
+            "de atender por alguns segundos e as requisições dele em andamento se perdem."
+        ),
+        submit_label=gettext("Reiniciar os nós"),
+        cancel_url=reverse("platform:updates"),
+        eyebrow=gettext("Versões e atualizações"),
+        template=PLATFORM_TEMPLATE,
+        context={"platform_section": "updates"},
+    )
+
+
 @platform_page(capability="updates.operate", writes=True)
+@confirmation_step(_describe_cluster_restart)
 @require_http_methods(["POST"])
 @recent_authentication_required
 def cluster_restart(request):

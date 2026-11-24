@@ -13,9 +13,5 @@ padrão (aplicativos, minhas tarefas, notificações). "Seu vínculo" fica sempr
   </div>
 </div>
 {% include "skeleton/web/pages/blocks.html" %}
-<section class="mt-10" aria-labelledby="dashboard-membership">
-  <h2 id="dashboard-membership" class="section-heading">{% translate "Seu vínculo" %}</h2>
-  <p class="text-sm/6 text-body-subtle">{% translate "Você pode deixar esta organização quando quiser; quem a administra sozinho precisa antes designar outra pessoa." %}</p>
-  <a class="btn btn-secondary mt-3" href="{% url 'web:leave-organization' organization_id %}">{% translate "Sair da organização" %}</a>
-</section>
+{% url 'web:leave-organization' organization_id as leave_url %}{% include "skeleton/web/components/danger-zone.html" with heading_id="dashboard-membership" title=_("Seu vínculo") text=_("Ao sair, você perde na hora o acesso a esta organização. Quem a administra sozinho precisa antes designar outra pessoa.") url=leave_url label=_("Sair da organização") %}
 {% endblock %}

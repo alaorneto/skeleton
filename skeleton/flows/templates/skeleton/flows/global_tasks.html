@@ -4,6 +4,6 @@
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Fluxos de processo" %}</p><h1>{% translate "Minhas tarefas" %}</h1><p class="page-description">{% translate "Tarefas abertas atribuídas a você em todas as organizações em que você tem vínculo. Tarefas de fila aparecem na caixa de cada organização." %}</p></div></div>
 <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Organização" %}</th><th scope="col">{% translate "Etapa" %}</th><th scope="col" class="col-date">{% translate "Prazo" %}</th><th scope="col" class="col-date">{% translate "Criada em" %}</th></tr></thead><tbody>
 {% for row in rows %}<tr><td><span class="cell-primary">{{ row.organization_name }}</span></td><td><a href="{% url 'flows:task' row.organization_id row.sysid %}">{{ row.step_key }}</a></td><td class="col-date">{{ row.due_at|moment }}</td><td class="col-date">{{ row.created_at|moment }}</td></tr>
-{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhuma tarefa aberta para você.") icon="check-circle" %}{% endfor %}
+{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhuma tarefa aberta para você.") icon="tasks"|concept_icon %}{% endfor %}
 </tbody></table></div>
 {% endblock %}

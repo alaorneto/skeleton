@@ -42,7 +42,7 @@
     <label class="mb-2 block text-sm font-medium text-heading" for="logo-file">{% translate "Enviar logo (PNG, JPEG ou WebP, até 512 KB)" %}</label>
     <div class="toolbar"><input id="logo-file" type="file" name="logo" accept="image/png,image/jpeg,image/webp" required><button class="btn btn-primary btn-sm" type="submit" name="action" value="upload">{% include "skeleton/web/components/icon.html" with name="plus" %}{% translate "Enviar" %}</button></div>
   </form>
-  {% endif %}{% if has_logo and not logo_locked %}<form class="mt-3" method="post" action="{% url 'web:organization-logo-update' organization_id %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ revision }}"><button class="btn btn-secondary btn-sm" type="submit" name="action" value="remove">{% include "skeleton/web/components/icon.html" with name="trash" %}{% translate "Remover logo" %}</button></form>{% endif %}
+  {% endif %}{% if has_logo and not logo_locked %}<form class="mt-3" method="post" action="{% url 'web:organization-logo-update' organization_id %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ revision }}"><button class="btn btn-danger-outline btn-sm" type="submit" name="action" value="remove">{% include "skeleton/web/components/icon.html" with name="trash" %}{% translate "Remover logo" %}</button></form>{% endif %}
 </section>
 <section aria-labelledby="icon-heading" class="mt-8">
   <h2 id="icon-heading" class="section-heading">{% translate "Ícone" %}</h2>
@@ -54,7 +54,7 @@
     <p class="mb-2 text-sm text-body-subtle">{% translate "PNG quadrado de 512 × 512 pixels, até 256 KB. Aparece na aba do navegador e nos atalhos." %}</p>
     <div class="toolbar"><input id="icon-file" type="file" name="icon" accept="image/png" required><button class="btn btn-primary btn-sm" type="submit" name="action" value="upload">{% include "skeleton/web/components/icon.html" with name="plus" %}{% translate "Enviar" %}</button></div>
   </form>
-  {% endif %}{% if has_icon and not icon_locked %}<form class="mt-3" method="post" action="{% url 'web:organization-icon-update' organization_id %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ revision }}"><button class="btn btn-secondary btn-sm" type="submit" name="action" value="remove">{% include "skeleton/web/components/icon.html" with name="trash" %}{% translate "Remover" %}</button></form>{% endif %}
+  {% endif %}{% if has_icon and not icon_locked %}<form class="mt-3" method="post" action="{% url 'web:organization-icon-update' organization_id %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ revision }}"><button class="btn btn-danger-outline btn-sm" type="submit" name="action" value="remove">{% include "skeleton/web/components/icon.html" with name="trash" %}{% translate "Remover" %}</button></form>{% endif %}
 </section>
 </div>
 {% endblock %}

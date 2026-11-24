@@ -1,5 +1,5 @@
 {% extends "skeleton/web/platform/base.html" %}
-{% load i18n %}{% block page_title %}{% translate "Configurações travadas" %} · {{ subject.name }}{% endblock %}
+{% load i18n skeleton_format %}{% block page_title %}{% translate "Configurações travadas" %} · {{ subject.name }}{% endblock %}
 {% block content %}
 <div class="max-w-5xl">
 <div class="page-header">
@@ -16,7 +16,7 @@
   {% for row in group.rows %}<tr>
     <td><span class="cell-primary">{{ row.label }}</span><span class="cell-secondary"><code>{{ row.key }}</code></span></td>
     <td class="col-text">{{ row.current }}</td>
-    <td>{% if row.lock %}<span class="badge badge-warning">{% translate "Travada" %}</span> <span class="cell-secondary">{{ row.locked }} · {{ row.lock.reason }}</span>{% else %}—{% endif %}</td>
+    <td>{% if row.lock %}{{ "locked"|marker }} <span class="cell-secondary">{{ row.locked }} · {{ row.lock.reason }}</span>{% else %}—{% endif %}</td>
     <td class="col-actions"><div class="row-actions"><a class="btn btn-secondary btn-sm" href="?key={{ row.key|urlencode }}#lock-form">{% if row.lock %}{% translate "Mudar" %}{% else %}{% translate "Travar" %}{% endif %}<span class="sr-only"> {{ row.label }}</span></a>
       {% if row.lock %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="unlock"><input type="hidden" name="key" value="{{ row.key }}"><input type="hidden" name="expected_revision" value="{{ row.lock.revision }}"><button type="submit" class="btn btn-danger-outline btn-sm">{% translate "Destravar" %}<span class="sr-only"> {{ row.label }}</span></button></form>{% endif %}</div></td>
   </tr>{% endfor %}

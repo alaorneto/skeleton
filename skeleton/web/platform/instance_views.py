@@ -16,6 +16,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.http import require_http_methods
 
@@ -24,6 +25,7 @@ from skeleton.common.logging import security_event
 from skeleton.instance.resolve import ORIGIN_ENV, is_cluster, resolve_instance_settings
 from skeleton.instance.schema import CATALOG
 from skeleton.instance.writer import can_clear, clear_setting, write_setting
+from skeleton.web.confirm import PLATFORM_TEMPLATE, Confirmation, confirmation_step
 
 from .guards import platform_page
 
@@ -192,7 +194,23 @@ def instance_identity_update(request):
     return redirect("platform:instance")
 
 
+def _describe_restart(request):
+    return Confirmation(
+        title=gettext("Reiniciar a instância"),
+        message=gettext(
+            "A instância para por alguns segundos e as mudanças de configuração passam a valer. Quem estiver "
+            "usando perde a requisição em andamento e precisa recarregar a página."
+        ),
+        submit_label=gettext("Reiniciar agora"),
+        cancel_url=reverse("platform:instance"),
+        eyebrow=gettext("Configuração da instância"),
+        template=PLATFORM_TEMPLATE,
+        context={"platform_section": "instance"},
+    )
+
+
 @platform_page
+@confirmation_step(_describe_restart)
 @require_http_methods(["POST"])
 @recent_authentication_required
 def instance_restart(request):

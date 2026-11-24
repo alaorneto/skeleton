@@ -6,7 +6,7 @@
   <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'platform:api-clients' %}">{% translate "Clientes da API" %}</a></li><li><span aria-current="page">{{ client.first_name }}</span></li></ol></nav>
   <h1>{{ client.first_name }}</h1>
 </div>
-{% if client.is_active %}<form method="post" action="{% url 'platform:api-client-deactivate' client.pk %}">{% csrf_token %}<button type="submit" class="btn btn-danger-outline">{% translate "Desativar cliente" %}</button></form>{% endif %}
+{% if client.is_active %}<a class="btn btn-danger-outline" href="{% url 'platform:api-client-deactivate' client.pk %}">{% translate "Desativar cliente" %}</a>{% endif %}
 </div>
 {% if issued %}<div class="alert alert-warning mb-5" role="status"><div class="min-w-0"><p>{% translate "Copie o token agora: ele não será mostrado de novo." %}</p><input class="mt-2 w-full font-mono" type="text" value="{{ issued }}" readonly aria-label="{% translate "Token emitido" %}"></div></div>{% endif %}
 <div class="table-scroll mb-5"><table><thead><tr><th scope="col">{% translate "Token" %}</th><th scope="col">{% translate "Escopos" %}</th><th scope="col">{% translate "Validade" %}</th><th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>

@@ -64,7 +64,7 @@ def test_the_cluster_panel_shows_the_primary_and_the_nodes_without_internal_fiel
     agent(monkeypatch)
     html = admin.get(reverse("platform:updates")).content.decode()
     assert "Nós do cluster" in html and "node-a" in html and "node-b" in html and "época 4" in html
-    assert "sem sinal" in html  # node-b has no recent heartbeat.
+    assert "Sem sinal" in html  # node-b has no recent heartbeat.
     assert "secret.internal" not in html and "never-shown" not in html
 
 

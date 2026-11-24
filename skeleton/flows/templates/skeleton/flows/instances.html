@@ -7,7 +7,7 @@
 {% for instance in page.items %}<tr>
   <td><a class="cell-primary" href="{% url 'flows:instance' organization_id instance.sysid %}">{{ instance.label }}{% if instance.number %} {{ instance.number }}{% endif %}</a><span class="cell-secondary"><code class="uuid">{{ instance.subject_id }}</code></span></td>
   <td>{{ instance.status|status_badge:"flows" }}{% if instance.outcome %} {{ instance.outcome|status_badge }}{% endif %}</td>
-  <td>{% for step in instance.active_steps %}<span class="badge">{{ step.label }}</span> {% empty %}—{% endfor %}</td>
+  <td>{% for step in instance.active_steps %}{{ step.label }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</td>
   <td class="col-date">{{ instance.created_at|moment }}</td>
 </tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhum processo.") %}{% endfor %}
 </tbody></table></div>

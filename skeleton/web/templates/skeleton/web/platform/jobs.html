@@ -27,7 +27,7 @@
   <td class="col-date">{{ job.finished_at|moment }}</td>
   <td class="col-actions">{% if job.state == dead_state %}<form method="post" action="{% url 'platform:job-action' job.pk %}" class="row-actions">{% csrf_token %}<input type="hidden" name="expected_updated_at" value="{{ job.updated_at.isoformat }}"><button type="submit" name="action" value="resend" class="btn btn-secondary btn-sm">{% include "skeleton/web/components/icon.html" with name="refresh" %}{% translate "Reenviar" %}</button><button type="submit" name="action" value="discard" class="btn btn-danger-outline btn-sm">{% include "skeleton/web/components/icon.html" with name="trash" %}{% translate "Descartar" %}</button></form>{% endif %}</td>
 </tr>
-{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=9 message=_("Nenhum job encontrado.") icon="clock" %}{% endfor %}
+{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=9 message=_("Nenhum job encontrado.") icon="jobs"|concept_icon %}{% endfor %}
 </tbody></table></div>
 {% include "skeleton/web/pagination.html" %}
 {% endblock %}

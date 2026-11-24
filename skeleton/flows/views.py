@@ -10,12 +10,14 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods, require_POST, require_safe
 
 from skeleton.service_api import errors
 from skeleton.service_api.flows import FlowService
+from skeleton.web.confirm import Confirmation, confirmation_step
 from skeleton.web.views import tenant_page
 
 TEMPLATES = "skeleton/flows/"
@@ -533,7 +535,27 @@ def instance_detail(request, organization_id, sysid):
     )
 
 
+def _describe_instance_action(request, organization_id, sysid, action):
+    """Cancelling a process cannot be undone: it is confirmed, with the reason (#769)."""
+    if action != "cancel":
+        return None
+    instance = FlowService().instance(actor=request.user, instance_id=sysid)
+    return Confirmation(
+        title=gettext("Cancelar processo"),
+        subject=instance.label,
+        message=gettext(
+            "O processo para onde está: as tarefas abertas dele são canceladas e ele não pode ser retomado."
+        ),
+        submit_label=gettext("Cancelar processo"),
+        cancel_url=reverse("flows:instance", kwargs={"organization_id": organization_id, "sysid": sysid}),
+        hidden={"revision": instance.revision},
+        reason_label=gettext("Motivo"),
+        context={"organization_id": organization_id},
+    )
+
+
 @tenant_page()
+@confirmation_step(_describe_instance_action)
 @require_POST
 @transaction.atomic
 def instance_action(request, organization_id, sysid, action):

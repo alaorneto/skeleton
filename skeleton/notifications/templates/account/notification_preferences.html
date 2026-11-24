@@ -1,5 +1,5 @@
 {% extends "account/base_manage.html" %}
-{% load i18n %}{% block head_title %}{% translate "Notificações" %}{% endblock %}
+{% load i18n skeleton_format %}{% block head_title %}{% translate "Notificações" %}{% endblock %}
 {% block content %}
 <h1>{% translate "Notificações" %}</h1>
 <p class="mt-2 text-sm/6 text-body">{% if site_mode %}{% translate "Como você recebe cada tipo de aviso. Sem escolha própria, valem o padrão para todos os tipos e, depois, o padrão de cada tipo. Os resumos por email usam o seu fuso horário; o semanal sai às segundas-feiras." %}{% else %}{% translate "Como você recebe cada tipo de aviso, em todas as organizações. Sem escolha própria, valem o padrão para todos os tipos e, depois, o padrão de cada tipo. Os resumos por email usam o seu fuso horário; o semanal sai às segundas-feiras." %}{% endif %}</p>
@@ -8,7 +8,7 @@
 {% csrf_token %}
 <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Tipo" %}</th>{% for channel, label in channel_labels.items %}<th scope="col">{{ label }}</th>{% endfor %}</tr></thead><tbody>
 {% for row in rows %}<tr>
-  <th scope="row" class="font-normal"><span class="cell-primary">{{ row.label }}</span>{% if row.mandatory %} <span class="badge">{% translate "Obrigatório" %}</span>{% endif %}<span class="cell-secondary"><code>{{ row.type_code }}</code></span></th>
+  <th scope="row" class="font-normal"><span class="cell-primary">{{ row.label }}</span>{% if row.mandatory %} {{ "mandatory"|marker }}{% endif %}<span class="cell-secondary"><code>{{ row.type_code }}</code></span></th>
   {% for cell in row.cells %}<td>
     <label class="sr-only" for="{{ cell.mode_name }}">{{ row.label }}: {{ cell.channel }}</label>
     <select id="{{ cell.mode_name }}" name="{{ cell.mode_name }}"{% if cell.locked %} disabled{% endif %}>

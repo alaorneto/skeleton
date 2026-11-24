@@ -67,7 +67,8 @@ class SettingsItem:
     ``custom_domains`` (the feature on and the administrator), ``billing`` (billing on and
     ``billing.view``), ``audit`` (the administrator or the ``audit`` action on some table),
     ``member`` (any member) or ``access:<section>`` (a section of ``ACCESS_SECTIONS`` the person
-    sees). ``routes`` are the view names that mark the entry as the current one.
+    sees). ``routes`` are the view names that mark the entry as the current one. ``icon`` is a
+    concept of ``skeleton.web.icons.CONCEPT_ICONS``, never an icon name (#768).
     """
 
     url_name: str
@@ -87,14 +88,14 @@ SETTINGS_GROUPS: tuple[tuple[str, Any, tuple[SettingsItem, ...]], ...] = (
             SettingsItem(
                 "web:organization-settings",
                 gettext_lazy("Geral"),
-                "building",
+                "organization",
                 "organization_admin",
                 ("web:organization-settings", "web:organization-logo-update", "web:organization-icon-update"),
             ),
             SettingsItem(
                 "web:site-domains",
                 gettext_lazy("Domínios próprios"),
-                "globe",
+                "site_domains",
                 "custom_domains",
                 ("web:site-domains", "web:site-domain-action"),
             ),
@@ -102,7 +103,7 @@ SETTINGS_GROUPS: tuple[tuple[str, Any, tuple[SettingsItem, ...]], ...] = (
             SettingsItem(
                 "web:organization-page-public",
                 gettext_lazy("Página pública"),
-                "document",
+                "public_page",
                 "organization_admin",
                 editor_route_names("organization-page-public", "web"),
             ),
@@ -120,15 +121,15 @@ SETTINGS_GROUPS: tuple[tuple[str, Any, tuple[SettingsItem, ...]], ...] = (
         "people",
         gettext_lazy("Pessoas e acesso"),
         (
-            SettingsItem("web:access-list", gettext_lazy("Pessoas"), "users", "access:people"),
-            SettingsItem("web:access-list", gettext_lazy("Grupos"), "user-group", "access:groups"),
-            SettingsItem("web:access-list", gettext_lazy("Papéis e permissões"), "key", "access:roles"),
+            SettingsItem("web:access-list", gettext_lazy("Pessoas"), "people", "access:people"),
+            SettingsItem("web:access-list", gettext_lazy("Grupos"), "groups", "access:groups"),
+            SettingsItem("web:access-list", gettext_lazy("Papéis e permissões"), "roles", "access:roles"),
             # Who must enrol MFA here (#740).
-            SettingsItem("web:organization-security", gettext_lazy("Segurança"), "shield", "organization_admin"),
+            SettingsItem("web:organization-security", gettext_lazy("Segurança"), "security", "organization_admin"),
             SettingsItem(
                 "web:external",
                 gettext_lazy("Pessoas externas"),
-                "users",
+                "external_people",
                 "external.manage",
                 ("web:external", "web:external-access-revoke", "web:external-invitation-revoke"),
             ),
@@ -141,29 +142,29 @@ SETTINGS_GROUPS: tuple[tuple[str, Any, tuple[SettingsItem, ...]], ...] = (
             SettingsItem(
                 "web:join-requests",
                 gettext_lazy("Solicitações"),
-                "envelope",
+                "join_requests",
                 "admission.decide",
                 ("web:join-requests", "web:join-request-decide"),
             ),
             SettingsItem(
                 "web:join-links",
                 gettext_lazy("Links de ingresso"),
-                "link",
+                "join_links",
                 "invitations.manage",
                 ("web:join-links", "web:join-link-revoke"),
             ),
-            SettingsItem("web:admission", gettext_lazy("Admissão"), "badge-check", "admission.configure"),
+            SettingsItem("web:admission", gettext_lazy("Admissão"), "admission", "admission.configure"),
             SettingsItem(
                 "web:verified-domains",
                 gettext_lazy("Domínios verificados"),
-                "globe",
+                "email_domains",
                 "admission.configure",
                 ("web:verified-domains", "web:verified-domain-action"),
             ),
             SettingsItem(
                 "web:identity",
                 gettext_lazy("Identidade"),
-                "shield",
+                "identity",
                 "identity.configure",
                 ("web:identity", "web:identity-admission"),
             ),
@@ -176,14 +177,14 @@ SETTINGS_GROUPS: tuple[tuple[str, Any, tuple[SettingsItem, ...]], ...] = (
             SettingsItem(
                 "application-list",
                 gettext_lazy("Aplicativos"),
-                "cube",
+                "apps",
                 "apps.manage",
                 ("application-list", "application-admin", "application-admin-screen", "application-configuration"),
             ),
             SettingsItem(
                 "integrations:webhooks",
                 gettext_lazy("Webhooks"),
-                "link",
+                "webhooks",
                 "integrations.manage",
                 (
                     "integrations:webhooks",
@@ -199,7 +200,7 @@ SETTINGS_GROUPS: tuple[tuple[str, Any, tuple[SettingsItem, ...]], ...] = (
             SettingsItem(
                 "integrations:service-accounts",
                 gettext_lazy("Contas de serviço"),
-                "key",
+                "service_accounts",
                 "integrations.manage",
                 (
                     "integrations:service-accounts",
@@ -211,7 +212,7 @@ SETTINGS_GROUPS: tuple[tuple[str, Any, tuple[SettingsItem, ...]], ...] = (
             SettingsItem(
                 "flows:operations",
                 gettext_lazy("Fluxos"),
-                "refresh",
+                "flows",
                 "flows.manage",
                 ("flows:operations", "flows:drafts", "flows:draft"),
             ),
@@ -221,8 +222,8 @@ SETTINGS_GROUPS: tuple[tuple[str, Any, tuple[SettingsItem, ...]], ...] = (
         "data",
         gettext_lazy("Dados"),
         (
-            SettingsItem("web:catalog", gettext_lazy("Tabelas"), "table", "member"),
-            SettingsItem("web:audit", gettext_lazy("Auditoria"), "clock", "audit"),
+            SettingsItem("web:catalog", gettext_lazy("Tabelas"), "tables", "member"),
+            SettingsItem("web:audit", gettext_lazy("Auditoria"), "audit", "audit"),
         ),
     ),
     (
@@ -232,7 +233,7 @@ SETTINGS_GROUPS: tuple[tuple[str, Any, tuple[SettingsItem, ...]], ...] = (
             SettingsItem(
                 "billing-overview",
                 gettext_lazy("Cobrança"),
-                "document",
+                "billing",
                 "billing",
                 ("billing-overview", "billing-action", "billing-pay"),
             ),

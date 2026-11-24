@@ -9,7 +9,7 @@
     </div>
     <form method="post" action="{% url 'platform:updates-available' %}">{% csrf_token %}<button type="submit" class="btn btn-primary">{% include "skeleton/web/components/icon.html" with name="refresh" %}{% translate "Verificar agora" %}</button></form>
   </div>
-  {% if loaded %}<ul class="mt-4 flex flex-wrap gap-2">{% for source in sources %}<li class="badge {% if source.state == 'available' %}badge-success{% else %}badge-warning{% endif %} badge-dot">{{ source.id }}: {{ source.state }}{% if source.error %} — {{ source.error }}{% elif source.error_code %} — {{ source.error_code }}{% endif %}</li>{% empty %}<li class="text-sm text-body-subtle">{% translate "Nenhuma fonte consultada ainda." %} <a href="{% url 'platform:updates-sources' %}">{% translate "Cadastre ou confira as fontes" %}</a>.</li>{% endfor %}</ul>{% endif %}
+  {% if loaded %}<ul class="mt-4 flex flex-wrap gap-2">{% for source in sources %}<li class="flex flex-wrap items-center gap-2 text-sm"><span class="font-medium text-heading">{{ source.id }}</span>{{ source.state|status_badge:"sources" }}{% if source.error %}<span class="text-body-subtle">{{ source.error }}</span>{% elif source.error_code %}<code>{{ source.error_code }}</code>{% endif %}</li>{% empty %}<li class="text-sm text-body-subtle">{% translate "Nenhuma fonte consultada ainda." %} <a href="{% url 'platform:updates-sources' %}">{% translate "Cadastre ou confira as fontes" %}</a>.</li>{% endfor %}</ul>{% endif %}
 </section>
 {% if loaded %}
 <section class="mt-6" aria-labelledby="available-path">
@@ -20,7 +20,7 @@
 <details class="mt-6">
   <summary class="section-heading">{% translate "Todas as versões publicadas" %}</summary>
   <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Componente" %}</th><th scope="col">{% translate "Versão" %}</th><th scope="col">{% translate "Situação" %}</th><th scope="col">{% translate "Notas" %}</th><th scope="col">{% translate "Ação" %}</th></tr></thead><tbody>
-  {% for release in releases %}<tr><td class="font-medium text-heading">{{ release.component_id }}</td><td>{{ release.version }}</td><td><span class="badge {% if release.state == 'available' %}badge-brand{% endif %}">{{ release.state }}</span></td><td>{{ release.notes }}</td><td>{% if release.state == 'available' %}<form method="post" action="{% url 'platform:updates-fetch' %}">{% csrf_token %}<input type="hidden" name="component_id" value="{{ release.component_id }}"><input type="hidden" name="version" value="{{ release.version }}"><input type="hidden" name="source_id" value="{{ release.source_id }}"><button type="submit" class="btn btn-secondary btn-sm">{% translate "Preparar plano" %}</button></form>{% endif %}</td></tr>
+  {% for release in releases %}<tr><td class="font-medium text-heading">{{ release.component_id }}</td><td>{{ release.version }}</td><td>{{ release.state|status_badge:"releases" }}</td><td>{{ release.notes }}</td><td>{% if release.state == 'available' %}<form method="post" action="{% url 'platform:updates-fetch' %}">{% csrf_token %}<input type="hidden" name="component_id" value="{{ release.component_id }}"><input type="hidden" name="version" value="{{ release.version }}"><input type="hidden" name="source_id" value="{{ release.source_id }}"><button type="submit" class="btn btn-secondary btn-sm">{% translate "Preparar plano" %}</button></form>{% endif %}</td></tr>
   {% empty %}<tr><td colspan="5" class="empty-state">{% translate "Nenhuma versão candidata nas fontes consultadas." %}</td></tr>{% endfor %}
   </tbody></table></div>
 </details>

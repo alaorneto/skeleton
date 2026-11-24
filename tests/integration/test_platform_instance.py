@@ -189,3 +189,22 @@ def test_an_invalid_cache_prefix_is_refused_with_400_without_repeating_it(store,
     assert "cache_key_prefix" not in store.settings()
     assert change(client, "cache_key_prefix", "inst-a").status_code == 302
     assert store.settings()["cache_key_prefix"][0] == "inst-a"
+
+
+def test_restart_is_confirmed_first(store, platform, monkeypatch):
+    """The page links to a confirmation; only its POST asks for the restart (#769)."""
+    from skeleton.setup import restart
+
+    calls = []
+    monkeypatch.setattr(restart, "request_restart", lambda: calls.append("restart") or "manual")
+    _, client = platform
+    page = client.get(reverse("platform:instance")).content.decode()
+    assert f'href="{reverse("platform:instance-restart")}"' in page
+    confirmation = client.get(reverse("platform:instance-restart"))
+    html = confirmation.content.decode()
+    assert confirmation.status_code == 200 and calls == []
+    assert '<button type="submit" class="btn btn-danger">Reiniciar agora</button>' in html
+    response = client.post(
+        reverse("platform:instance-restart"), {"csrfmiddlewaretoken": client.cookies["csrftoken"].value}
+    )
+    assert response.status_code == 302 and calls == ["restart"]

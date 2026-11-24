@@ -27,6 +27,7 @@ from skeleton.accounts.reauthentication import recent_authentication_required
 from skeleton.billing import platform as operations
 from skeleton.common import money
 from skeleton.common.exceptions import ConcurrentUpdate
+from skeleton.web.confirm import PLATFORM_TEMPLATE, Confirmation, confirmation_step
 
 from .guards import platform_page
 
@@ -309,7 +310,35 @@ def organization_billing(request, sysid):
     return _organization_page(request, _organization(sysid))
 
 
+def _describe_invoice_action(request, sysid, action):
+    """Voiding an invoice or marking it paid by hand is confirmed, with the reason (#769)."""
+    if action not in ("void", "paid"):
+        return None
+    organization = _organization(sysid)
+    invoices = operations.account_snapshot(request.user, organization.pk).get("invoices") or ()
+    invoice = next((row for row in invoices if str(row.pk) == request.GET.get("invoice", "")), None)
+    if invoice is None:
+        raise Http404
+    void = action == "void"
+    return Confirmation(
+        title=gettext("Anular fatura") if void else gettext("Dar baixa manual"),
+        subject=f"{organization.name} · {invoice.number}",
+        message=gettext("A fatura deixa de ser cobrada e não pode voltar a ficar em aberto.")
+        if void
+        else gettext("A fatura passa a constar como paga, sem pagamento pelo provedor. Não há como desfazer."),
+        submit_label=gettext("Anular fatura") if void else gettext("Dar baixa"),
+        cancel_url=reverse("platform:organization-billing", kwargs={"sysid": organization.pk}),
+        eyebrow=gettext("Cobrança da organização"),
+        hidden={"invoice": invoice.pk},
+        reason_label=gettext("Motivo"),
+        reason_required=True,
+        template=PLATFORM_TEMPLATE,
+        context={"platform_section": "organizations"},
+    )
+
+
 @platform_page
+@confirmation_step(_describe_invoice_action)
 @require_POST
 def organization_billing_action(request, sysid, action):
     from skeleton.billing.models import Price

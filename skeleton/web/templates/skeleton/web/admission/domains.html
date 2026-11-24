@@ -17,7 +17,7 @@
 <td class="col-actions"><form method="post" action="{% url 'web:verified-domain-action' organization_id item.pk %}" class="row-actions">{% csrf_token %}<input type="hidden" name="revision" value="{{ item.revision }}">
 <button type="submit" name="action" value="verify" class="btn btn-secondary btn-sm">Verificar<span class="sr-only"> {{ item.domain }}</span></button>
 <button type="submit" name="action" value="revoke" class="btn btn-danger-outline btn-sm">Remover<span class="sr-only"> {{ item.domain }}</span></button></form></td>
-</tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=5 message="Nenhum domínio cadastrado." icon="globe" %}{% endfor %}
+</tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=5 message="Nenhum domínio cadastrado." icon="email_domains"|concept_icon %}{% endfor %}
 </tbody></table></div>
 <section aria-labelledby="domains-new"><h2 id="domains-new" class="section-heading">Novo domínio</h2>
 <form method="post" class="card">{% csrf_token %}

@@ -1,9 +1,9 @@
 {% extends "skeleton/web/platform/base.html" %}
-{% load i18n %}{% block page_title %}{% translate "Configuração da instância" %}{% endblock %}
+{% load i18n skeleton_format %}{% block page_title %}{% translate "Configuração da instância" %}{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0"><h1>{% translate "Configuração da instância" %}</h1>
 <p class="page-description">{% translate "Chaves do catálogo e a origem de cada valor: o ambiente vence o SQLite da instância, que vence o padrão. Chaves que vêm do ambiente ficam somente leitura. Segredos nunca são exibidos. As mudanças valem depois do reinício." %}</p></div>
-{% if not cluster %}<form method="post" action="{% url 'platform:instance-restart' %}">{% csrf_token %}<button type="submit" class="btn btn-secondary">{% translate "Pedir reinício" %}</button></form>{% endif %}</div>
+{% if not cluster %}<a class="btn btn-secondary" href="{% url 'platform:instance-restart' %}">{% translate "Pedir reinício" %}</a>{% endif %}</div>
 {% if cluster %}<div class="alert mb-4" role="status">{% include "skeleton/web/components/icon.html" with name="info" %}<div class="min-w-0">{% translate "Configuração gerida pelo ambiente (modo cluster): os mesmos valores valem em todos os nós. Mude o arquivo de ambiente ou o cofre de segredos e reinicie os nós." %}</div></div>{% endif %}
 <section class="card mb-5" aria-labelledby="instance-identity">
   <h2 id="instance-identity">{% translate "Identidade" %}</h2>
@@ -19,7 +19,7 @@
 <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Chave" %}</th><th scope="col">{% translate "Origem" %}</th><th scope="col">{% translate "Valor" %}</th><th scope="col">{% translate "Alterar" %}</th></tr></thead><tbody>
 {% for row in rows %}<tr>
   <th scope="row" class="font-normal"><span class="cell-primary">{{ row.key }}</span><span class="cell-secondary"><code>{{ row.env }}</code></span><span class="cell-secondary">{{ row.description }}</span></th>
-  <td>{% if row.origin == "env" %}<span class="badge badge-warning">{% translate "ambiente" %}</span>{% elif row.origin == "instance" %}<span class="badge badge-brand">{% translate "SQLite da instância" %}</span>{% else %}<span class="badge">{% translate "padrão" %}</span>{% endif %}</td>
+  <td>{{ row.origin|code_label:"setting_origin" }}{% if row.origin == "env" %}<span class="cell-secondary">{{ "read_only"|marker }}</span>{% endif %}</td>
   <td>{% if row.secret %}{% if row.value %}<span aria-label="{% translate "Segredo definido" %}">{{ row.value }}</span>{% else %}<span class="text-body-subtle">{% translate "não definido" %}</span>{% endif %}{% else %}<code>{{ row.value|default:"—" }}</code>{% endif %}</td>
   <td>{% if row.editable %}<form method="post" action="{% url 'platform:instance-setting' %}" class="flex flex-wrap items-center gap-2">{% csrf_token %}<input type="hidden" name="key" value="{{ row.key }}">
     <label class="sr-only" for="value-{{ row.key }}">{% translate "Novo valor de" %} {{ row.key }}</label>

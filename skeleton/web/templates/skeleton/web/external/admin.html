@@ -12,7 +12,7 @@
 <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Salvar" %}</button></div></form></section>
 <section class="mb-8" aria-labelledby="accesses-heading"><h2 id="accesses-heading" class="section-heading">{% translate "Acessos" %}</h2>
 <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Pessoa" %}</th><th scope="col">{% translate "App" %}</th><th scope="col">{% translate "Situação" %}</th><th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
-{% for access in accesses %}<tr><td><span class="cell-primary">{{ access.display_name|default:access.user_id }}</span></td><td><code>{{ access.app_label }}</code></td><td>{% if access.is_active %}{% translate "Ativo" %}{% else %}<span class="badge badge-neutral">{% translate "Revogado" %}</span>{% endif %}</td>
+{% for access in accesses %}<tr><td><span class="cell-primary">{{ access.display_name|default:access.user_id }}</span></td><td><code>{{ access.app_label }}</code></td><td>{% if access.is_active %}{{ "active"|status_badge }}{% else %}{{ "revoked"|status_badge }}{% endif %}</td>
 <td class="col-actions">{% if access.is_active %}<form method="post" action="{% url 'web:external-access-revoke' organization_id access.sysid %}" class="row-actions">{% csrf_token %}<input type="hidden" name="revision" value="{{ access.revision }}"><button type="submit" class="btn btn-danger-outline btn-sm">{% translate "Revogar" %}</button></form>{% endif %}</td></tr>
 {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhuma pessoa externa.") %}{% endfor %}
 </tbody></table></div></section>

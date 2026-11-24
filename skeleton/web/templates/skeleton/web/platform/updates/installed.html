@@ -1,5 +1,5 @@
 {% extends "skeleton/web/platform/updates/base.html" %}
-{% load i18n %}{% block step_title %}{% translate "Versões instaladas" %}{% endblock %}
+{% load i18n skeleton_format %}{% block step_title %}{% translate "Versões instaladas" %}{% endblock %}
 {% block step %}
 {% if inventory.error %}<div class="message error mb-5" role="alert">{% include "skeleton/web/components/icon.html" with name="error" %}<div class="min-w-0"><strong>{% translate "Divergência operacional:" %}</strong> {{ inventory.error }}. {% translate "O inventário não comprova um deployment coerente." %}</div></div>{% endif %}
 <div class="grid gap-5 lg:grid-cols-3">
@@ -19,7 +19,7 @@
   <section class="min-w-0 lg:col-span-2" aria-labelledby="installed-apps">
     <h2 id="installed-apps" class="section-heading">{% translate "Apps gerenciadas pelo agente" %}</h2>
     <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "App" %}</th><th scope="col">{% translate "Versão" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col">{% translate "Digest" %}</th></tr></thead><tbody>
-    {% for entry in inventory.apps %}<tr><td class="font-medium text-heading">{{ entry.manifest.app_id }}</td><td>{{ entry.manifest.version }}</td><td><span class="badge">{{ entry.state }}</span></td><td><code class="uuid">{{ entry.digest }}</code></td></tr>
+    {% for entry in inventory.apps %}<tr><td class="font-medium text-heading">{{ entry.manifest.app_id }}</td><td>{{ entry.manifest.version }}</td><td>{{ entry.state|status_badge:"components" }}</td><td><code class="uuid">{{ entry.digest }}</code></td></tr>
     {% empty %}<tr><td colspan="4" class="empty-state">{% translate "Nenhuma app gerenciada." %}</td></tr>{% endfor %}
     </tbody></table></div>
   </section>
@@ -27,25 +27,25 @@
 {% if cluster.mode == "cluster" %}<section class="mt-8" aria-labelledby="installed-cluster">
   <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
     <h2 id="installed-cluster" class="section-heading">{% translate "Nós do cluster" %}</h2>
-    <form method="post" action="{% url 'platform:updates-cluster-restart' %}">{% csrf_token %}<button type="submit" class="btn btn-secondary btn-sm"{% if not cluster.primary %} disabled{% endif %}>{% include "skeleton/web/components/icon.html" with name="refresh" %}{% translate "Reiniciar os nós em rolagem" %}</button></form>
+    {% if cluster.primary %}<a class="btn btn-secondary btn-sm" href="{% url 'platform:updates-cluster-restart' %}">{% include "skeleton/web/components/icon.html" with name="refresh" %}{% translate "Reiniciar os nós em rolagem" %}</a>{% else %}<button type="button" class="btn btn-secondary btn-sm" disabled>{% include "skeleton/web/components/icon.html" with name="refresh" %}{% translate "Reiniciar os nós em rolagem" %}</button>{% endif %}
   </div>
   {% if cluster.primary %}<p class="mb-3 text-sm/6">{% blocktranslate trimmed with node=cluster.primary.node_id epoch=cluster.primary.epoch %}Agente primário: <strong>{{ node }}</strong> (época {{ epoch }}).{% endblocktranslate %}</p>{% else %}<div class="message warning mb-3" role="status">{% include "skeleton/web/components/icon.html" with name="warning" %}<div class="min-w-0">{% translate "Nenhum agente primário ativo: atualizações e instalação de apps ficam suspensas até um candidato assumir. O site continua no ar." %}</div></div>{% endif %}
   {% if cluster.agent_versions_differ %}<div class="message warning mb-3" role="status">{% include "skeleton/web/components/icon.html" with name="warning" %}<div class="min-w-0">{% translate "Os agentes dos nós estão em versões diferentes: nenhuma atualização começa até todos estarem na mesma versão." %}</div></div>{% endif %}
   {% if cluster.problem %}<div class="message warning mb-3" role="status">{% include "skeleton/web/components/icon.html" with name="warning" %}<div class="min-w-0">{{ cluster.problem }}</div></div>{% endif %}
   <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Nó" %}</th><th scope="col">{% translate "Papel" %}</th><th scope="col">{% translate "Release" %}</th><th scope="col">{% translate "Agente" %}</th><th scope="col">{% translate "Fase" %}</th><th scope="col">{% translate "Estado" %}</th></tr></thead><tbody>
-  {% for node in cluster.nodes %}<tr><td class="font-medium text-heading">{{ node.node_id }}{% if cluster.primary and node.node_id == cluster.primary.node_id %} <span class="badge badge-brand">{% translate "primário" %}</span>{% endif %}</td><td>{% if node.role == "candidate" %}{% translate "candidato" %}{% else %}{% translate "seguidor" %}{% endif %}</td><td><code>{{ node.release|default:"—" }}</code></td><td>{{ node.agent_version|default:"—" }}</td><td>{{ node.phase|default:"—" }}</td><td>{% if node.alive %}<span class="badge">{% translate "vivo" %}</span>{% else %}<span class="badge badge-warning">{% translate "sem sinal" %}</span>{% endif %}</td></tr>
+  {% for node in cluster.nodes %}<tr><td class="font-medium text-heading">{{ node.node_id }}{% if cluster.primary and node.node_id == cluster.primary.node_id %} {{ "primary"|marker }}{% endif %}</td><td>{% if node.role == "candidate" %}{% translate "candidato" %}{% else %}{% translate "seguidor" %}{% endif %}</td><td><code>{{ node.release|default:"—" }}</code></td><td>{{ node.agent_version|default:"—" }}</td><td>{{ node.phase|default:"—" }}</td><td>{% if node.alive %}{{ "alive"|status_badge }}{% else %}{{ "no_signal"|status_badge }}{% endif %}</td></tr>
   {% empty %}<tr><td colspan="6" class="empty-state">{% translate "Nenhum nó registrado." %}</td></tr>{% endfor %}
   </tbody></table></div>
 </section>{% endif %}
 <section class="mt-8" aria-labelledby="installed-components">
   <h2 id="installed-components" class="section-heading">{% translate "Inventário confirmado no banco" %}</h2>
   <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Componente" %}</th><th scope="col">{% translate "Versão" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col">{% translate "Geração" %}</th></tr></thead><tbody>
-  {% for component in components %}<tr><td class="font-medium text-heading">{{ component.component_id }}</td><td>{{ component.version }}</td><td><span class="badge">{{ component.get_state_display }}</span></td><td>{{ component.generation }}</td></tr>
+  {% for component in components %}<tr><td class="font-medium text-heading">{{ component.component_id }}</td><td>{{ component.version }}</td><td>{{ component.state|status_badge:"components" }}</td><td>{{ component.generation }}</td></tr>
   {% empty %}<tr><td colspan="4" class="empty-state">{% translate "Nenhum componente confirmado." %}</td></tr>{% endfor %}
   </tbody></table></div>
 </section>
 <div class="mt-8 flex flex-wrap gap-3">
   <a class="btn btn-primary" href="{% url 'platform:updates-available' %}">{% translate "Procurar novas versões" %}{% include "skeleton/web/components/icon.html" with name="arrow-right" %}</a>
-  <a class="btn btn-secondary" href="{% url 'platform:updates-upload' %}">{% include "skeleton/web/components/icon.html" with name="archive" %}{% translate "Enviar pacote" %}</a>
+  <a class="btn btn-secondary" href="{% url 'platform:updates-upload' %}">{% include "skeleton/web/components/icon.html" with name="arrow-up-tray" %}{% translate "Enviar pacote" %}</a>
 </div>
 {% endblock %}

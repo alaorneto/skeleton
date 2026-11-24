@@ -1,9 +1,9 @@
 {% extends 'skeleton/web/base.html' %}
-{% load i18n %}{% block title %}{{ heading }} · {{ site_name }}{% endblock %}
+{% load i18n skeleton_format %}{% block title %}{{ heading }} · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="page-header">
   <div class="min-w-0"><p class="page-eyebrow">{% translate "App de exemplo" %}</p><h1>{{ heading }}</h1><p class="page-description">{% translate "Anotações protegidas por organização, dono, visibilidade e grupo." %}</p></div>
-  {% if can_manage_applications %}<div class="toolbar"><a class="btn btn-secondary" href="{% url 'application-configuration' organization_id 'example_notes' %}">{% include "skeleton/web/components/icon.html" with name="settings" %}{% translate "Administrar esta app" %}</a></div>{% endif %}
+  {% if can_manage_applications %}<div class="toolbar"><a class="btn btn-secondary" href="{% url 'application-configuration' organization_id 'example_notes' %}">{% include "skeleton/web/components/icon.html" with name="configuration"|concept_icon %}{% translate "Administrar esta app" %}</a></div>{% endif %}
 </div>
 <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
   <section class="card flex flex-col">

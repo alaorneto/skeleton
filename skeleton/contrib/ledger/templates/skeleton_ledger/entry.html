@@ -20,7 +20,7 @@
     <input type="hidden" name="revision" value="{{ entry.revision }}">
     <div class="field"><label for="reverse-date">{% translate "Data do estorno" %}</label><input id="reverse-date" type="date" name="date" value="{{ today|date:'Y-m-d' }}"></div>
     <div class="field"><label for="reverse-reason">{% translate "Motivo" %}</label><input id="reverse-reason" name="reason" maxlength="300"></div>
-    <div><button type="submit" class="btn btn-secondary">{% translate "Estornar lançamento" %}</button></div>
+    <div><button type="submit" class="btn btn-danger-outline">{% translate "Estornar lançamento" %}</button></div>
   </form></section>
 {% endif %}
 {% endblock %}

@@ -10,7 +10,7 @@
 {% if signup_enabled %}<p class="mb-4 text-sm">{% if by_signup %}<a href="{% url 'platform:organizations' %}">{% translate "Todas as organizações" %}</a>{% else %}<a href="?signup=1">{% translate "Criadas por cadastro" %}</a>{% endif %}</p>{% endif %}
 <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Nome" %}</th><th scope="col">{% translate "Situação" %}</th><th scope="col" class="col-date">{% translate "Criada em" %}</th></tr></thead><tbody>
 {% for organization in rows %}<tr><td><a class="cell-primary" href="{% url 'platform:organization' organization.pk %}">{{ organization.name }}</a><span class="cell-secondary"><code class="uuid">{{ organization.slug }}</code></span></td><td>{% if organization.is_active %}{{ "active"|status_badge:_("Ativa") }}{% else %}{{ "inactive"|status_badge:_("Inativa") }}{% endif %}</td><td class="col-date">{{ organization.created_at|moment }}</td></tr>
-{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=3 message=_("Nenhuma organização encontrada.") icon="building" %}{% endfor %}
+{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=3 message=_("Nenhuma organização encontrada.") icon="organization"|concept_icon %}{% endfor %}
 </tbody></table></div>
 {% include "skeleton/web/pagination.html" %}
 {% endblock %}

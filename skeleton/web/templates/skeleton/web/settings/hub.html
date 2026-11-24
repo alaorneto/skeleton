@@ -1,5 +1,5 @@
 {% extends "skeleton/web/base.html" %}
-{% load i18n %}{% block title %}{{ title }} · {{ site_name }}{% endblock %}
+{% load i18n skeleton_format %}{% block title %}{{ title }} · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="page-header">
   <div class="min-w-0">
@@ -13,7 +13,7 @@
   <section aria-labelledby="settings-{{ group.id }}">
     <h2 id="settings-{{ group.id }}" class="section-heading">{{ group.label }}</h2>
     <ul class="cards grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-      {% for item in group.items %}<li><a class="link-card" href="{{ item.url }}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name=item.icon %}</span><span class="min-w-0"><span class="link-card-title">{{ item.label }}</span></span></a></li>{% endfor %}
+      {% for item in group.items %}<li><a class="link-card" href="{{ item.url }}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name=item.icon|concept_icon %}</span><span class="min-w-0"><span class="link-card-title">{{ item.label }}</span></span></a></li>{% endfor %}
     </ul>
   </section>
   {% endfor %}

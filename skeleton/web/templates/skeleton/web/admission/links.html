@@ -16,7 +16,7 @@
 <td class="col-num">{{ link.use_count }} de {{ link.max_uses }}</td>
 <td class="col-date">{% if link.expires_at <= now %}{{ "expired"|status_badge }}{% else %}{{ link.expires_at|moment }}{% endif %}</td>
 <td class="col-actions"><form method="post" action="{% url 'web:join-link-revoke' organization_id link.pk %}" class="row-actions">{% csrf_token %}<input type="hidden" name="revision" value="{{ link.revision }}"><button type="submit" class="btn btn-danger-outline btn-sm">Revogar<span class="sr-only"> {{ link.label }}</span></button></form></td></tr>
-{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=6 message="Nenhum link ativo." icon="link" %}{% endfor %}
+{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=6 message="Nenhum link ativo." icon="join_links"|concept_icon %}{% endfor %}
 </tbody></table></div>
 {% if enabled %}<section aria-labelledby="links-new"><h2 id="links-new" class="section-heading">Novo link</h2>
 <form method="post" class="card">{% csrf_token %}

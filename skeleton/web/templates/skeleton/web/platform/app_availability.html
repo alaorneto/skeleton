@@ -60,7 +60,7 @@
           {% csrf_token %}<input type="hidden" name="organization" value="{{ grant.organization_id }}"><input type="hidden" name="expected_revision" value="{{ grant.revision }}">
           <button type="submit" class="btn btn-danger-outline btn-sm">Revogar<span class="sr-only"> {{ grant.name }}</span></button>
         </form>{% endif %}</td>
-    </tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=3 message="Nenhuma organização concedida." icon="building" %}{% endfor %}
+    </tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=3 message="Nenhuma organização concedida." icon="organization"|concept_icon %}{% endfor %}
     </tbody></table></div>
     <form method="post" action="{% url 'platform:app-grant' application.app_label %}" class="mt-5">
       {% csrf_token %}

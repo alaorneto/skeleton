@@ -21,8 +21,8 @@
     <td>{% for name, amount in item.sources %}<span class="block text-sm">{{ name }}: +{{ amount }}</span>{% empty %}—{% endfor %}</td>
     <td>{% if row.override %}{% if row.override.mode == "fixed" %}{% translate "Fixo" %}: {% if row.override.value is None %}{% translate "ilimitado" %}{% else %}{{ row.override.value }}{% endif %}{% else %}{% translate "Bônus" %}: +{{ row.override.value }}{% endif %}
       <span class="cell-secondary">{{ row.override.reason }}{% if row.override.expires_at %} · {% if row.expired %}{% translate "vencido em" %}{% else %}{% translate "até" %}{% endif %} {{ row.override.expires_at|moment }}{% endif %}</span>{% else %}—{% endif %}</td>
-    <td>{% if status.limit is None %}{% translate "Ilimitado" %}{% else %}{{ status.limit }}{% endif %}{% if status.fixed %} <span class="badge">{% translate "fixo" %}</span>{% endif %}</td>
-    <td>{{ status.used }}{% if status.over_limit %} <span class="badge badge-warning">{% translate "acima do limite" %}</span>{% endif %}</td>
+    <td>{% if status.limit is None %}{% translate "Ilimitado" %}{% else %}{{ status.limit }}{% endif %}{% if status.fixed %} {{ "fixed"|marker }}{% endif %}</td>
+    <td>{{ status.used }}{% if status.over_limit %} {{ "over_limit"|status_badge }}{% endif %}</td>
     <td class="col-actions"><a class="btn btn-secondary btn-sm" href="?metric={{ status.metric|urlencode }}#limits-adjust">{% translate "Ajustar" %}<span class="sr-only"> {{ row.label }}</span></a>{% if row.override %}
       <form method="post" class="row-actions">{% csrf_token %}<input type="hidden" name="action" value="remove"><input type="hidden" name="metric" value="{{ status.metric }}"><input type="hidden" name="expected_revision" value="{{ row.override.revision }}">
         <button type="submit" class="btn btn-danger-outline btn-sm">{% translate "Remover ajuste" %}<span class="sr-only"> {{ row.label }}</span></button></form>{% endif %}</td>

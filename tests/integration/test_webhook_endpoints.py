@@ -307,3 +307,26 @@ def test_api_change_and_removal_require_recent_authentication(webhooks):
     changed = api(fresh, "patch", url, {"name": "Changed"}, revision=created["revision"])
     assert changed.status_code == 200 and changed.json()["name"] == "Changed"
     assert api(fresh, "delete", url, revision=changed.json()["revision"]).status_code == 204
+
+
+def test_removal_and_rotation_are_confirmed_first(webhooks):
+    """A GET shows the consequence and a red button and changes nothing; the POST stays as it was (#769)."""
+    fixture, principal, _ = webhooks
+    client = login(fixture.admin)
+    created = api(client, "post", collection(fixture.a), payload(principal)).json()
+    for name, label in (
+        ("integrations:webhook-delete", "Remover webhook"),
+        ("integrations:webhook-rotate", "Rotacionar segredo"),
+    ):
+        url = reverse(name, kwargs={"organization_id": fixture.a.pk, "sysid": created["sysid"]})
+        response = client.get(url)
+        html = response.content.decode()
+        assert response.status_code == 200, name
+        assert '<button type="submit" class="btn btn-danger">' in html and label in html, name
+        assert f'<input type="hidden" name="revision" value="{created["revision"]}">' in html, name
+        # Default deny and A/B: a member without the capability and another organization's admin.
+        assert login(fixture.alice).get(url).status_code == 404, name
+        foreign = reverse(name, kwargs={"organization_id": fixture.b.pk, "sysid": created["sysid"]})
+        assert login(fixture.bob).get(foreign).status_code == 404, name
+    after = client.get(detail(fixture.a, created["sysid"]))
+    assert after.status_code == 200 and after.json()["revision"] == created["revision"]  # The GETs changed nothing.

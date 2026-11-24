@@ -37,6 +37,7 @@ from skeleton.accounts.services import (
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.system.catalog_labels import update_catalog_labels
 from skeleton.tenancy.services import create_organization, update_organization
+from skeleton.web.confirm import PLATFORM_TEMPLATE, Confirmation, confirmation_step
 from skeleton.web.errors import error_response
 from skeleton.web.views import form_error, pagination, service_pagination
 
@@ -321,7 +322,24 @@ def user_roles(request, sysid):
     return redirect("platform:user", sysid=user.pk)
 
 
+def _describe_role_revoke(request, sysid, assignment):
+    user = get_object_or_404(_model("sk_accounts.User").objects, pk=sysid, account_type="human")
+    row = get_object_or_404(_model("sk_accounts.PlatformRoleAssignment").objects, pk=assignment, user=user)
+    return Confirmation(
+        title=gettext("Revogar papel de plataforma"),
+        subject=f"{user.email} · {row.get_role_display()}",
+        message=gettext("A pessoa perde o papel e as sessões dela são encerradas na hora."),
+        submit_label=gettext("Revogar papel"),
+        cancel_url=reverse("platform:user", kwargs={"sysid": user.pk}),
+        eyebrow=gettext("Usuários"),
+        hidden={"revision": row.revision},
+        template=PLATFORM_TEMPLATE,
+        context={"platform_section": "users"},
+    )
+
+
 @platform_page
+@confirmation_step(_describe_role_revoke)
 @require_http_methods(["POST"])
 @recent_authentication_required
 @transaction.atomic

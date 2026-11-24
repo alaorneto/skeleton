@@ -12,7 +12,7 @@
 <td class="col-actions">{% if item.open %}<form method="post" action="{% url 'web:join-withdraw' item.sysid %}" class="row-actions">{% csrf_token %}<input type="hidden" name="revision" value="{{ item.revision }}"><button type="submit" class="btn btn-secondary btn-sm">Retirar<span class="sr-only"> pedido para {{ item.organization_name }}</span></button></form>{% endif %}</td></tr>{% endfor %}
 </tbody></table></div></section>{% endif %}
 <section aria-labelledby="join-directory"><h2 id="join-directory" class="section-heading">Organizações</h2>
-<ul class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{% for item in organizations %}<li><a class="link-card" href="{% url 'web:join-organization' item.organization_id %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="building" %}</span><span class="min-w-0"><span class="link-card-title">{{ item.name }}</span><span class="link-card-text">Pedir para entrar</span></span></a></li>
+<ul class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{% for item in organizations %}<li><a class="link-card" href="{% url 'web:join-organization' item.organization_id %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="organization"|concept_icon %}</span><span class="min-w-0"><span class="link-card-title">{{ item.name }}</span><span class="link-card-text">Pedir para entrar</span></span></a></li>
 {% empty %}<li class="card empty-state sm:col-span-2 lg:col-span-3">Nenhuma organização aberta a pedidos no momento. Peça um convite a quem administra a organização.</li>{% endfor %}</ul>
 </section>
 {% endif %}

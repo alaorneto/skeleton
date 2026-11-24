@@ -11,7 +11,7 @@
   <div class="flex flex-wrap items-start justify-between gap-3">
     <div class="min-w-0"><h2 id="idp-{{ item.sysid }}">{{ item.name }}</h2>
     <p class="mt-1 text-sm/6 text-body-subtle">{{ item.protocol|upper }} · <code class="uuid">{{ item.provider_id }}</code>{% if item.login_path %} · login em <code class="uuid">{{ item.login_path }}</code>{% endif %}</p></div>
-    <p>{% if item.enabled %}<span class="badge badge-success badge-dot">Ativo</span>{% else %}<span class="badge badge-dot">Desligado pela plataforma</span>{% endif %}{% if not item.show_on_login %} <span class="badge">fora da tela de login</span>{% endif %}</p>
+    <p>{% if item.enabled %}{{ "active"|status_badge }}{% else %}{{ "inactive"|status_badge:_("Desligado pela plataforma") }}{% endif %}{% if not item.show_on_login %} {{ "hidden_from_login"|marker }}{% endif %}</p>
   </div>
   <p class="mt-2 text-sm/6 text-body-subtle">Último teste da plataforma: {{ item.last_check_code|default:"nunca" }}{% if item.last_check_at %} em {{ item.last_check_at|moment }}{% endif %}.</p>
   <form method="post" action="{% url 'web:identity-admission' organization_id item.sysid %}" class="mt-5">

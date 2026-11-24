@@ -12,6 +12,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext
 from django.views.decorators.cache import never_cache
@@ -19,6 +20,7 @@ from django.views.decorators.http import require_POST, require_safe
 
 from skeleton.accounts.reauthentication import recent_authentication_required
 from skeleton.tenancy.aggregate import aggregate_route
+from skeleton.web.confirm import Confirmation, confirmation_step
 
 
 @login_required
@@ -30,9 +32,30 @@ def privacy(request):
     return render(request, "skeleton/web/privacy.html", {"erasure": open_request(request.user)})
 
 
+def _describe_erasure(request):
+    """Asking for one's own erasure is confirmed (#769); withdrawing posts directly."""
+    from skeleton.accounts.erasure import open_request
+
+    if open_request(request.user) is not None:
+        return None
+    return Confirmation(
+        title=gettext("Pedir a eliminação da identidade"),
+        subject=request.user.email,
+        message=gettext(
+            "Depois da aprovação, seu email e seus nomes são substituídos, os logins, sessões e tokens deixam de "
+            "funcionar e suas notificações e preferências são apagadas. Não há como desfazer depois da aprovação; "
+            "até lá, você pode retirar o pedido."
+        ),
+        submit_label=gettext("Pedir a eliminação"),
+        cancel_url=reverse("web:privacy"),
+        hidden={"intent": "request"},
+    )
+
+
 @aggregate_route
 @login_required
 @never_cache
+@confirmation_step(_describe_erasure)
 @require_POST
 @recent_authentication_required
 def privacy_erasure(request):

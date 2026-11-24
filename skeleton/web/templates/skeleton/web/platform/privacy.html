@@ -9,8 +9,8 @@
   <td class="col-date">{{ row.created_at|moment }}</td>
   <td class="col-date">{{ row.decided_at|moment }}</td>
   <td class="col-date">{{ row.completed_at|moment }}</td>
-  <td class="col-actions">{% if row.status == "pending" and row.user_id != request.user.pk %}<form method="post" action="{% url 'platform:privacy-decide' row.pk %}" class="row-actions">{% csrf_token %}<input type="hidden" name="revision" value="{{ row.revision }}"><button type="submit" name="decision" value="approve" class="btn btn-danger btn-sm">{% translate "Aprovar" %}</button><button type="submit" name="decision" value="reject" class="btn btn-secondary btn-sm">{% translate "Recusar" %}</button></form>{% endif %}</td>
+  <td class="col-actions">{% if row.status == "pending" and row.user_id != request.user.pk %}<div class="row-actions"><a class="btn btn-danger-outline btn-sm" href="{% url 'platform:privacy-decide' row.pk %}?decision=approve">{% translate "Aprovar" %}</a><form method="post" action="{% url 'platform:privacy-decide' row.pk %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ row.revision }}"><button type="submit" name="decision" value="reject" class="btn btn-secondary btn-sm">{% translate "Recusar" %}</button></form></div>{% endif %}</td>
 </tr>
-{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=6 message=_("Nenhum pedido de eliminação.") icon="shield" %}{% endfor %}
+{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=6 message=_("Nenhum pedido de eliminação.") icon="privacy"|concept_icon %}{% endfor %}
 </tbody></table></div>
 {% endblock %}

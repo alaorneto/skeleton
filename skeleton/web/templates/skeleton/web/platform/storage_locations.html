@@ -1,5 +1,5 @@
 {% extends "skeleton/web/platform/base.html" %}
-{% load i18n %}{% block page_title %}{% translate "Locais de armazenamento" %}{% endblock %}
+{% load i18n skeleton_format %}{% block page_title %}{% translate "Locais de armazenamento" %}{% endblock %}
 {% block content %}
 <div class="max-w-5xl">
 <div class="page-header">
@@ -13,7 +13,7 @@
 {% for row in rows %}{% with location=row.location %}<tr>
   <td><a class="cell-primary" href="{% url 'platform:storage-location' location.pk %}">{{ location.label }}</a><span class="cell-secondary"><code>{{ location.code }}</code>{% if location.is_default %} · {% translate "padrão" %}{% endif %}</span></td>
   <td>{{ location.get_backend_display }}{% if location.bucket_name %} · <code>{{ location.bucket_name }}</code>{% endif %}</td>
-  <td>{% if location.is_active %}<span class="badge badge-success">{% translate "Ativo" %}</span>{% else %}<span class="badge">{% translate "Inativo" %}</span>{% endif %}</td>
+  <td>{% if location.is_active %}{{ "active"|status_badge }}{% else %}{{ "inactive"|status_badge }}{% endif %}</td>
   <td class="col-num">{{ row.organizations }}</td>
 </tr>{% endwith %}{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhum local: todas as organizações usam o armazenamento da instância.") %}{% endfor %}
 </tbody></table></div>

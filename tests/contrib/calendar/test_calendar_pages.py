@@ -182,10 +182,10 @@ def test_a_managed_calendar_shows_its_origin_and_refuses_changes(agenda, login, 
     assert calendar.source_app == source and calendar.source_path == PATH
     admin = login(agenda.admin)
     page = admin.get(url(agenda, "calendar-detail", calendar)).content.decode()
-    assert "gerenciado por" in page and "abrir na origem" in page
+    assert "Gerenciado por" in page and "abrir na origem" in page
     assert f'href="/o/{agenda.a.pk}/{PATH}"' in page
     assert "Salvar compartilhamento" not in page and "Renomear" not in page and "Excluir calendário" not in page
-    assert "gerenciado por" in admin.get(url(agenda, "calendars")).content.decode()
+    assert "Gerenciado por" in admin.get(url(agenda, "calendars")).content.decode()
     for name, data in (
         ("calendar-rename", {"name": "Outro", "revision": calendar.revision}),
         ("calendar-sharing", {"reader_users": [str(agenda.bob.pk)]}),

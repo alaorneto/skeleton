@@ -14,12 +14,14 @@ from django import forms
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import HttpRequest, HttpResponse
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.http import require_POST, require_safe
 
 from skeleton.accounts.reauthentication import recent_authentication_required
 from skeleton.common.exceptions import ConcurrentUpdate
+from skeleton.web.confirm import PLATFORM_TEMPLATE, Confirmation, confirmation_step
 
 from .guards import platform_page
 
@@ -42,7 +44,32 @@ def privacy(request: HttpRequest) -> HttpResponse:
     )
 
 
+def _describe_decision(request: Any, sysid: Any) -> Confirmation | None:
+    """Approving erases an identity for good: it is confirmed first. Refusing needs no step."""
+    from skeleton.accounts.models import ErasureRequest
+
+    if request.GET.get("decision") != "approve":
+        return None
+    row = get_object_or_404(ErasureRequest.objects.select_related("user"), pk=sysid, status__in=ErasureRequest.OPEN)
+    return Confirmation(
+        title=gettext("Aprovar a eliminação"),
+        subject=row.user.email,
+        message=gettext(
+            "O email e os nomes da pessoa são substituídos, os logins, sessões e tokens deixam de funcionar e as "
+            "notificações e preferências dela são apagadas. Os registros de negócio continuam, ligados a uma "
+            "identidade anônima. Não há como desfazer."
+        ),
+        submit_label=gettext("Aprovar e eliminar"),
+        cancel_url=reverse("platform:privacy"),
+        eyebrow=gettext("Pedidos de eliminação"),
+        hidden={"decision": "approve", "revision": row.revision},
+        template=PLATFORM_TEMPLATE,
+        context={"platform_section": "privacy"},
+    )
+
+
 @platform_page()
+@confirmation_step(_describe_decision)
 @require_POST
 @recent_authentication_required
 def privacy_decide(request: Any, sysid: Any) -> HttpResponse:

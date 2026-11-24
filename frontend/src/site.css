@@ -797,9 +797,30 @@
   .badge-neutral {
     @apply border-default bg-neutral-secondary-soft text-body;
   }
+  /* Estado (status_badge): pílula redonda com ponto. Marcador (marker): retângulo sem ponto (#767). */
+  .badge-dot {
+    @apply rounded-full ps-2 pe-2;
+  }
   .badge-dot::before {
     content: "";
     @apply size-1.5 rounded-full bg-current;
+  }
+  /* Zona de perigo (#769): a ação destrutiva fica separada, com a consequência ao lado. */
+  .danger-zone {
+    @apply mt-8 flex flex-col gap-4 rounded-card border border-danger-subtle bg-neutral-primary-soft p-5 sm:flex-row sm:items-center sm:justify-between sm:gap-6;
+  }
+  .danger-zone-title {
+    @apply text-sm font-semibold text-fg-danger-strong;
+  }
+  .danger-zone-text {
+    @apply mt-1 max-w-prose text-sm/6 text-body;
+  }
+  .danger-zone > .btn {
+    @apply shrink-0 self-start sm:self-center;
+  }
+  /* Contagem (não lidas, tarefas abertas): número em pílula cheia da marca. */
+  .counter {
+    @apply inline-flex min-w-5 items-center justify-center rounded-full bg-brand px-1.5 py-0.5 text-xs/4 font-semibold text-white tabular-nums;
   }
 
   /* Listas de definição soltas (metadados) */

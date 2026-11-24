@@ -19,7 +19,7 @@
     <td class="col-date">{{ release.signed_at|moment }}</td><td class="col-date">{{ release.expires_at|moment }}</td>
     <td>{% if release.withdrawn_at %}{{ "inactive"|status_badge:_("Retirada") }}{% else %}{{ "active"|status_badge:_("Publicada") }}{% endif %}</td>
     <td class="col-actions">{% if not release.withdrawn_at %}<form method="post" action="{% url 'platform:native-client-withdraw' release.pk %}" class="row-actions">{% csrf_token %}<input type="hidden" name="revision" value="{{ release.revision }}"><button type="submit" class="btn btn-danger-outline btn-sm">{% include "skeleton/web/components/icon.html" with name="trash" %}{% translate "Retirar" %}</button></form>{% endif %}</td>
-  </tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=7 message=_("Nenhuma versão publicada.") icon="refresh" %}{% endfor %}
+  </tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=7 message=_("Nenhuma versão publicada.") icon="native_clients"|concept_icon %}{% endfor %}
   </tbody></table></div>
   <h3 class="mt-4">{% translate "Histórico de sincronização" %}</h3>
   <div class="table-scroll mt-2"><table><thead><tr><th scope="col" class="col-date">{% translate "Quando" %}</th><th scope="col">{% translate "Resultado" %}</th><th scope="col">{% translate "Release" %}</th><th scope="col">{% translate "Detalhe" %}</th></tr></thead><tbody>
@@ -27,7 +27,7 @@
     <td class="col-date">{{ row.created_at|moment }}</td><td>{{ row.outcome|status_badge:row.get_outcome_display }}</td>
     <td>{{ row.tag|default:"—" }}{% if row.channel or row.os %}<span class="cell-secondary">{{ row.channel }} {{ row.os }}</span>{% endif %}</td>
     <td>{{ row.reason_code|default:row.version|default:"—" }}</td>
-  </tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhuma sincronização.") icon="clock" %}{% endfor %}
+  </tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhuma sincronização.") icon="native_clients"|concept_icon %}{% endfor %}
   </tbody></table></div>
 </section>
 {% empty %}<p class="mt-6 text-sm/6 text-body-subtle">{% translate "Nenhum cliente nativo configurado em SKELETON_NATIVE_CLIENTS_CONFIG." %}</p>{% endfor %}
