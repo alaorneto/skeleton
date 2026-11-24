@@ -8,7 +8,9 @@ User=skeleton-agent
 Group=skeleton-web
 UMask=0077
 # agent_root (#497): current -> versions/<version>-<digest>; a self-update swaps the link and exits
-# with 75, and Restart=on-failure starts the new version.
+# with 75, and Restart=on-failure starts the new version. An older install with a fixed virtualenv
+# (/opt/skeleton-agent/venv) migrates once with "agent-install --root ... --enable" and the drop-in
+# /etc/systemd/system/skeleton-agent.service.d/agent-root.conf it prints (#775, docs/deployment.md).
 ExecStart=/opt/skeleton-agent/current/venv/bin/skeleton-deployment-agent --config /srv/skeleton/private/agent.json serve
 Restart=on-failure
 # SIGTERM: stop accepting requests and wait for the running operation (#280).

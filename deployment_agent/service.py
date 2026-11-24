@@ -165,6 +165,9 @@ class DeploymentService:
             result["error"] = error
         result["drift_checked_at"] = checked_at
         result["agent"] = {"version": selfupdate.agent_version(), "self_update": bool(self.config.get("agent_root"))}
+        if not result["agent"]["self_update"]:
+            # What the screen tells the operator to do by hand (#775): only paths, never content.
+            result["agent"]["manual_update"] = selfupdate.manual_update(self.config, self.store.root)
         return result
 
     def upload(self, data: bytes) -> JSON:
