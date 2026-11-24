@@ -39,6 +39,8 @@ BILLING_VIEW = "billing.view"
 BILLING_MANAGE = "billing.manage"
 # The organization's external people (#531): invite, list and revoke portal accesses.
 EXTERNAL_MANAGE = "external.manage"
+# The organization's notifications (#785): turn types off for everyone and write their texts.
+NOTIFICATIONS_MANAGE = "notifications.manage"
 
 CAPABILITIES: frozenset[str] = frozenset(
     {
@@ -55,6 +57,7 @@ CAPABILITIES: frozenset[str] = frozenset(
         BILLING_VIEW,
         BILLING_MANAGE,
         EXTERNAL_MANAGE,
+        NOTIFICATIONS_MANAGE,
     }
 )
 

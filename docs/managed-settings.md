@@ -12,6 +12,8 @@ O administrador da plataforma trava uma configuração de uma organização com 
 | `organization.logo`, `organization.icon` | A imagem atual: trocar e remover ficam recusados |
 | `admission.discoverable`, `join_requests_enabled`, `join_links_enabled`, `signup_via_link_enabled`, `domain_join_enabled` | A política de admissão |
 | `apps.<app_label>.enabled` | A ativação da app (verdadeiro: a organização não a desliga; falso: não a liga) |
+| `notifications.<tipo>.enabled` | Um aviso de organização ou de app não obrigatório: ligado ou desligado para todos os membros ([notificações](notifications.md#configuração-da-organização)) |
+| `notifications.<tipo>.text` | O texto do aviso: trocar e restaurar ficam recusados |
 | `apps.<app_label>.<campo>` | Um campo de configuração da app gerido pela organização |
 
 O registro é por provedores (`skeleton.tenancy.setting_locks.register_setting_provider`): o pacote de organizações registra `organization.*` e `admission.*`, e o sistema registra `apps.*` a partir dos manifestos instalados no momento. Uma trava é uma linha global `OrganizationSettingLock` por organização e chave; destravar é exclusão lógica e travar de novo restaura a mesma linha, com auditoria das operações.

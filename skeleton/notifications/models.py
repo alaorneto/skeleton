@@ -4,7 +4,7 @@ from django.db.models import Q
 from django.utils.translation import gettext_lazy
 
 from skeleton.common.crypto import EncryptedTextField
-from skeleton.common.models import OperationalRecord, SystemRecord
+from skeleton.common.models import OperationalRecord, OrganizationRecord, SystemRecord
 
 INTEGRATION_KEYS = "INTEGRATION_ENCRYPTION_KEYS"
 
@@ -282,6 +282,54 @@ class InstanceNotificationText(SystemRecord):
                 fields=("type_code", "language"),
                 condition=Q(deleted_at__isnull=True),
                 name="sk_notif_instance_text_live",
+                violation_error_code="unique",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.type_code} {self.language}"
+
+
+class OrganizationNotificationSetting(OrganizationRecord):
+    """The organization's choice for one notification type (#785): ``enabled=False`` stops it for everyone.
+
+    Only types of the organization and app contexts that are not mandatory; the platform's types
+    and mandatory ones are never turned off by the organization.
+    """
+
+    type_code = models.CharField(max_length=100)
+    enabled = models.BooleanField(default=True)
+    immutable_fields = ("type_code",)
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("organization", "type_code"),
+                condition=Q(deleted_at__isnull=True),
+                name="sk_notif_org_setting_live",
+                violation_error_code="unique",
+            ),
+        ]
+
+    def __str__(self):
+        return self.type_code
+
+
+class OrganizationNotificationText(OrganizationRecord):
+    """The organization's text of one notification type in one language (#785)."""
+
+    type_code = models.CharField(max_length=100)
+    language = models.CharField(max_length=16)
+    title = models.CharField(max_length=150)
+    body = models.TextField(blank=True, default="")
+    immutable_fields = ("type_code", "language")
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("organization", "type_code", "language"),
+                condition=Q(deleted_at__isnull=True),
+                name="sk_notif_org_text_live",
                 violation_error_code="unique",
             ),
         ]

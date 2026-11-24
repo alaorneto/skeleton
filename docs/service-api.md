@@ -249,7 +249,7 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | `AccessService` | `skeleton.service_api.access` | `can`, `require`, `capabilities`, `granted_record_ids`, `my_groups`, `grant_member_table_access`, `grant_record_access`, `revoke_record_access`, `record_grants` | [#104](https://github.com/alaorneto/skeleton/issues/104) |
 | `ApplicationService`, `ApplicationAdministrationService` | `skeleton.service_api.applications` | `is_enabled`, `require_enabled`, `my_configuration`; administração: `applications`, `application`, `configure` | [#105](https://github.com/alaorneto/skeleton/issues/105) |
 | `AuditService`, `AuditLogService` | `skeleton.service_api.audit` | `history`; log das superfícies do núcleo: `events`, `event`, `related_domain_events` | [#106](https://github.com/alaorneto/skeleton/issues/106), [#110](https://github.com/alaorneto/skeleton/issues/110) |
-| `NotificationService` | `skeleton.service_api.notifications` | `notify`, `unread_count`, `inbox`, `mark_read`, `archive` | [#107](https://github.com/alaorneto/skeleton/issues/107) |
+| `NotificationService` | `skeleton.service_api.notifications` | `notify`, `settings`, `unread_count`, `inbox`, `mark_read`, `archive` | [#107](https://github.com/alaorneto/skeleton/issues/107) |
 | `JobService`, `EventService` | `skeleton.service_api.jobs`, `skeleton.service_api.events` | `enqueue`, `publish` | [#108](https://github.com/alaorneto/skeleton/issues/108) |
 | `FileService` | `skeleton.service_api.files` | `attach`, `list`, `download_url`, `external_download_url`, `remove` | [#109](https://github.com/alaorneto/skeleton/issues/109) |
 | `CommentService` | `skeleton.service_api.comments` | `comments`, `add_comment`, `edit_comment`, `delete_comment`, `restore_comment` | [#187](https://github.com/alaorneto/skeleton/issues/187) |
@@ -360,6 +360,7 @@ NotificationService().notify(
 | Método | Autorização | Erros |
 |---|---|---|
 | `notify(*, actor, type_code, recipients, payload=(), target_table_key=None, target_id=None, dedupe_key=None) -> NotificationReceipt` | a app chamadora é a dona do tipo (`owner_app`); o ator lê o alvo (de tabela derivada: pela âncora, #562); cada destinatário é reautorizado no fan-out; `actor=None` só em `system_context` (consumidores de eventos) | `Forbidden` (tipo de outra app), `NotFound` (alvo ilegível ou de outra organização), `InvalidInput` |
+| `settings(*, actor) -> tuple[NotificationSetting, ...]` (desde 0.7.0) | vínculo ativo; só os tipos da app chamadora: `enabled`, `reason` (`mandatory`, `instance_disabled`, `organization_disabled` ou vazio) e `text_source` (`organization`, `instance`, `type`), [#785](https://github.com/alaorneto/skeleton/issues/785) | — |
 | `unread_count(*, actor) -> int` | linhas do ator em organizações com vínculo ativo | — |
 | `inbox(*, actor, cursor=None, include_archived=False, page_size=25) -> Page[NotificationItem]` | linhas do ator: o tenant atual, ou todas as organizações ativas sem tenant; cada item traz `title` e `body`, o texto renderizado no idioma do ator no envio (#783; o rótulo nas linhas antigas) | `InvalidInput` |
 | `mark_read(*, actor, ids, read=True) -> int`, `archive(*, actor, ids) -> int` | linhas do ator no tenant atual; idempotentes | `NotFound` (linha de outra pessoa), `InvalidInput` |

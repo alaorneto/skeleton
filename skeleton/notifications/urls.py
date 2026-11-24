@@ -2,7 +2,7 @@ from django.urls import path
 
 from skeleton.tenancy.routing import ORG
 
-from . import preference_views, push_views, views
+from . import organization_views, preference_views, push_views, views
 
 app_name = "notifications"
 urlpatterns = [
@@ -32,6 +32,43 @@ urlpatterns = [
         f"{ORG}notifications/<uuid:sysid>/<str:action>/",
         views.change,
         name="change",
+    ),
+    # The organization's notifications, in its settings area (#785).
+    path(f"{ORG}admin/notifications/", organization_views.settings_list, name="organization-settings"),
+    path(
+        f"{ORG}admin/notifications/<str:type_code>/",
+        organization_views.settings_detail,
+        name="organization-setting",
+    ),
+    path(
+        f"{ORG}admin/notifications/<str:type_code>/texts/<str:language>/",
+        organization_views.settings_text,
+        name="organization-setting-text",
+    ),
+    path(
+        f"{ORG}admin/notifications/<str:type_code>/texts/<str:language>/restore/",
+        organization_views.settings_text_restore,
+        name="organization-setting-text-restore",
+    ),
+    path(
+        f"{ORG}admin/notifications/<str:type_code>/<slug:action>/",
+        organization_views.settings_switch,
+        name="organization-setting-switch",
+    ),
+    path(
+        "api/v1/o/<uuid:organization_id>/notification-settings/",
+        organization_views.SettingsAPI.as_view(),
+        name="api-organization-settings",
+    ),
+    path(
+        "api/v1/o/<uuid:organization_id>/notification-settings/<str:type_code>/",
+        organization_views.SettingAPI.as_view(),
+        name="api-organization-setting",
+    ),
+    path(
+        "api/v1/o/<uuid:organization_id>/notification-settings/<str:type_code>/texts/<str:language>/",
+        organization_views.SettingTextAPI.as_view(),
+        name="api-organization-setting-text",
     ),
     path("api/v1/notifications/", views.InboxAPI.as_view(), name="api-inbox"),
     path("api/v1/o/<uuid:organization_id>/notifications/actions/", views.InboxActionAPI.as_view(), name="api-actions"),

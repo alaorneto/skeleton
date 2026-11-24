@@ -494,6 +494,18 @@ def register_core_specs():
             "global",
             (),
         ),
+        "sk_notifications.organizationnotificationsetting": (
+            gettext_lazy("Avisos da organização"),
+            gettext_lazy("Escolha da organização para cada tipo de notificação não obrigatório: ligado ou não."),
+            "organization",
+            (),
+        ),
+        "sk_notifications.organizationnotificationtext": (
+            gettext_lazy("Textos dos avisos da organização"),
+            gettext_lazy("Título e corpo de um tipo de notificação num idioma, escritos pela organização."),
+            "organization",
+            (),
+        ),
         "sk_notifications.notificationdelivery": (
             gettext_lazy("Entregas de notificação"),
             gettext_lazy("Email, resumo ou push de uma notificação a uma pessoa, com tentativas e último resultado."),

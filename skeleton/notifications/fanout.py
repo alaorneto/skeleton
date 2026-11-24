@@ -130,15 +130,17 @@ def _display(notification) -> dict:
 
 
 def delivery_enabled(type_code: str) -> bool:
-    """Whether ``type_code`` may still be delivered: a mandatory type always; another unless turned off."""
+    """Whether ``type_code`` may still be delivered: a mandatory type always; another unless turned off
+    by the platform (#784) or, inside its tenant, by the organization (#785)."""
     from .instance_settings import enabled_in_instance
+    from .organization_settings import organization_disabled
     from .registry import get_notification_type
 
     try:
         kind = get_notification_type(type_code)
     except KeyError:
         return False
-    return enabled_in_instance(kind)
+    return enabled_in_instance(kind) and not organization_disabled(kind)
 
 
 def _log_skipped(notification, reason: str) -> None:

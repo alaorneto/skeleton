@@ -18,7 +18,14 @@ from .base import ServiceAPI, service_method
 from .dto import DEFAULT_PAGE_SIZE, Page, as_utc, as_uuid, paginate
 from .errors import InvalidInput, NotFound
 
-__all__ = ["NotificationItem", "NotificationReceipt", "NotificationService", "NotificationValue", "Recipients"]
+__all__ = [
+    "NotificationItem",
+    "NotificationReceipt",
+    "NotificationService",
+    "NotificationSetting",
+    "NotificationValue",
+    "Recipients",
+]
 
 Scalar = str | int | bool | None
 
@@ -52,6 +59,21 @@ class NotificationItem:
     # The text rendered at fan-out in the person's language (#783); the label for older rows.
     title: str = ""
     body: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class NotificationSetting:
+    """How the organization sends one of the caller's notification types (#785).
+
+    ``reason`` says why it is off or fixed: ``mandatory``, ``instance_disabled`` (the platform turned
+    it off), ``organization_disabled`` or empty; ``text_source`` is ``organization``, ``instance`` or
+    ``type`` (the app's own text).
+    """
+
+    type_code: str
+    enabled: bool
+    reason: str
+    text_source: str
 
 
 def _values(mapping: dict[str, Any]) -> tuple[NotificationValue, ...]:
@@ -147,6 +169,48 @@ class NotificationService(ServiceAPI):
         if record is None:
             raise NotFound()
         return record
+
+    @service_method(read_only=True, since="0.7.0")
+    def settings(self, *, actor: AbstractBaseUser) -> tuple[NotificationSetting, ...]:
+        """The caller's notification types in the current organization: on or off, and whose text applies.
+
+        Autorização: vínculo ativo do ator; só os tipos da app chamadora (``owner_app``).
+        Erros: nenhum além do contrato do contexto e da app ativa.
+        Efeitos: nenhum.
+        """
+        from skeleton.notifications.instance_settings import instance_state
+        from skeleton.notifications.models import OrganizationNotificationText
+        from skeleton.notifications.organization_settings import _config, settings_rows
+        from skeleton.notifications.registry import all_notification_types
+        from skeleton.tenancy.setting_locks import locked_values
+
+        from .applications import calling_app_label
+
+        caller = calling_app_label()
+        kinds = [kind for kind in all_notification_types() if caller and kind.owner_app == caller]
+        if not kinds:
+            return ()
+        rows, locked = settings_rows(), locked_values()
+        instance = instance_state([kind.code for kind in kinds])
+        organization_texts = set(
+            OrganizationNotificationText.objects.filter(type_code__in=[kind.code for kind in kinds]).values_list(
+                "type_code", flat=True
+            )
+        )
+        from skeleton.notifications.instance_settings import instance_texts
+
+        result = []
+        for kind in kinds:
+            config = _config(kind, rows=rows, instance=instance, locked=locked)
+            if kind.code in organization_texts and config.can_edit_text:
+                source = "organization"
+            elif instance_texts(kind.code):
+                source = "instance"
+            else:
+                source = "type"
+            reason = config.reason if config.reason != "platform_type" else ""
+            result.append(NotificationSetting(kind.code, config.enabled, reason, source))
+        return tuple(result)
 
     @service_method(read_only=True, since="0.1.0", tenant=False)
     def unread_count(self, *, actor: AbstractBaseUser) -> int:

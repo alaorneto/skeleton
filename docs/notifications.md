@@ -85,6 +85,29 @@ O administrador da plataforma configura cada aviso da instância em **Plataforma
 
 As escolhas ficam em duas tabelas globais auditadas, com revisão: `InstanceNotificationSetting` (ligado e canais padrão, uma linha viva por tipo) e `InstanceNotificationText` (título e corpo, uma linha viva por tipo e idioma). O serviço é `skeleton.notifications.instance_settings`: toda escrita exige o administrador da plataforma completo (papéis limitados não escrevem) e a revisão da linha (409 com revisão antiga).
 
+## Configuração da organização
+
+Quem tem a capacidade `notifications.manage` (o papel Administrador a tem) configura os avisos da organização em **Configuração › Organização › Notificações** (`/o/<org>/admin/notifications/`, [#785](https://github.com/alaorneto/skeleton/issues/785)). A lista mostra os avisos que a organização pode receber, agrupados em **Da plataforma**, **Da organização** e um grupo por aplicativo ativo, sem os códigos técnicos. Os avisos de uma app só aparecem, e só são entregues, enquanto a app está ativa na organização.
+
+| Contexto do aviso | A organização pode |
+|---|---|
+| `platform` | só ver o estado e o texto: nunca desliga nem reescreve |
+| `organization` e `app` | desligar para todos os membros (com confirmação), se o aviso não for obrigatório e a plataforma não o tiver desligado; escrever o próprio texto por idioma e restaurar o padrão, salvo `org_editable=False` |
+
+Desligado na organização, o aviso não cria linha nem entrega para ninguém dela; as outras organizações não mudam. O texto da organização vem antes do da plataforma e do de fábrica, só para quem recebe nela. Os canais padrão continuam sendo da plataforma: as preferências da pessoa valem em todas as organizações dela.
+
+A plataforma pode travar essas escolhas por organização com as chaves `notifications.<tipo>.enabled` (o valor travado é gravado na organização) e `notifications.<tipo>.text` (o texto atual fica como está), também na política das organizações novas ([configurações geridas](managed-settings.md)). Com a trava, a tela mostra "Definido pela plataforma." e uma escrita forjada recebe `setting_locked` (409).
+
+As escolhas ficam em `OrganizationNotificationSetting` e `OrganizationNotificationText` (por organização, com RLS, auditadas, com revisão). A mesma configuração tem REST:
+
+| Rota | O que faz |
+|---|---|
+| `GET /api/v1/o/<org>/notification-settings/` | Os avisos da organização, com `context`, `enabled`, `reason` (`mandatory`, `instance_disabled`, `organization_disabled`, `platform_type`), `can_disable`, `can_edit_text`, `locked` e `revision` |
+| `GET`/`PUT /api/v1/o/<org>/notification-settings/<tipo>/` | `PUT {"enabled": bool}`: sem linha, cria sem `If-Match`; com linha, exige `If-Match` (428 sem ela, 412 desatualizada) |
+| `PUT`/`DELETE /api/v1/o/<org>/notification-settings/<tipo>/texts/<idioma>/` | `PUT {"title", "body"}` grava o texto; `DELETE` com `If-Match` volta ao padrão |
+
+Uma app lê o estado dos próprios tipos na organização por `NotificationService.settings` ([API de serviços](service-api.md#notificationservice)).
+
 ## `notify()`
 
 Apps usam `NotificationService` de `skeleton.service_api.notifications` ([API de serviços](service-api.md#notificationservice)), que exige que a app chamadora seja a dona do tipo e que o ator leia o alvo. Um tipo registrado sem `owner_app` não pertence a ninguém: o serviço o recusa (`Forbidden`) para qualquer chamador (#272). A função interna do núcleo é `skeleton.notifications.services.notify(type_code, *, recipients, target=None, payload=None, …)`; apps não a importam.
@@ -140,7 +163,7 @@ O limite de membros atingido (`organization.member_limit_reached`, [#698](https:
 | `POST /o/<org>/notifications/<id>/read/`, `unread/`, `archive/` | Marca lida, não lida ou arquivada; idempotente, com CSRF |
 | `POST /o/<org>/notifications/read-all/` | Marca todas como lidas na organização |
 | `/o/<org>/notifications/<id>/open/` | Marca lida e reautoriza o alvo (`require_record_action(..., "read")`): com acesso, redireciona ao registro (alvo de tabela derivada: ao `open_url` do tipo, se houver); sem acesso ou alvo removido, mostra uma página genérica, sem título nem snapshot |
-| `GET /api/v1/notifications/` | API de sessão: página da caixa global (`page`, `page_size`, `archived=0/1`) mais `unread` |
+| `GET /api/v1/notifications/` | API de sessão: página da caixa global (`page`, `page_size`, `archived=0/1`) mais `unread`; cada linha traz `title` e `text`, o texto renderizado no envio |
 | `POST /api/v1/o/<org>/notifications/actions/` | `{"action": "read" \| "unread" \| "archive" \| "read_all", "ids": [...]}` (1 a 100 ids) |
 
 - A linha de outra pessoa responde 404, igual a uma linha inexistente.
