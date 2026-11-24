@@ -95,15 +95,51 @@ def mark_all_read(user) -> int:
 
 def open_target(user, row_id) -> str | None:
     """Mark the row read and return the target URL if the person can still read it, else None."""
+    row = _own_rows_in_tenant(user, [row_id]).get()
+    if row.read_at is None:
+        mark_read(user, [row.pk])
+    return destination(user, row)
+
+
+def open_item(user, notification_id) -> str | None:
+    """The ``{link}`` of a notification (#806): where it leads for ``user``, re-authorized now.
+
+    Only someone who received it opens it: their inbox row of this notification, the unread row
+    a newer notification of the same group took over, or a delivery (email or push) of it. The
+    row, if any, is marked read. The destination is the item of *this* notification. Anyone else,
+    and an item the person no longer reads, gets ``None``: the same answer as a missing one.
+    """
+    from .models import Notification, NotificationDelivery, NotificationRecipient
+
+    if current_context().organization_id is None:
+        raise MissingTenantContext("A notification opens inside its organization.")
+    try:
+        notification_id = UUID(str(notification_id))
+    except (ValueError, TypeError):
+        return None
+    notification = Notification.objects.filter(pk=notification_id).first()
+    if notification is None:
+        return None
+    rows = NotificationRecipient.objects.filter(user=user)
+    row = rows.filter(notification_id=notification.pk).first()
+    if row is None and notification.group_key:
+        row = rows.filter(group_key=notification.group_key).order_by("-updated_at", "sysid").first()
+    if row is None and not NotificationDelivery.objects.filter(notification=notification, user_id=user.pk).exists():
+        return None
+    if row is not None and row.read_at is None:
+        mark_read(user, [row.pk])
+    return destination(user, notification)
+
+
+def destination(user, item) -> str | None:
+    """Where a row or a notification leads (same fields: type, target, payload, organization)."""
     from django.core.exceptions import PermissionDenied
     from django.urls import reverse
 
     from skeleton.access.policies import require_record_action
     from skeleton.system.registry import get_spec
 
-    row = _own_rows_in_tenant(user, [row_id]).get()
-    if row.read_at is None:
-        mark_read(user, [row.pk])
+    row = item
     if not row.target_sysid:
         from .registry import get_notification_type
 

@@ -143,7 +143,15 @@ def platform_fan_out(*, notification_id: str) -> int:
             people = people[:MAX_RECIPIENTS]
         rows = rows_by_user([person.pk for person in people])
         chosen = state_of(kind.code).default_channels
-        texts = render_for_people(kind, payload=notification.payload, snapshot={}, users=people, organization_name="")
+        texts = render_for_people(
+            kind,
+            payload=notification.payload,
+            snapshot={},
+            users=people,
+            organization_name="",
+            sent_at=notification.created_at,
+            link=item_url(notification.pk),
+        )
         for person in people:
             in_app = wants(person.pk, kind, "in_app", rows, chosen) != "off"
             email = wants(person.pk, kind, "email", rows, chosen) != "off"
@@ -222,6 +230,26 @@ def open_path(row: Any) -> str:
     return reverse("platform:notification-open", kwargs={"sysid": row.pk})
 
 
+def item_url(notification_id: Any) -> str:
+    """The ``{link}`` of a platform notice (#806): the same address for every administrator."""
+    from .channels.delivery import absolute
+
+    return absolute(reverse("platform:notification-item", kwargs={"notification_id": notification_id}))
+
+
+def own_row_of_notification(user: Any, notification_id: Any) -> Any:
+    """The person's row of a notice, or of the newer notice their unread row was grouped into."""
+    from .models import PlatformNotification, PlatformNotificationRecipient
+
+    rows = PlatformNotificationRecipient.objects.filter(user_id=user.pk)
+    row = rows.filter(notification_id=notification_id).first()
+    if row is None:
+        notification = PlatformNotification.objects.filter(pk=notification_id).only("group_key").first()
+        if notification is not None and notification.group_key:
+            row = rows.filter(group_key=notification.group_key).order_by("-updated_at", "sysid").first()
+    return row
+
+
 def send_platform_email(*, recipient_id: str) -> None:
     """Job handler (global system context); never raises for a send failure."""
     from skeleton.accounts.models import User
@@ -257,7 +285,7 @@ def send_platform_email(*, recipient_id: str) -> None:
         "label": kind.label,
         "title": row.title,
         "body": row.body,
-        "body_html": plain_html(row.body),
+        "body_html": plain_html(row.body, link=item_url(row.notification_id)),
         "type_code": kind.code,
         "snapshot": {},
         "payload": dict(row.payload),

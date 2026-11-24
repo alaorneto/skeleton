@@ -162,6 +162,7 @@ def rendered_texts(notification, people: list[UUID]) -> dict:
     """``{user_id: Rendered}`` for ``people``, in each one's language and time zone (#783)."""
     from skeleton.accounts.models import User
 
+    from .channels.delivery import item_url
     from .registry import get_notification_type
     from .rendering import organization_name, render_for_people
 
@@ -178,6 +179,8 @@ def rendered_texts(notification, people: list[UUID]) -> dict:
         snapshot=notification.snapshot,
         users=users,
         organization_name=organization_name(),
+        sent_at=notification.created_at,
+        link=item_url(notification),
     )
 
 

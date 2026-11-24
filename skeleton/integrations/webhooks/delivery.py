@@ -255,6 +255,28 @@ def deliver(*, delivery_id: str, actor: Any) -> None:
     _finish(delivery, WebhookDelivery.State.FAILED, now=now, error_code=error or f"http_{status}", **common)
 
 
+def endpoint_url(user: Any, row: Any) -> str | None:
+    """Where a disabled webhook leads (#806): its page, for who still manages integrations."""
+    from uuid import UUID
+
+    from django.urls import NoReverseMatch, reverse
+
+    from skeleton.access.capabilities import INTEGRATIONS_MANAGE, has_capability
+
+    from .models import WebhookEndpoint
+
+    try:
+        endpoint_id = UUID(str(row.payload.get("endpoint_id")))
+    except (TypeError, ValueError):
+        return None
+    if not has_capability(user, INTEGRATIONS_MANAGE) or not WebhookEndpoint.objects.filter(pk=endpoint_id).exists():
+        return None
+    try:
+        return reverse("integrations:webhook", kwargs={"organization_id": row.organization_id, "sysid": endpoint_id})
+    except NoReverseMatch:
+        return None
+
+
 def register_webhook_delivery() -> None:
     """Job, consumer and notification type of the delivery pipeline; called by the app's ``ready``."""
     from skeleton.events.registry import WILDCARD, register_consumer
@@ -293,11 +315,15 @@ def register_webhook_delivery() -> None:
         NotificationType(
             DISABLED_NOTIFICATION,
             gettext_lazy("Webhook desativado"),
-            payload_fields=("endpoint", "failures", "reason"),
+            payload_fields=("endpoint", "endpoint_id", "failures", "reason"),
+            open_url=endpoint_url,
             owner_app="sk_integrations",
             context="organization",
             description=gettext_lazy("Quando um webhook é desativado por falhas"),
-            fields=(NotificationField("failures", gettext_lazy("Falhas seguidas"), kind="number"),),
+            fields=(
+                NotificationField("endpoint", gettext_lazy("Nome do webhook")),
+                NotificationField("failures", gettext_lazy("Falhas seguidas"), kind="number"),
+            ),
             title=gettext_lazy("Um webhook foi desativado"),
             body=gettext_lazy("Depois de {failures} falhas seguidas, os envios foram interrompidos."),
         )

@@ -32,6 +32,7 @@ def people(settings):
                 payload_fields=("count",),
                 fields=(NotificationField("count", "Quantidade", kind="number"),),
                 title="Há {count} jobs que falharam",
+                body="Veja em {link}",
                 default_channels=("in_app", "email"),
                 open_url=lambda user, row: reverse("platform:jobs"),
                 **common,
@@ -166,6 +167,17 @@ def test_inbox_pages(people, subtests):
         response = client.get(reverse("platform:notification-open", kwargs={"sysid": admin_row.pk}))
         assert response.status_code == 302 and response["Location"] == reverse("platform:jobs")
         assert unread_count(admin) == 1
+    with subtests.test("the {link} of the text opens the notice of that person (#806)"):
+        path = reverse("platform:notification-item", kwargs={"notification_id": admin_row.notification_id})
+        assert admin_row.body == f"Veja em https://app.example.test{path}"
+        opened = client.get(path)
+        assert opened.status_code == 302 and opened["Location"] == reverse(
+            "platform:notification-open", kwargs={"sysid": admin_row.pk}
+        )
+        operator_client = login(operator.email, PASSWORD)
+        assert operator_client.get(path).status_code == 404  # The operator did not receive that notice.
+        message = next(item for item in mail.outbox if admin.email in item.to and "jobs" in item.subject)
+        assert f'<a href="https://app.example.test{path}">' in message.alternatives[0][0]
     with subtests.test("actions"):
         change = reverse("platform:notification-change", kwargs={"sysid": admin_row.pk, "action": "unread"})
         assert post(client, change).status_code == 302 and unread_count(admin) == 2

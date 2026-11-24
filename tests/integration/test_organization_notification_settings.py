@@ -229,6 +229,12 @@ def test_pages_and_api(scenario, subtests):
             == 400
         )
         assert post(admin, url, {"title": "Nosso {title}", "body": "", "revision": ""}).status_code == 302
+    with subtests.test("markers of the recipient and of general use (#806)"):
+        fixed = "Olá, {destinatario_primeiro_nome}: {title} em {plataforma}, {data_atual}"
+        assert post(admin, url, {"title": fixed, "body": "{destinatario}", "revision": "1"}).status_code == 302
+        page = admin.get(detail).content.decode()
+        assert "<code>{destinatario}</code>" in page and "<code>{data_atual}</code>" in page
+        assert "Olá, Maria: " in page and "Maria Exemplo" in page  # The preview fills them with samples.
     with subtests.test("platform type is read only"):
         platform_detail = reverse(
             "notifications:organization-setting", kwargs={"organization_id": org, "type_code": PLATFORM_TYPE}

@@ -2,6 +2,23 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+
+def transfer_url(user: Any, row: Any) -> str | None:
+    """Where a finished transfer leads (#806): the person's transfers, only for their own transfer."""
+    from django.core.exceptions import ValidationError
+    from django.urls import NoReverseMatch, reverse
+
+    from .models import TransferJob
+
+    try:
+        if not TransferJob.objects.filter(pk=row.payload.get("transfer"), requester=user).exists():
+            return None
+        return reverse("transfer:list", kwargs={"organization_id": row.organization_id})
+    except (NoReverseMatch, ValueError, ValidationError):
+        return None
+
 
 def register_transfer_jobs() -> None:
     from datetime import time
@@ -56,6 +73,7 @@ def register_transfer_jobs() -> None:
             READY_TYPE,
             gettext_lazy("Exportação ou importação concluída"),
             payload_fields=("transfer",),
+            open_url=transfer_url,
             owner_app="sk_transfer",
             context="organization",
             description=gettext_lazy("Quando uma exportação ou importação termina"),

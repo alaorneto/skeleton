@@ -208,6 +208,11 @@ urlpatterns = [
     ),
     path("notifications/<uuid:sysid>/open/", notifications_views.notification_open, name="notification-open"),
     path(
+        "notifications/n/<uuid:notification_id>/",
+        notifications_views.notification_item,
+        name="notification-item",
+    ),
+    path(
         "notifications/<uuid:sysid>/<slug:action>/",
         notifications_views.notification_change,
         name="notification-change",

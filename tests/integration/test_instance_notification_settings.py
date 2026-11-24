@@ -186,7 +186,9 @@ def test_pages(scenario, subtests):
     with subtests.test("catalog and detail"):
         page = client.get(reverse("platform:notification-types")).content.decode()
         assert "Evento" in page and "Dos aplicativos" in page
-        assert "Evento {title}" in client.get(detail).content.decode()
+        page = client.get(detail).content.decode()
+        assert "Evento {title}" in page
+        assert "<code>{destinatario_primeiro_nome}</code>" in page and "<code>{plataforma}</code>" in page
     with subtests.test("channels"):
         response = post(
             client,

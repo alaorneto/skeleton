@@ -109,7 +109,7 @@ def authorize(user: Any, notification: Any) -> bool:
 
 
 def open_url(user: Any, row: Any) -> str | None:
-    """Where the notification leads: the record page, only while the person reads it."""
+    """Where the notification leads: the comment on the record page, only while the person reads it."""
     from django.urls import NoReverseMatch, reverse
 
     from skeleton.access.derivation import is_derived
@@ -120,7 +120,7 @@ def open_url(user: Any, row: Any) -> str | None:
     if is_derived(target[0].model):
         return None  # A derived table has no generic page (#563); the app shows its comments.
     try:
-        return reverse(
+        page = reverse(
             "web:record",
             kwargs={
                 "organization_id": row.organization_id,
@@ -128,6 +128,7 @@ def open_url(user: Any, row: Any) -> str | None:
                 "sysid": target[1].target_sysid,
             },
         )
+        return f"{page}#comment-{target[1].pk}"  # The anchor of the comment panel (#806).
     except NoReverseMatch:
         return None
 

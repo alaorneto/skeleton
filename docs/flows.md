@@ -337,7 +337,7 @@ Tudo é negado por padrão, e cada chamada revalida no servidor.
 | [Jobs](jobs.md) | `flows.service`, `flows.timer`, `flows.wait_timeout`, `flows.task_reminder` e `flows.task_due`, todos como sistema, por organização, com payload só de identificadores |
 | [Eventos](events.md) | `flows.instance_started`, `flows.instance_completed`, `flows.instance_cancelled` e `flows.instance_failed` sobre `sk_flows.flowinstance`, com `flow_key`, `flow_version`, `status`, `outcome`, `subject_table` e `subject_sysid` |
 | [Webhooks](webhooks.md) | O fluxo pode mapear momentos (`started`, `completed`, `cancelled`, `failed`) para tipos de evento **da app, sobre o registro de negócio** (`subject_events`). Como o alvo é um `SecuredRecord` exposto, a entrega de webhook reautoriza a leitura pelo principal do endpoint, como em qualquer evento |
-| [Notificações](notifications.md) | `flows.task_assigned`, `flows.task_reminder` e `flows.task_overdue`, com o rótulo do fluxo e da etapa. Abrir a notificação reautoriza o acesso à tarefa |
+| [Notificações](notifications.md) | `flows.task_assigned`, `flows.task_reminder` e `flows.task_overdue`, com o rótulo do fluxo e da etapa, o número do processo e o prazo da tarefa (`{due_at}`, que o texto do lembrete e do atraso mostra). Abrir a notificação reautoriza o acesso à tarefa |
 | [Auditoria](audit-soft-delete.md) | Triggers em todas as tabelas; o histórico (`FlowActivity`) é a narrativa do processo, a auditoria continua a fonte de verdade de cada escrita |
 | [Sequências](sequences.md) | `number_sequence` numera as instâncias (`PC-2026-0042`) sem lacunas, na transação do início |
 

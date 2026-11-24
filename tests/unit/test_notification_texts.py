@@ -1,14 +1,22 @@
 """The text of a notification: closed grammar, validation, rendering and formatting (#782)."""
 
+from datetime import UTC, datetime
+
 import pytest
 from django.core.exceptions import ValidationError
 from django.utils import timezone, translation
 
 from skeleton.notifications.registry import NotificationField
 from skeleton.notifications.texts import (
+    FIXED,
+    date_text,
+    first_name,
+    fixed_samples,
     format_value,
     parse,
+    placeholder_list,
     placeholders,
+    plain_html,
     render,
     render_html,
     sample_values,
@@ -99,3 +107,45 @@ def test_sample_values_cover_every_kind():
         samples = sample_values(fields)
     assert samples["number"] == "42" and samples["money"] == "1.234,56 BRL"
     assert samples["date"] == timezone.localdate().strftime("%d/%m/%Y")
+
+
+def test_fixed_placeholders_of_the_recipient_and_of_general_use():
+    assert set(FIXED) == {
+        "organizacao",
+        "aviso",
+        "plataforma",
+        "data_atual",
+        "link",
+        "destinatario",
+        "destinatario_primeiro_nome",
+    }
+    assert first_name("  Maria  da Silva ") == "Maria" and first_name("") == ""
+    with translation.override("pt-br"):
+        samples = fixed_samples(organization="Org")
+        moment = datetime(2026, 11, 24, 2, 30, tzinfo=UTC)
+        with timezone.override("America/Sao_Paulo"):
+            assert date_text(moment) == "23/11/2026"  # The recipient's time zone, not UTC.
+        with timezone.override("UTC"):
+            assert date_text(moment) == "24/11/2026"
+    assert samples["destinatario"] == "Maria Exemplo" and samples["destinatario_primeiro_nome"] == "Maria"
+    assert samples["organizacao"] == "Org" and samples["plataforma"]
+    assert samples["data_atual"] == timezone.localdate().strftime("%d/%m/%Y")
+
+
+def test_the_marker_list_shows_the_fields_then_the_fixed_placeholders():
+    from skeleton.notifications.registry import NotificationType
+
+    kind = NotificationType("t.x", "X", fields=(NotificationField("due", "Prazo", kind="date"),))
+    names = [item["placeholder"] for item in placeholder_list(kind)]
+    assert names[0] == "{due}"
+    assert {name.strip("{}") for name in names[1:]} == set(FIXED)
+
+
+def test_only_the_core_link_becomes_an_anchor_in_html():
+    link = "https://app.example.test/o/x/notifications/n/1/"
+    html = plain_html(f"Veja {link}\nou https://evil.example/phish e <b>", link=link)
+    assert f'<a href="{link}">{link}</a>' in html
+    assert "https://evil.example/phish" in html and 'href="https://evil.example' not in html
+    assert "&lt;b&gt;" in html and "<br>" in html
+    assert "<a " not in plain_html(f"Veja {link}")  # Without the link argument, nothing is anchored.
+    assert "<a " not in plain_html("javascript:alert(1)", link="javascript:alert(1)")  # Only http(s) or a path.

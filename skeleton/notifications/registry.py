@@ -175,12 +175,16 @@ def _context_problems(kind: NotificationType) -> list[str]:
 
 
 def _field_problems(kind: NotificationType) -> list[str]:
+    from .texts import FIXED
+
     problems = []
     declared = set(kind.payload_fields) | set(kind.snapshot_fields)
     names = [field.name for field in kind.fields]
     if len(names) != len(set(names)):
         problems.append(f"{kind.code}: duplicate text field")
     for field in kind.fields:
+        if field.name in FIXED:
+            problems.append(f"{kind.code}: text field {field.name} is a placeholder of the core")
         if field.name not in declared:
             problems.append(f"{kind.code}: text field {field.name} is not a payload or snapshot field")
         if field.kind not in FIELD_KINDS:

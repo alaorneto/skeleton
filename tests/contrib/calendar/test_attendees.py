@@ -138,3 +138,38 @@ def test_deleting_the_event_notifies_cancellation(agenda, meeting):
         meeting.refresh_from_db()
         services.delete_event(actor=agenda.alice, event_id=meeting.pk, expected_revision=meeting.revision)
     assert "calendar.cancelled" in notifications_of(agenda, agenda.bob, agenda.a)
+
+
+def test_the_invitation_carries_the_start_as_a_marker_of_the_text(agenda, meeting):
+    """#806: the start of the event is a placeholder, and the factory body shows it."""
+    from django.utils import timezone, translation
+
+    from skeleton.notifications.models import Notification
+    from skeleton.notifications.registry import get_notification_type
+    from skeleton.notifications.rendering import TextResolver, render_notification
+
+    with actor_tenant(agenda.alice, agenda.a):
+        attendees.invite(actor=agenda.alice, event_id=meeting.pk, user_ids=(agenda.bob.pk,))
+    with actor_tenant(agenda.admin, agenda.a):
+        notification = Notification.objects.get(type_code="calendar.invited")
+    assert notification.payload["starts_at"] == START.isoformat()
+    assert notification.payload["start_date"] is None
+    kind = get_notification_type("calendar.invited")
+    with translation.override("pt-br"), timezone.override("America/Sao_Paulo"):
+        rendered = render_notification(
+            kind,
+            payload=notification.payload,
+            snapshot={},
+            organization_name="A",
+            people={},
+            resolver=TextResolver(kind),
+            language="pt-br",
+        )
+    assert rendered.title == "Convite para Planejamento"
+    assert rendered.body == "Começa em 02/12/2026 12:00."  # 15:00 UTC in the recipient's time zone.
+    from skeleton.contrib.calendar.attendees import event_url
+
+    with actor_tenant(agenda.bob, agenda.a), timezone.override("America/Sao_Paulo"):
+        assert event_url(agenda.bob, notification).endswith("?view=day&date=2026-12-02")
+    with actor_tenant(agenda.bob, agenda.b):
+        assert event_url(agenda.bob, notification) is None  # Inside B, an event of A does not exist.

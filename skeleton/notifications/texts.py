@@ -5,7 +5,9 @@ placeholder, ``{{`` and ``}}`` are literal braces, and any other brace is an err
 attribute access, index, format spec or conversion (``str.format`` would allow ``{x.__class__}``),
 no Django template and no HTML or Markdown: rendering only replaces placeholders by the values
 the caller formatted, and the HTML form escapes every piece. Links (open, preferences,
-unsubscribe) never come from the text: the core layout adds them.
+unsubscribe) never come from the text: the core layout adds them. The only address a text may
+carry is the value of ``{link}`` (#806), built by the core; in HTML only that exact address
+becomes a link, never another one written in the text.
 """
 
 from __future__ import annotations
@@ -24,9 +26,16 @@ from django.utils.translation import gettext
 
 NAME = re.compile(r"[a-z][a-z0-9_]{0,39}")
 TOKEN = re.compile(r"\{\{|\}\}|\{([^{}]*)\}|[{}]")
+# The placeholders every type has (#806), filled by the core, never by the payload:
 # ``organizacao``: the public name of the organization (empty for the platform's own notices);
-# ``aviso``: the label of the type.
-FIXED = ("organizacao", "aviso")
+# ``aviso``: the label of the type; ``plataforma``: the product name of the instance;
+# ``data_atual``: the date the notification was created, in the recipient's time zone;
+# ``link``: the address that opens the item of the notification, re-authorizing each click;
+# ``destinatario`` and ``destinatario_primeiro_nome``: the display name and the first name of
+# the person who receives it (only on that person's own row).
+RECIPIENT = ("destinatario", "destinatario_primeiro_nome")
+FIXED = ("organizacao", "aviso", "plataforma", "data_atual", "link", *RECIPIENT)
+SAMPLE_LINK = "https://exemplo.test/notificacao"
 TITLE_MAX = 150
 BODY_MAX = 2000
 BODY_LINES = 30
@@ -126,9 +135,17 @@ def render_html(text: str, values: Mapping[str, Any] | None = None) -> SafeStrin
     return mark_safe(str(escaped).replace("\n", "<br>"))  # noqa: S308 - escaped above
 
 
-def plain_html(text: str) -> SafeString:
-    """Already rendered text as HTML: escaped, line breaks as ``<br>``; braces are never parsed again."""
-    return mark_safe(str(conditional_escape(text or "")).replace("\n", "<br>"))  # noqa: S308 - escaped
+def plain_html(text: str, *, link: str = "") -> SafeString:
+    """Already rendered text as HTML: escaped, line breaks as ``<br>``; braces are never parsed again.
+
+    ``link`` is the core's ``{link}`` address of this notification: each exact occurrence becomes
+    an anchor; any other address in the text stays plain text.
+    """
+    escaped = str(conditional_escape(text or ""))
+    if link and link.startswith(("https://", "http://", "/")):
+        url = str(conditional_escape(link))
+        escaped = escaped.replace(url, f'<a href="{url}">{url}</a>')
+    return mark_safe(escaped.replace("\n", "<br>"))  # noqa: S308 - escaped above
 
 
 def _date(raw: Any, *, with_time: bool) -> str:
@@ -147,6 +164,11 @@ def _date(raw: Any, *, with_time: bool) -> str:
     if isinstance(value, date):
         return formats.date_format(value, "DATE_FORMAT")
     return str(raw)
+
+
+def date_text(moment: date | datetime) -> str:
+    """The date of ``moment`` in the active language and time zone."""
+    return _date(moment, with_time=False)
 
 
 def format_value(field: Any, raw: Any, *, values: Mapping[str, Any], people: Mapping[str, str] | None = None) -> str:
@@ -175,6 +197,56 @@ def format_value(field: Any, raw: Any, *, values: Mapping[str, Any], people: Map
     except (TypeError, ValueError, ArithmeticError, ValidationError):
         return str(raw)
     return str(raw)
+
+
+def first_name(name: str) -> str:
+    """The first word of a display name ("Maria Exemplo" → "Maria")."""
+    parts = (name or "").split()
+    return parts[0] if parts else ""
+
+
+def product_name() -> str:
+    """The product name of the instance, as the screens show it."""
+    from django.conf import settings
+
+    from skeleton.appearance.snapshot import current_appearance
+
+    name = current_appearance().product_name
+    return str(name or getattr(settings, "SKELETON_PRODUCT_NAME", "") or "Skeleton")
+
+
+def fixed_samples(*, organization: str) -> dict[str, str]:
+    """Example values of the fixed placeholders but ``aviso``, for the previews."""
+    from django.utils import timezone
+
+    person = gettext("Maria Exemplo")
+    return {
+        "organizacao": organization,
+        "plataforma": product_name(),
+        "data_atual": date_text(timezone.localdate()),
+        "link": SAMPLE_LINK,
+        "destinatario": person,
+        "destinatario_primeiro_nome": first_name(person),
+    }
+
+
+def fixed_descriptions() -> tuple[tuple[str, str], ...]:
+    """``(placeholder, description)`` of the fixed placeholders, in the order of the screens."""
+    return (
+        ("{destinatario}", gettext("nome de quem recebe")),
+        ("{destinatario_primeiro_nome}", gettext("primeiro nome de quem recebe")),
+        ("{organizacao}", gettext("nome da organização")),
+        ("{plataforma}", gettext("nome da plataforma")),
+        ("{aviso}", gettext("nome do aviso")),
+        ("{data_atual}", gettext("data do envio")),
+        ("{link}", gettext("endereço que abre o item do aviso")),
+    )
+
+
+def placeholder_list(kind: Any) -> list[dict[str, Any]]:
+    """``[{placeholder, label}]`` of a type: its fields, then the fixed placeholders."""
+    own = [{"placeholder": "{" + item.name + "}", "label": item.label} for item in kind.fields]
+    return own + [{"placeholder": name, "label": label} for name, label in fixed_descriptions()]
 
 
 def sample_values(fields: tuple[Any, ...]) -> dict[str, str]:

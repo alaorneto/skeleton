@@ -89,7 +89,13 @@ def test_export_contains_only_authorized_records_and_readable_fields(scenario):
 
     run_pending_jobs()
     with system_context(reason="test:export-notify", organization_id=scenario.a.pk):
-        assert NotificationRecipient.objects.filter(user=scenario.member).count() == 1
+        [row] = NotificationRecipient.objects.filter(user=scenario.member)
+    from skeleton.transfer.jobs import transfer_url
+
+    with scenario.acting(scenario.member, scenario.a):
+        assert transfer_url(scenario.member, row) == reverse("transfer:list", kwargs={"organization_id": scenario.a.pk})
+    with scenario.acting(scenario.admin_a, scenario.a):
+        assert transfer_url(scenario.admin_a, row) is None  # Someone else's transfer.
 
 
 @pytest.mark.needs_example_app

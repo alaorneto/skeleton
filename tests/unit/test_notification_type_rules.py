@@ -85,6 +85,26 @@ def test_fields_must_be_declared_and_coherent():
     assert "f.a: text field who has an unknown kind weird" in problems
 
 
+def test_a_field_may_not_take_the_name_of_a_core_placeholder():
+    problems = problems_of(
+        NotificationType(
+            "f.b",
+            "B",
+            owner_app="tasks",
+            payload_fields=("destinatario", "data_atual", "due"),
+            fields=(
+                NotificationField("destinatario", "D"),
+                NotificationField("data_atual", "A", kind="date"),
+                NotificationField("due", "Prazo", kind="date"),
+            ),
+        )
+    )
+    assert problems == [
+        "f.b: text field destinatario is a placeholder of the core",
+        "f.b: text field data_atual is a placeholder of the core",
+    ]
+
+
 def test_factory_text_is_validated():
     problems = problems_of(
         NotificationType("t.a", "A", owner_app="tasks", title="Olá {who}"),
@@ -95,6 +115,8 @@ def test_factory_text_is_validated():
     assert "t.b: a factory body needs a title" in problems
     assert any(item.startswith("t.c: factory title is invalid") for item in problems)
     assert problems_of(NotificationType("t.d", "D", owner_app="tasks", title="{aviso} em {organizacao}")) == []
+    fixed = "Olá, {destinatario_primeiro_nome} ({destinatario}): {plataforma} em {data_atual}"
+    assert problems_of(NotificationType("t.f", "F", owner_app="tasks", title=fixed)) == []
 
 
 def test_fixed_text_belongs_to_the_platform():
