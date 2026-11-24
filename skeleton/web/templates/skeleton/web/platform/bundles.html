@@ -1,5 +1,5 @@
 {% extends "skeleton/web/platform/base.html" %}
-{% load i18n %}{% block page_title %}{% translate "Pacotes de apps" %}{% endblock %}
+{% load i18n skeleton_format %}{% block page_title %}{% translate "Pacotes de apps" %}{% endblock %}
 {% block content %}
 <div class="max-w-4xl">
 <div class="page-header"><div class="min-w-0">
@@ -7,8 +7,8 @@
   <h1>{% if bundle %}{{ bundle.label }}{% else %}{% translate "Pacotes de apps" %}{% endif %}</h1>
   <p class="page-description">{% translate "Os níveis do produto: cada pacote é um conjunto de apps que a organização recebe junto. O limite de membros acompanha o que cada app acrescenta." %}</p>
 </div></div>
-{% if not bundle %}<div class="table-scroll mb-5"><table><thead><tr><th scope="col">{% translate "Pacote" %}</th><th scope="col">{% translate "Apps" %}</th><th scope="col">{% translate "Situação" %}</th></tr></thead><tbody>
-{% for row in bundles %}<tr><td><a class="cell-primary" href="{% url 'platform:bundle' row.pk %}">{{ row.label }}</a><span class="cell-secondary"><code>{{ row.code }}</code>{% if row.is_default %} · {% translate "padrão" %}{% endif %}{% if row.signup_visible %} · {% translate "no cadastro" %}{% endif %}</span></td><td class="col-text">{{ row.apps|join:", "|default:"—" }}</td><td>{% if row.is_active %}<span class="badge badge-success">{% translate "Ativo" %}</span>{% else %}<span class="badge">{% translate "Inativo" %}</span>{% endif %}</td></tr>
+{% if not bundle %}<div class="table-scroll table-stack mb-5"><table><thead><tr><th scope="col">{% translate "Pacote" %}</th><th scope="col">{% translate "Apps" %}</th><th scope="col">{% translate "Situação" %}</th></tr></thead><tbody>
+{% for row in bundles %}<tr><td data-label="{% translate "Pacote" %}"><a class="cell-primary" href="{% url 'platform:bundle' row.pk %}">{{ row.label }}</a><span class="cell-secondary"><code>{{ row.code }}</code>{% if row.is_default %} · {% translate "padrão" %}{% endif %}{% if row.signup_visible %} · {% translate "no cadastro" %}{% endif %}</span></td><td data-label="{% translate "Apps" %}" class="col-text">{{ row.apps|join:", "|default:"—" }}</td><td data-label="{% translate "Situação" %}">{% if row.is_active %}{{ "active"|status_badge }}{% else %}{{ "inactive"|status_badge }}{% endif %}</td></tr>
 {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=3 message=_("Nenhum pacote.") %}{% endfor %}
 </tbody></table></div>{% endif %}
 <section class="card"><h2>{% if bundle %}{% translate "Editar pacote" %}{% else %}{% translate "Novo pacote" %}{% endif %}</h2>

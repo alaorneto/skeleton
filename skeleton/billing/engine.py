@@ -754,7 +754,7 @@ def renew_due(*, now: datetime | None = None) -> Any:
 
 def activate_apps(labels: list[str]) -> None:
     """Turn on the apps that a new right covers, dependencies first; a refusal is logged, never raised."""
-    from skeleton.system.app_registry import get_app, required_labels
+    from skeleton.system.app_registry import get_app, is_library, required_app_labels
     from skeleton.system.applications import activate_for_entitlement
 
     for label in dict.fromkeys(labels):
@@ -762,7 +762,9 @@ def activate_apps(labels: list[str]) -> None:
             get_app(label)
         except KeyError:
             continue
-        for target in (*required_labels(label), label):
+        if is_library(label):
+            continue  # A library follows the apps that use it (#792).
+        for target in (*required_app_labels(label), label):
             try:
                 with transaction.atomic():
                     activate_for_entitlement(target)

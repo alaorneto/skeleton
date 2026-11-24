@@ -220,7 +220,7 @@ A **instalação global** diz qual código existe no deployment. `ComponentInsta
 
 Todas as organizações usam a mesma versão de código por deployment. Reinstalar uma app preserva registros e exige ativação explícita, em vez de ressuscitar acesso só porque o pacote voltou.
 
-Algumas apps genéricas vêm **dentro do wheel do núcleo** (apps first-party, em `skeleton/contrib`: a agenda e o livro contábil). Elas seguem o mesmo ciclo de qualquer app, mas não chegam por `.skapp`: o operador as instala por nome com `SKELETON_BUNDLED_APPS`, e retirá-las preserva os dados ([extensão](extending.md#apps-first-party-do-núcleo-skeletoncontrib)).
+Algumas apps genéricas vêm **dentro do wheel do núcleo** (apps first-party, em `skeleton/contrib`) e não chegam por `.skapp`. A agenda e o livro contábil são **bibliotecas**: recursos que outras apps usam pela API de serviços. Uma biblioteca é instalada com a app que depende dela, não tem disponibilidade nem ativação próprias e fica efetiva numa organização enquanto uma app efetiva ali a usa; retirá-la preserva os dados ([extensão](extending.md#apps-first-party-do-núcleo-skeletoncontrib)).
 
 ### Livro, lançamento e título
 

@@ -440,6 +440,11 @@
       @apply mt-0.5 size-4 shrink-0;
     }
   }
+  /* info é o tom padrão (#776); alert* continua só como alias do contrato de temas. */
+  .message.info,
+  .alert-info {
+    @apply border-brand-subtle bg-brand-softer text-fg-brand-strong;
+  }
   .message.success,
   .alert-success {
     @apply border-success-subtle bg-success-soft text-fg-success-strong;
@@ -679,6 +684,64 @@
   .table-scroll tbody tr:hover {
     @apply bg-neutral-secondary-soft;
   }
+  /* Cabeçalho de linha quebra como texto; controles numa célula não colapsam (#777). */
+  .table-scroll th[scope="row"] {
+    @apply font-normal whitespace-normal;
+  }
+  .table-scroll td :is(input:not([type="hidden"], [type="checkbox"], [type="radio"]), select) {
+    @apply min-w-36;
+  }
+  /* Abaixo de 640 px, cada linha vira um cartão com o rótulo de cada célula (data-label). */
+  @media (width < 40rem) {
+    .table-stack table {
+      @apply min-w-0;
+    }
+    .table-stack thead {
+      @apply sr-only;
+    }
+    .table-stack table,
+    .table-stack tbody,
+    .table-stack tr,
+    .table-stack td {
+      display: block;
+      width: 100%;
+    }
+    .table-stack tbody tr {
+      @apply px-4 py-3;
+    }
+    .table-scroll.table-stack {
+      @apply overflow-x-hidden;
+    }
+    /* Rótulo à esquerda e o conteúdo da célula empilhado à direita, um item por linha. */
+    .table-stack td {
+      @apply grid grid-cols-[7rem_minmax(0,1fr)] gap-x-3 px-0 py-1 text-start break-words;
+      & > * {
+        grid-column: 2;
+      }
+    }
+    .table-stack td[data-label]:not([data-label=""])::before {
+      content: attr(data-label);
+      grid-column: 1;
+      grid-row: 1 / span 9;
+      @apply text-xs/5 font-medium tracking-wide text-body-subtle uppercase;
+    }
+    .table-stack td[data-label=""],
+    .table-stack td:not([data-label]) {
+      @apply block;
+    }
+    .table-stack td.col-actions {
+      @apply w-full pt-2;
+      &::before {
+        display: none;
+      }
+    }
+    .table-stack td.empty-state {
+      @apply block py-8 text-center;
+    }
+    .table-stack .row-actions {
+      @apply justify-start;
+    }
+  }
   /* Tipos de coluna: a mesma classe vai no th e no td. */
   .table-scroll :is(th, td).col-num {
     @apply text-right whitespace-nowrap;
@@ -797,9 +860,187 @@
   .badge-neutral {
     @apply border-default bg-neutral-secondary-soft text-body;
   }
+  /* Estado (status_badge): pílula redonda com ponto. Marcador (marker): retângulo sem ponto (#767). */
+  .badge-dot {
+    @apply rounded-full ps-2 pe-2;
+  }
   .badge-dot::before {
     content: "";
     @apply size-1.5 rounded-full bg-current;
+  }
+  /* Zona de perigo (#769): a ação destrutiva fica separada, com a consequência ao lado. */
+  .danger-zone {
+    @apply mt-8 flex flex-col gap-4 rounded-card border border-danger-subtle bg-neutral-primary-soft p-5 sm:flex-row sm:items-center sm:justify-between sm:gap-6;
+  }
+  .danger-zone-title {
+    @apply text-sm font-semibold text-fg-danger-strong;
+  }
+  .danger-zone-text {
+    @apply mt-1 max-w-prose text-sm/6 text-body;
+  }
+  .danger-zone > .btn {
+    @apply shrink-0 self-start sm:self-center;
+  }
+  /* Formulário de criação recolhido abaixo da lista (#780): a lista vem primeiro. */
+  .create-panel > summary {
+    @apply w-fit list-none;
+    &::-webkit-details-marker {
+      display: none;
+    }
+  }
+  /* Configuração da instância (#779): seções do catálogo, uma linha por chave, editor sob a linha. */
+  .setting-index ul {
+    @apply flex flex-wrap gap-x-4 gap-y-1 text-sm;
+  }
+  .setting-section {
+    @apply mb-5 scroll-mt-24;
+    & > h2 {
+      @apply mb-2;
+    }
+  }
+  .setting-list > * + * {
+    @apply border-t border-default;
+  }
+  .setting-row {
+    @apply scroll-mt-24;
+  }
+  .setting-line {
+    @apply grid gap-x-6 gap-y-2 py-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-start;
+  }
+  summary.setting-line {
+    @apply cursor-pointer list-none rounded-base focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus;
+    &::-webkit-details-marker {
+      display: none;
+    }
+  }
+  .setting-name,
+  .setting-value {
+    @apply flex min-w-0 flex-col gap-0.5 text-sm/6;
+  }
+  .setting-title {
+    @apply font-medium text-heading;
+  }
+  .setting-code {
+    @apply font-mono text-xs/5 break-all text-heading;
+  }
+  .setting-meta {
+    @apply flex flex-wrap items-center gap-1.5 text-xs text-body-subtle;
+  }
+  .setting-toggle {
+    @apply self-start text-sm font-medium text-fg-brand md:justify-self-end;
+  }
+  details[open] > summary .setting-toggle {
+    @apply text-body-subtle;
+  }
+  .setting-toggle-off {
+    @apply text-xs font-normal text-body-subtle;
+  }
+  .setting-form {
+    @apply mb-4 grid max-w-xl gap-2 rounded-base bg-neutral-secondary-soft p-4;
+    & > label {
+      @apply text-sm font-medium text-heading;
+    }
+  }
+  .setting-actions {
+    @apply mt-1 flex flex-wrap gap-2;
+  }
+  /* Preferências de notificação (#778): um cartão por área, colunas fixas, empilha no celular. */
+  .pref-form {
+    @apply space-y-5;
+  }
+  .pref-card {
+    @apply rounded-card border border-default bg-neutral-primary-soft p-5;
+  }
+  .pref-card-title {
+    @apply text-base font-semibold text-heading;
+  }
+  .pref-card-text {
+    @apply mt-1 max-w-prose text-sm/6 text-body;
+  }
+  .pref-default-grid {
+    @apply mt-4 grid gap-4 sm:grid-cols-3;
+  }
+  .pref-cell-label {
+    @apply mb-1 block text-sm font-medium text-heading;
+  }
+  .pref-table {
+    @apply mt-3 w-full table-fixed border-collapse text-sm;
+  }
+  .pref-col-type {
+    width: 34%;
+  }
+  .pref-col-channel {
+    width: 22%;
+  }
+  .pref-table th,
+  .pref-table td {
+    @apply py-3 pe-3 text-start align-top font-normal last:pe-0;
+  }
+  .pref-table thead th {
+    @apply pb-2 text-xs font-medium tracking-wide text-body-subtle uppercase;
+  }
+  .pref-table tbody tr {
+    @apply border-t border-default;
+  }
+  .pref-type {
+    @apply font-medium text-heading;
+  }
+  .pref-cell select {
+    @apply w-full min-w-0;
+  }
+  .pref-hour {
+    @apply mt-2;
+    & label {
+      @apply mb-1 block text-xs text-body-subtle;
+    }
+  }
+  @supports selector(:has(*)) {
+    .pref-email .pref-hour {
+      display: none;
+    }
+    .pref-email:has(.pref-mode option[value="daily"]:checked, .pref-mode option[value="weekly"]:checked) .pref-hour {
+      display: block;
+    }
+  }
+  .pref-locked {
+    @apply py-2 text-sm text-body;
+  }
+  .pref-source {
+    @apply mt-1 text-xs text-body-subtle;
+  }
+  .pref-actions {
+    @apply sticky bottom-0 z-10 flex justify-end border-t border-default bg-canvas/95 py-3 backdrop-blur;
+  }
+  @media (width < 40rem) {
+    .pref-table thead {
+      @apply sr-only;
+    }
+    .pref-table colgroup {
+      display: none;
+    }
+    .pref-table,
+    .pref-table tbody,
+    .pref-table tr,
+    .pref-table th,
+    .pref-table td {
+      display: block;
+      width: 100%;
+    }
+    .pref-table th,
+    .pref-table td {
+      @apply py-1.5 pe-0;
+    }
+    .pref-table tbody tr {
+      @apply py-2;
+    }
+    .pref-table td::before {
+      content: attr(data-label);
+      @apply mb-1 block text-xs font-medium text-body-subtle;
+    }
+  }
+  /* Contagem (não lidas, tarefas abertas): número em pílula cheia da marca. */
+  .counter {
+    @apply inline-flex min-w-5 items-center justify-center rounded-full bg-brand px-1.5 py-0.5 text-xs/4 font-semibold text-white tabular-nums;
   }
 
   /* Listas de definição soltas (metadados) */

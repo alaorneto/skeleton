@@ -42,11 +42,12 @@ def deactivate_by_infrastructure(app_label: str) -> Any:
     from skeleton.access.services import organization_lock
     from skeleton.events.core_events import application_changed
 
-    from .app_registry import get_app
+    from .app_registry import get_app, require_not_library
     from .applications import forget_application_states, require_activation_allowed
     from .models import AppInstallation
 
     get_app(app_label)
+    require_not_library(app_label)
     with organization_lock():
         record = AppInstallation.objects.filter(app_label=app_label).first()
         if record is None or not record.enabled:
@@ -135,6 +136,8 @@ def apps_provider() -> Iterable[Any]:
     from .app_registry import all_apps
 
     for manifest in sorted(all_apps(), key=lambda item: item.app_label):
+        if manifest.library:
+            continue  # No activation nor configuration to lock: it follows its dependents (#792).
         label = manifest.app_label
         group = gettext("App %(name)s") % {"name": manifest.label}
         yield LockableSetting(

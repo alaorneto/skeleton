@@ -25,7 +25,7 @@ from skeleton.system.packages import (
 )
 from skeleton.versioning import adjacent_release_line
 
-from .config import installed_bundled_app_ids
+from .config import installed_bundled_app_ids, opted_in_bundled_names
 from .environments import publisher_environment
 from .storage import AgentError, atomic_bytes, atomic_json, file_hash, inventory_files, load_json
 from .types import JSON, StrPath
@@ -699,11 +699,13 @@ def _finalize(
     )
     if not resolution.ok:
         raise dependency_error(resolution)
+    apps = ordered_entries(entries, resolution.order)
     result = {
         "generation": inventory["generation"] + 1,
         "core": core,
-        "apps": ordered_entries(entries, resolution.order),
+        "apps": apps,
         "retained_schema_paths": retained,
+        "retained_libraries": retained_libraries(inventory, apps, opted_in_bundled_names(config)),
         "migration_archives": archives,
         "environment": environment,
         "runtime": {"python": environment["python_full_version"], "django": lock["django"]["version"]},
@@ -713,6 +715,13 @@ def _finalize(
     backend.manage(release, ["check"], "build", code="static_checks_failed")
     backend.manage(release, ["collectstatic", "--noinput"], "build", code="collectstatic_failed")
     return result
+
+
+def retained_libraries(previous: JSON, entries: Sequence[JSON], opted_in: Sequence[str]) -> list[str]:
+    """First-party libraries kept retained after the last app using them left (#793)."""
+    from skeleton.conf.bundled import next_retained_libraries
+
+    return next_retained_libraries(previous, entries, opted_in)
 
 
 def _supports_source(manifest: JSON, source: str) -> bool:

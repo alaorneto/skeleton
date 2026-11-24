@@ -17,17 +17,17 @@
 {% for group in groups %}
 <section class="mt-8" aria-labelledby="notification-group-{{ forloop.counter }}">
   <h2 id="notification-group-{{ forloop.counter }}" class="section-heading">{{ group.label }}</h2>
-  <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Aviso" %}</th><th scope="col">{% translate "Quem recebe" %}</th><th scope="col">{% translate "Canais padrão" %}</th><th scope="col">{% translate "Estado" %}</th></tr></thead><tbody>
+  <div class="table-scroll table-stack"><table><thead><tr><th scope="col">{% translate "Aviso" %}</th><th scope="col">{% translate "Quem recebe" %}</th><th scope="col">{% translate "Canais padrão" %}</th><th scope="col">{% translate "Estado" %}</th></tr></thead><tbody>
   {% for row in group.items %}<tr>
-    <td><a class="cell-primary" href="{% url 'platform:notification-type' row.kind.code %}">{{ row.kind.label }}</a>{% if row.kind.description %}<span class="cell-secondary">{{ row.kind.description }}</span>{% endif %}<span class="cell-secondary"><code>{{ row.kind.code }}</code></span></td>
-    <td>{{ row.audience }}</td>
-    <td>{{ row.channels }}</td>
-    <td>{% if row.enabled %}{{ "enabled"|status_badge }}{% else %}{{ "disabled"|status_badge }}{% endif %}{% if row.kind.mandatory %} <span class="badge">{% translate "Obrigatório" %}</span>{% endif %}</td>
+    <td data-label="{% translate "Aviso" %}"><a class="cell-primary" href="{% url 'platform:notification-type' row.kind.code %}">{{ row.kind.label }}</a>{% if row.kind.description %}<span class="cell-secondary">{{ row.kind.description }}</span>{% endif %}<span class="cell-secondary"><code>{{ row.kind.code }}</code></span></td>
+    <td data-label="{% translate "Quem recebe" %}">{{ row.audience }}</td>
+    <td data-label="{% translate "Canais padrão" %}">{{ row.channels }}</td>
+    <td data-label="{% translate "Estado" %}">{% if row.enabled %}{{ "enabled"|status_badge:"notifications" }}{% else %}{{ "disabled"|status_badge:"notifications" }}{% endif %}{% if row.kind.mandatory %} {{ "mandatory"|marker }}{% endif %}</td>
   </tr>{% endfor %}
   </tbody></table></div>
 </section>
 {% empty %}
-<div class="table-scroll mt-6"><table><tbody>{% include "skeleton/web/components/empty-row.html" with colspan=1 message=_("Nenhum aviso encontrado.") icon="envelope" %}</tbody></table></div>
+<div class="table-scroll table-stack mt-6"><table><tbody>{% include "skeleton/web/components/empty-row.html" with colspan=1 message=_("Nenhum aviso encontrado.") icon="notifications"|concept_icon %}</tbody></table></div>
 {% endfor %}
 </div>
 {% endblock %}

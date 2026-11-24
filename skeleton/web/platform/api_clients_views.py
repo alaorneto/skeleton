@@ -13,6 +13,7 @@ from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.cache import never_cache
@@ -22,6 +23,7 @@ from skeleton.accounts.reauthentication import recent_authentication_required
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.integrations.tokens import platform as clients
 from skeleton.integrations.tokens.scopes import PLATFORM_SCOPES
+from skeleton.web.confirm import PLATFORM_TEMPLATE, Confirmation, confirmation_step
 from skeleton.web.views import form_error
 
 from .guards import platform_page
@@ -140,7 +142,25 @@ def api_client(request, sysid):
     return _client_page(request, client, issued=issued.text)
 
 
+def _describe_deactivate(request, sysid):
+    client = _get_client(sysid)
+    return Confirmation(
+        title=gettext("Desativar cliente da API"),
+        subject=client.first_name,
+        message=gettext(
+            "Os tokens do cliente deixam de valer na hora, e o sistema que os usa perde o acesso à API da "
+            "plataforma. Não há como reativá-lo: para voltar, cadastre outro cliente."
+        ),
+        submit_label=gettext("Desativar cliente"),
+        cancel_url=reverse("platform:api-client", kwargs={"sysid": client.pk}),
+        eyebrow=gettext("Clientes da API"),
+        template=PLATFORM_TEMPLATE,
+        context={"platform_section": "api-clients"},
+    )
+
+
 @platform_page
+@confirmation_step(_describe_deactivate)
 @require_POST
 @recent_authentication_required
 @transaction.atomic

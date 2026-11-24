@@ -227,13 +227,12 @@ def test_plan_accepts_dependency_on_installed_first_party_app(agent, tmp_path):
     assert resolution.order == ("org.test.consumer",)
 
 
-def test_plan_refuses_dependency_on_first_party_app_not_installed(agent, tmp_path):
+def test_plan_accepts_a_library_without_opt_in(agent, tmp_path):
+    """#793: the calendar is a first-party library; the runtime installs it for the app that needs it."""
     config, backend = agent
     config = {**config, "runtime_env_file": _runtime_env(tmp_path, "DEBUG=false\n")}
-    with pytest.raises(AgentError) as raised:
-        check_plan_dependencies(config, backend, inventory(), [_calendar_consumer()], [])
-    assert raised.value.code == "dependency_unsatisfied"
-    assert [detail["code"] for detail in raised.value.details] == ["missing_dependency"]
+    resolution = check_plan_dependencies(config, backend, inventory(), [_calendar_consumer()], [])
+    assert resolution.order == ("org.test.consumer",)
     config["runtime_env_file"] = _runtime_env(tmp_path, "SKELETON_BUNDLED_APPS=inexistente\n")
     with pytest.raises(AgentError) as raised:
         check_plan_dependencies(config, backend, inventory(), [_calendar_consumer()], [])

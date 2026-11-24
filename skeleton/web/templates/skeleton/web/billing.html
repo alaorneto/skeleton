@@ -1,5 +1,5 @@
 {% extends 'skeleton/web/base.html' %}
-{% load billing i18n skeleton_format %}
+{% load i18n billing skeleton_format %}
 {% block title %}{% translate "Cobrança" %} · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="max-w-5xl">
@@ -13,11 +13,11 @@
 <section aria-labelledby="subscription-heading" class="mb-8">
   <h2 id="subscription-heading" class="section-heading">{% translate "Assinatura" %}</h2>
   {% if subscription %}
-  <p class="mb-3 flex flex-wrap items-center gap-1.5">{{ subscription.status|status_badge:"subscription" }}<span class="badge">{% translate "período até" %} {{ subscription.current_period_end|moment:"date" }}</span>{% if subscription.trial_end and subscription.status == "trialing" %}<span class="badge badge-success">{% translate "avaliação até" %} {{ subscription.trial_end|moment:"date" }}</span>{% endif %}{% if subscription.cancel_at_period_end %}<span class="badge badge-warning">{% translate "cancela no fim do período" %}</span>{% endif %}</p>
+  <p class="mb-3 flex flex-wrap items-center gap-1.5">{{ subscription.status|status_badge:"subscription" }}<span class="text-sm text-body">{% translate "período até" %} {{ subscription.current_period_end|moment:"date" }}</span>{% if subscription.trial_end and subscription.status == "trialing" %}<span class="text-sm text-body">· {% translate "avaliação até" %} {{ subscription.trial_end|moment:"date" }}</span>{% endif %}{% if subscription.cancel_at_period_end %}{{ "cancel_at_period_end"|marker }}{% endif %}</p>
   <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Item" %}</th><th scope="col" class="col-num">{% translate "Quantidade" %}</th><th scope="col" class="col-num">{% translate "Valor" %}</th><th scope="col">{% translate "Situação" %}</th>{% if can_manage %}<th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th>{% endif %}</tr></thead><tbody>
   {% for item in subscription.items %}<tr><td><span class="cell-primary">{{ item.product }}</span></td><td class="col-num">{{ item.quantity }}</td><td class="col-num">{{ item.unit_amount|money:subscription.currency }}</td><td>{{ item.status|status_badge:"item" }}{% if item.ends_at %}<span class="cell-secondary">{% translate "termina em" %} {{ item.ends_at|moment:"date" }}</span>{% endif %}</td>{% if can_manage %}<td class="col-actions">{% if item.kind != "base_plan" and not item.ends_at %}<form method="post" action="{% url 'billing-action' organization_id 'remove' %}" class="row-actions">{% csrf_token %}<input type="hidden" name="item" value="{{ item.sysid }}"><button type="submit" class="btn btn-danger-outline btn-sm">{% translate "Remover" %}</button></form>{% endif %}</td>{% endif %}</tr>{% endfor %}
   </tbody></table></div>
-  {% if can_manage %}<div class="toolbar mt-3">{% if subscription.cancel_at_period_end %}<form method="post" action="{% url 'billing-action' organization_id 'resume' %}">{% csrf_token %}<button type="submit" class="btn btn-secondary btn-sm">{% translate "Desfazer o cancelamento" %}</button></form>{% else %}<form method="post" action="{% url 'billing-action' organization_id 'cancel' %}">{% csrf_token %}<button type="submit" class="btn btn-secondary btn-sm">{% translate "Cancelar a assinatura" %}</button></form>{% endif %}</div>{% endif %}
+  {% if can_manage %}<div class="toolbar mt-3">{% if subscription.cancel_at_period_end %}<form method="post" action="{% url 'billing-action' organization_id 'resume' %}">{% csrf_token %}<button type="submit" class="btn btn-secondary btn-sm">{% translate "Desfazer o cancelamento" %}</button></form>{% else %}<a class="btn btn-danger-outline btn-sm" href="{% url 'billing-action' organization_id 'cancel' %}">{% translate "Cancelar a assinatura" %}</a>{% endif %}</div>{% endif %}
   {% else %}<p class="text-body-subtle">{% translate "A organização ainda não tem assinatura." %}</p>{% endif %}
 </section>
 
@@ -25,21 +25,21 @@
   <h2 id="invoices-heading" class="section-heading">{% translate "Faturas" %}</h2>
   <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Número" %}</th><th scope="col" class="col-num">{% translate "Valor" %}</th><th scope="col" class="col-date">{% translate "Vencimento" %}</th><th scope="col">{% translate "Situação" %}</th>{% if can_manage %}<th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th>{% endif %}</tr></thead><tbody>
   {% for invoice in invoices %}<tr><td><code class="cell-primary">{{ invoice.number }}</code></td><td class="col-num">{{ invoice.total|money:invoice.currency }}</td><td class="col-date">{{ invoice.due_at|moment:"date" }}</td><td>{{ invoice.status|status_badge:"invoice" }}</td>{% if can_manage %}<td class="col-actions">{% if invoice.status == "open" or invoice.status == "uncollectible" %}<form method="post" action="{% url 'billing-pay' organization_id invoice.sysid %}" class="row-actions">{% csrf_token %}<button type="submit" class="btn btn-primary btn-sm">{% translate "Pagar" %}</button></form>{% endif %}</td>{% endif %}</tr>
-  {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=5 message=_("Nenhuma fatura.") icon="document" %}{% endfor %}
+  {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=5 message=_("Nenhuma fatura.") icon="billing"|concept_icon %}{% endfor %}
   </tbody></table></div>
 </section>
 
 <section aria-labelledby="storage-heading" class="mb-8">
   <h2 id="storage-heading" class="section-heading">{% translate "Armazenamento" %}</h2>
   <p class="mb-3">{% translate "Em uso" %}: {{ storage.used_bytes|gigabytes }} GB · {% translate "Cota" %}: {% if storage.quota_bytes is None %}{% translate "ilimitada" %}{% else %}{{ storage.quota_bytes|gigabytes }} GB{% endif %}{% if storage.overage == "bill" %} · {% translate "o excedente é cobrado na renovação" %}{% endif %}</p>
-  {% if usage_by_app %}<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "App" %}</th><th scope="col">GB</th></tr></thead><tbody>{% for app, used in usage_by_app %}<tr><td><code>{{ app }}</code></td><td>{{ used|gigabytes }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+  {% if usage_by_app %}<div class="table-scroll table-stack"><table><thead><tr><th scope="col">{% translate "App" %}</th><th scope="col">GB</th></tr></thead><tbody>{% for app, used in usage_by_app %}<tr><td data-label="{% translate "App" %}"><code>{{ app }}</code></td><td data-label="{% translate "GB" %}">{{ used|gigabytes }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
 </section>
 
 {% if meters %}
 <section aria-labelledby="usage-heading" class="mb-8">
   <h2 id="usage-heading" class="section-heading">{% translate "Uso neste período" %}</h2>
-  <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Medidor" %}</th><th scope="col" class="col-num">{% translate "Usado" %}</th><th scope="col" class="col-num">{% translate "Incluído" %}</th><th scope="col">{% translate "Acima da franquia" %}</th><th scope="col">{% translate "Uso do limite" %}</th></tr></thead><tbody>
-  {% for row in meters %}<tr><td><span class="cell-primary">{{ row.status.label }}</span><code class="cell-secondary">{{ row.status.meter }}</code></td><td class="col-num">{{ row.status.used }}</td><td class="col-num">{{ row.status.included }}</td><td>{% if row.status.overage == "bill" %}{% translate "cobrado na renovação" %}{% if row.status.limit %} · {% translate "teto" %} {{ row.status.limit }}{% endif %}{% else %}{% translate "bloqueado" %}{% endif %}</td><td>{% if row.bound %}<progress max="100" value="{{ row.percent }}" aria-label="{% blocktranslate with meter=row.status.label %}Uso de {{ meter }}{% endblocktranslate %}">{{ row.percent }}%</progress> {{ row.percent }}%{% else %}—{% endif %}</td></tr>{% endfor %}
+  <div class="table-scroll table-stack"><table><thead><tr><th scope="col">{% translate "Medidor" %}</th><th scope="col" class="col-num">{% translate "Usado" %}</th><th scope="col" class="col-num">{% translate "Incluído" %}</th><th scope="col">{% translate "Acima da franquia" %}</th><th scope="col">{% translate "Uso do limite" %}</th></tr></thead><tbody>
+  {% for row in meters %}<tr><td data-label="{% translate "Medidor" %}"><span class="cell-primary">{{ row.status.label }}</span><code class="cell-secondary">{{ row.status.meter }}</code></td><td data-label="{% translate "Usado" %}" class="col-num">{{ row.status.used }}</td><td data-label="{% translate "Incluído" %}" class="col-num">{{ row.status.included }}</td><td data-label="{% translate "Acima da franquia" %}">{% if row.status.overage == "bill" %}{% translate "cobrado na renovação" %}{% if row.status.limit %} · {% translate "teto" %} {{ row.status.limit }}{% endif %}{% else %}{% translate "bloqueado" %}{% endif %}</td><td data-label="{% translate "Uso do limite" %}">{% if row.bound %}<progress max="100" value="{{ row.percent }}" aria-label="{% blocktranslate with meter=row.status.label %}Uso de {{ meter }}{% endblocktranslate %}">{{ row.percent }}%</progress> {{ row.percent }}%{% else %}—{% endif %}</td></tr>{% endfor %}
   </tbody></table></div>
   {% with first=meters.0.status %}{% if first.period_end %}<p class="helptext mt-2">{% translate "Período até" %} {{ first.period_end|moment:"date" }}.</p>{% endif %}{% endwith %}
 </section>
@@ -51,7 +51,7 @@
   <ul class="grid gap-3 sm:grid-cols-2">
   {% for offer in offers %}<li class="card flex flex-col gap-3 p-5"><h3 class="text-base">{{ offer.product }}</h3><p class="text-sm/6 text-body">{{ offer.unit_amount|money:offer.currency }} / {% if offer.interval == "year" %}{% translate "ano" %}{% else %}{% translate "mês" %}{% endif %}{% if offer.trial_days %} · {% blocktranslate count days=offer.trial_days %}{{ days }} dia de avaliação{% plural %}{{ days }} dias de avaliação{% endblocktranslate %}{% endif %}</p>
   <form method="post" action="{% url 'billing-action' organization_id 'contract' %}">{% csrf_token %}<input type="hidden" name="price" value="{{ offer.sysid }}"><label class="mb-2 flex items-center gap-2 text-sm"><input type="checkbox" name="accept_terms" required> {% translate "Aceito os termos de uso" %}</label><button type="submit" class="btn btn-primary btn-sm">{% translate "Contratar" %}</button></form></li>
-  {% empty %}<li class="card empty-state sm:col-span-2">{% translate "Nenhuma oferta disponível." %}</li>{% endfor %}
+  {% empty %}<li class="card sm:col-span-2">{% include "skeleton/web/components/empty-state.html" with message=_("Nenhuma oferta disponível.") icon="billing"|concept_icon %}</li>{% endfor %}
   </ul>
 </section>
 

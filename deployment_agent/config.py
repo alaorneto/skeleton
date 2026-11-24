@@ -46,8 +46,8 @@ def effective_runtime_database(runtime: Mapping[str, str]) -> str | None:
     return effective_runtime_setting(runtime, "DATABASE_URL")
 
 
-def installed_bundled_app_ids(config: "Config | Mapping[str, Any]") -> tuple[str, ...]:
-    """App IDs of the first-party apps the runtime installs (SKELETON_BUNDLED_APPS, #254)."""
+def opted_in_bundled_names(config: "Config | Mapping[str, Any]") -> tuple[str, ...]:
+    """Names of the first-party apps the operator opted in (SKELETON_BUNDLED_APPS, #254)."""
     path = config.get("runtime_env_file")
     if not path:
         return ()
@@ -56,10 +56,23 @@ def installed_bundled_app_ids(config: "Config | Mapping[str, Any]") -> tuple[str
 
     from skeleton.conf.bundled import bundled_app_ids
 
+    names = tuple(name.strip() for name in value.split(",") if name.strip())
     try:
-        return bundled_app_ids(value.split(","))
+        bundled_app_ids(names)  # An unknown name is refused, as at startup.
     except ImproperlyConfigured:
         raise AgentError("unknown_bundled_app", 409) from None
+    return names
+
+
+def installed_bundled_app_ids(config: "Config | Mapping[str, Any]") -> tuple[str, ...]:
+    """App IDs the core wheel provides to the apps: the opted-in first-party apps and every library.
+
+    A library (#793) is installed by the runtime as soon as an app depends on it, so it always
+    satisfies that dependency at the core's version.
+    """
+    from skeleton.conf.bundled import bundled_app_ids, library_app_ids
+
+    return tuple(dict.fromkeys((*bundled_app_ids(opted_in_bundled_names(config)), *library_app_ids())))
 
 
 NUMERIC_SETTINGS = ("command_timeout", "health_timeout", "catalogue_timeout", "max_upload_bytes", "minimum_free_bytes")

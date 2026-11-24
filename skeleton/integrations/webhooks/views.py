@@ -24,6 +24,7 @@ from django.views.decorators.http import require_http_methods, require_POST
 from skeleton.accounts.reauthentication import recent_authentication_required
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.tenancy.context import current_context
+from skeleton.web.confirm import Confirmation, confirmation_step
 
 from . import services
 
@@ -189,7 +190,41 @@ def _revision(request):
         return -1
 
 
+def _endpoint_confirmation(organization_id, endpoint, **texts):
+    return Confirmation(
+        subject=endpoint.name,
+        cancel_url=reverse("integrations:webhook", kwargs={"organization_id": organization_id, "sysid": endpoint.pk}),
+        hidden={"revision": endpoint.revision},
+        context={"organization_id": organization_id},
+        **texts,
+    )
+
+
+def _describe_rotate(request, organization_id, sysid):
+    return _endpoint_confirmation(
+        organization_id,
+        _endpoint(sysid),
+        title=gettext("Rotacionar o segredo"),
+        message=gettext(
+            "Um segredo novo passa a assinar as entregas. O anterior continua valendo por 24 horas: "
+            "troque-o no receptor nesse prazo, ou ele passa a recusar as entregas."
+        ),
+        submit_label=gettext("Rotacionar segredo"),
+    )
+
+
+def _describe_delete(request, organization_id, sysid):
+    return _endpoint_confirmation(
+        organization_id,
+        _endpoint(sysid),
+        title=gettext("Remover webhook"),
+        message=gettext("O endereço deixa de receber eventos desta organização na hora. Não há como desfazer."),
+        submit_label=gettext("Remover webhook"),
+    )
+
+
 @integrations_page
+@confirmation_step(_describe_rotate)
 @require_POST
 @recent_authentication_required
 @transaction.atomic
@@ -205,6 +240,7 @@ def endpoint_rotate(request, organization_id, sysid):
 
 
 @integrations_page
+@confirmation_step(_describe_delete)
 @require_POST
 @recent_authentication_required
 @transaction.atomic

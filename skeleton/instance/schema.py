@@ -9,7 +9,7 @@ environment only and are deliberately absent here.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 BOOL_TRUE = {"true", "on", "ok", "y", "yes", "1"}
 BOOL_FALSE = {"false", "off", "n", "no", "0", ""}
@@ -226,6 +226,8 @@ class SettingSpec:
     validate: Callable[[str], str]
     secret: bool = False
     required_for_setup: bool = False
+    # Section of /platform/instance/ (#779): presentation only, one of SETTING_GROUPS.
+    group: str = ""
 
     def clean(self, value: str) -> str:
         if not isinstance(value, str):
@@ -474,7 +476,11 @@ _SPECS = (
         "transfer_retention_days", "SKELETON_TRANSFER_RETENTION_DAYS", "int", "Retenção dos arquivos CSV", _int(1)
     ),
     SettingSpec(
-        "bundled_apps", "SKELETON_BUNDLED_APPS", "list", "Apps first-party do núcleo instaladas (nomes)", _list
+        "bundled_apps",
+        "SKELETON_BUNDLED_APPS",
+        "list",
+        "Apps first-party do núcleo instaladas (nomes); bibliotecas exigidas por uma app entram sozinhas",
+        _list,
     ),
     SettingSpec(
         "bundled_retained",
@@ -575,8 +581,132 @@ _SPECS = (
     SettingSpec("files_s3_endpoint", "SKELETON_FILES_S3_ENDPOINT", "str", "Endpoint S3", _required_text),
 )
 
-CATALOG: dict[str, SettingSpec] = {spec.key: spec for spec in _SPECS}
-BY_ENV: dict[str, SettingSpec] = {spec.env: spec for spec in _SPECS}
+# Sections of the instance configuration page, in order (#779). Every key is in exactly one.
+SETTING_GROUPS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    (
+        "security",
+        "Segurança e acesso",
+        (
+            "secret_key",
+            "allowed_hosts",
+            "csrf_trusted_origins",
+            "health_host",
+            "trust_proxy",
+            "trusted_proxy_count",
+            "trusted_client_ip_header",
+            "require_admin_mfa",
+            "require_mfa",
+            "public_signup",
+            "organization_signup_enabled",
+            "organization_signup_max_per_person",
+            "sso_provider_config_path",
+        ),
+    ),
+    (
+        "encryption",
+        "Chaves de cifra",
+        (
+            "mfa_encryption_keys",
+            "identity_provider_encryption_keys",
+            "integration_encryption_keys",
+            "billing_encryption_keys",
+            "remote_instance_encryption_keys",
+            "files_storage_encryption_keys",
+        ),
+    ),
+    (
+        "database",
+        "Banco e cache",
+        ("database_url", "database_transaction_pooler", "database_conn_max_age", "cache_url", "cache_key_prefix"),
+    ),
+    (
+        "addresses",
+        "Endereços, idioma e fuso",
+        (
+            "public_url",
+            "organization_base_domain",
+            "organization_custom_domains",
+            "default_language",
+            "default_timezone",
+        ),
+    ),
+    (
+        "messaging",
+        "Email e push",
+        (
+            "email_url",
+            "default_from_email",
+            "webpush_vapid_private_key_file",
+            "webpush_vapid_subject",
+            "webpush_allowed_hosts",
+        ),
+    ),
+    (
+        "files",
+        "Arquivos",
+        (
+            "files_backend",
+            "files_root",
+            "files_shared",
+            "files_s3_bucket",
+            "files_s3_region",
+            "files_s3_endpoint",
+            "files_scanner",
+            "files_clamav_address",
+            "upload_max_bytes",
+            "files_org_quota_bytes",
+            "files_deleted_retention_days",
+        ),
+    ),
+    (
+        "limits",
+        "Limites e retenção",
+        (
+            "organization_member_limit",
+            "json_max_bytes",
+            "package_max_bytes",
+            "export_max_rows",
+            "import_max_rows",
+            "transfer_retention_days",
+            "event_retention_days",
+            "flows_form_retention_days",
+            "job_succeeded_retention_days",
+            "job_dead_retention_days",
+            "webhook_retention_days",
+            "notification_read_retention_days",
+            "notification_unread_retention_days",
+            "notification_delivery_retention_days",
+        ),
+    ),
+    (
+        "api",
+        "Tokens de API",
+        ("api_token_max_days", "api_token_max_per_owner", "api_token_rate_per_minute", "api_token_failures_per_minute"),
+    ),
+    (
+        "billing",
+        "Cobrança",
+        (
+            "billing_enabled",
+            "billing_default_currency",
+            "billing_invoice_prefix",
+            "billing_payment_terms_days",
+            "billing_grace_days",
+            "billing_suspend_after_days",
+            "billing_cancel_after_days",
+            "billing_retry_schedule_days",
+            "billing_pending_payment_hold_days",
+            "billing_trial_requires_payment_method",
+            "billing_usage_retention_days",
+        ),
+    ),
+    ("apps", "Aplicativos e atualizações", ("bundled_apps", "bundled_retained", "update_repository")),
+    ("observability", "Observabilidade", ("insights_enabled", "metrics_token", "sentry_dsn")),
+)
+_GROUP_OF = {key: group for group, _, keys in SETTING_GROUPS for key in keys}
+_GROUPED = tuple(replace(spec, group=_GROUP_OF.get(spec.key, "")) for spec in _SPECS)
+CATALOG: dict[str, SettingSpec] = {spec.key: spec for spec in _GROUPED}
+BY_ENV: dict[str, SettingSpec] = {spec.env: spec for spec in _GROUPED}
 
 # Never stored in the instance SQLite: they locate it, or must not persist (owner credential).
 BOOTSTRAP_ENV = (

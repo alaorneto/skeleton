@@ -1,6 +1,6 @@
 {
   "manifest_version": 2,
-  "kind": "bundled_app",
+  "kind": "bundled_library",
   "app_id": "org.skeleton.ledger",
   "app_label": "skeleton_ledger",
   "package_name": "ledger",

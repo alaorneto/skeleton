@@ -22,7 +22,7 @@
     {% if group.more_url %}<p class="mt-4"><a class="btn btn-secondary btn-sm" href="{{ group.more_url }}">{% translate "Ver todos os resultados" %}</a></p>{% endif %}
   </section>
   {% empty %}
-  <p class="empty-state card">{% translate "Nenhum resultado." %}</p>
+  <div class="card">{% include "skeleton/web/components/empty-state.html" with message=_("Nenhum resultado.") %}</div>
   {% endfor %}
 </div>
 {% endif %}

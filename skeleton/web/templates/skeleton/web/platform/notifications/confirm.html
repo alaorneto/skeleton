@@ -7,7 +7,7 @@
 </div>
 <form method="post" class="card">
   {% csrf_token %}<input type="hidden" name="revision" value="{{ revision|default_if_none:'' }}">
-  {% if error %}<div class="error-summary mb-4" role="alert" tabindex="-1" data-error-summary><h2>{% include "skeleton/web/components/icon.html" with name="error" class="size-5 shrink-0" %}{% translate "Não foi possível concluir" %}</h2><p class="mt-1">{{ error }}</p></div>{% endif %}
+  {% include "skeleton/web/components/error-summary.html" with message=error extra_class="mb-4" %}
   <p class="confirmation">{{ message }}</p>
   <div class="form-actions"><button type="submit" class="btn {{ submit_class|default:'btn-danger' }}">{{ submit_label }}</button><a class="btn btn-secondary" href="{{ cancel_url }}">{% translate "Cancelar" %}</a></div>
 </form>

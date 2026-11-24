@@ -9,11 +9,11 @@
     <p class="page-description">{% if kind.description %}{{ kind.description }}{% else %}{% translate "Como este aviso é enviado aos membros da organização." %}{% endif %}</p>
   </div>
 </div>
-{% if errors %}<div class="error-summary mb-6" role="alert" tabindex="-1" data-error-summary><h2>{% include "skeleton/web/components/icon.html" with name="error" class="size-5 shrink-0" %}{% translate "Verifique os dados informados" %}</h2><ul>{% for name, items in errors.items %}{% for error in items %}<li>{{ error }}</li>{% endfor %}{% endfor %}</ul></div>{% endif %}
+{% include "skeleton/web/components/error-summary.html" with title=_("Verifique os dados informados") errors=error_list extra_class="mb-6" %}
 
 <section class="card" aria-labelledby="org-sending-heading">
   <h2 id="org-sending-heading" class="section-heading">{% translate "Envio" %}</h2>
-  <p class="text-sm/6 text-body">{% if config.enabled %}{{ "enabled"|status_badge }}{% else %}{{ "disabled"|status_badge }}{% endif %}{% if kind.mandatory %} <span class="badge">{% translate "Obrigatório" %}</span>{% endif %}{% if config.locked_enabled %} <span class="badge">{% translate "Definido pela plataforma" %}</span>{% endif %}</p>
+  <p class="text-sm/6 text-body">{% if config.enabled %}{{ "enabled"|status_badge:"notifications" }}{% else %}{{ "disabled"|status_badge:"notifications" }}{% endif %}{% if kind.mandatory %} {{ "mandatory"|marker }}{% endif %}{% if config.locked_enabled %} {{ "platform_defined"|marker }}{% endif %}</p>
   <p class="mt-2 text-sm/6 text-body">
   {% if config.reason == "mandatory" %}{% translate "Aviso obrigatório: sempre chega a quem deve recebê-lo." %}
   {% elif config.reason == "platform_type" %}{% translate "Definido pela plataforma. Cada pessoa ainda escolhe como recebe nas preferências." %}

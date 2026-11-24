@@ -11,7 +11,7 @@ O administrador da plataforma trava uma configuração de uma organização com 
 | `organization.display_name`, `default_language`, `default_timezone`, `brand_color`, `business_hours`, `holidays`, `site_enabled` | Os campos de `OrganizationSettings` |
 | `organization.logo`, `organization.icon` | A imagem atual: trocar e remover ficam recusados |
 | `admission.discoverable`, `join_requests_enabled`, `join_links_enabled`, `signup_via_link_enabled`, `domain_join_enabled` | A política de admissão |
-| `apps.<app_label>.enabled` | A ativação da app (verdadeiro: a organização não a desliga; falso: não a liga) |
+| `apps.<app_label>.enabled` | A ativação da app (verdadeiro: a organização não a desliga; falso: não a liga). Uma biblioteca first-party (#792) não tem trava: segue as apps que a usam |
 | `notifications.<tipo>.enabled` | Um aviso de organização ou de app não obrigatório: ligado ou desligado para todos os membros ([notificações](notifications.md#configuração-da-organização)) |
 | `notifications.<tipo>.text` | O texto do aviso: trocar e restaurar ficam recusados |
 | `apps.<app_label>.<campo>` | Um campo de configuração da app gerido pela organização |

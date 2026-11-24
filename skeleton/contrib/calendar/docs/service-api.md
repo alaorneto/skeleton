@@ -4,12 +4,12 @@
 `CalendarService` é o contrato em processo da agenda (#111). Outras apps o usam para ler calendários e ocorrências, criar, alterar e cancelar eventos e consultar horários ocupados, sempre com a autorização do ator que está no contexto. As páginas da própria agenda usam o mesmo serviço.
 
 ## Dependência
-`app_id`: `org.skeleton.calendar`. Faixa recomendada: `{"org.skeleton.calendar": ">=0.6.0,<0.7.0"}`. Importe só `skeleton.contrib.calendar.service_api`.
+`app_id`: `org.skeleton.calendar`. Faixa recomendada: `{"org.skeleton.calendar": ">=0.6.0,<0.7.0"}`. Importe só `skeleton.contrib.calendar.service_api`. É uma biblioteca first-party (#792): instalada com a app que a declara (#793), sem disponibilidade nem ativação próprias, e efetiva onde essa app está ativa.
 
 ## Serviços
 
 ### `CalendarService`
-Todos os métodos exigem a app ativa na organização (`Unavailable`), o contexto tenant aberto pelo chamador e `actor` igual ao ator do contexto (`Forbidden`); só os três métodos de eventos gerenciados e `claim_calendar` também aceitam `actor=None` dentro de `system_context` da organização. Nenhum abre `system_context`, faz commit ou executa efeito externo. O mascaramento vale também aqui: um evento privado, ou qualquer evento do calendário pessoal de outra pessoa sem delegação, sai como "Ocupado", sem título, descrição nem local.
+Todos os métodos exigem a agenda efetiva na organização, isto é, uma app ativa ali que dependa dela (`Unavailable`), o contexto tenant aberto pelo chamador e `actor` igual ao ator do contexto (`Forbidden`); só os três métodos de eventos gerenciados e `claim_calendar` também aceitam `actor=None` dentro de `system_context` da organização. Nenhum abre `system_context`, faz commit ou executa efeito externo. O mascaramento vale também aqui: um evento privado, ou qualquer evento do calendário pessoal de outra pessoa sem delegação, sai como "Ocupado", sem título, descrição nem local.
 
 #### `my_calendars(*, actor) -> tuple[CalendarInfo, ...]`
 Calendários que o ator lê, o pessoal padrão primeiro (criado na primeira chamada).
@@ -169,6 +169,7 @@ Os métodos gerais (`update_event`, `cancel_event`, `delete_event`, `edit_occurr
 - `ReminderInfo`: `sysid`, `event_id`, `minutes_before`, `channel_hint`, `revision`.
 
 ## Histórico de versões
+- 0.7.0: a agenda é uma biblioteca first-party (#792, #793): os métodos exigem uma app ativa na organização que dependa dela, em vez da ativação da agenda; contratos e DTOs não mudam.
 - 0.1.0 (primeira versão do núcleo, #569): `my_calendars`, `upcoming`, `create_event`, `update_event`, `cancel_event`, `free_busy`.
 - 0.1.0, também: `EventOccurrence.start_date` e `end_date` (#312) e `CalendarInfo.writable`, campos com valor padrão; `event`, `delete_event`, `edit_occurrence`, `cancel_occurrence`, `attendees`, `invite`, `remove_attendee`, `respond`, `reminders`, `add_reminder` e `remove_reminder`, com `AttendeeInfo` e `ReminderInfo` (#344). Uma `idempotency_key` repetida em corrida devolve o evento já criado. Eventos gerenciados (#537): `put_managed_event`, `remove_managed_event`, `managed_event`, `EventInfo.source_app`/`source_path` e `EventOccurrence.source_app`/`source_path` (campos com valor padrão), `Conflict("managed_event")` nos métodos gerais. Disponibilidade (#538): `free_busy(include_attending=...)`, com padrão compatível, e `calendar_busy` com `CalendarBusyBlock`. Calendários de atendimento (#539): `calendars` e `create_shared_calendar`.
 - 0.6.0: eventos gerenciados pelo portal (#741): `put_managed_event`, `remove_managed_event` e `managed_event` aceitam o contexto externo só de um método `allow_external` da app que gerencia o calendário; nada muda fora do portal.

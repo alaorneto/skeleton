@@ -1,11 +1,11 @@
-{% load i18n skeleton_format %}<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Nome" %}</th><th scope="col">{% translate "Prefixo" %}</th><th scope="col">{% translate "Escopos" %}</th><th scope="col" class="col-date">{% translate "Válido até" %}</th><th scope="col" class="col-date">{% translate "Último uso" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
+{% load i18n skeleton_format %}<div class="table-scroll table-stack"><table><thead><tr><th scope="col">{% translate "Nome" %}</th><th scope="col">{% translate "Prefixo" %}</th><th scope="col">{% translate "Escopos" %}</th><th scope="col" class="col-date">{% translate "Válido até" %}</th><th scope="col" class="col-date">{% translate "Último uso" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
 {% for token in tokens %}<tr>
-  <td><span class="cell-primary">{{ token.name }}</span>{% if token.kind == "feed" %} <span class="badge">{% translate "Feed" %}</span>{% endif %}</td>
-  <td><code>skt_{{ token.prefix }}_…</code></td>
-  <td>{{ token.scopes|join:", " }}</td>
-  <td class="col-date">{{ token.expires_at|moment }}</td>
-  <td class="col-date">{{ token.last_used_at|moment }}</td>
-  <td>{% if token.expires_at < now %}{{ "expired"|status_badge }}{% elif not token.usable %}{{ "inactive"|status_badge:_("Inválido") }}{% else %}{{ "active"|status_badge }}{% endif %}</td>
-  <td class="col-actions"><form method="post" action="{{ token.revoke_url }}" class="row-actions">{% csrf_token %}<input type="hidden" name="revision" value="{{ token.revision }}"><button type="submit" class="btn btn-danger-outline btn-sm">{% include "skeleton/web/components/icon.html" with name="trash" %}{% translate "Revogar" %}</button></form></td>
-</tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=7 message=_("Nenhum token.") icon="key" %}{% endfor %}
+  <td data-label="{% translate "Nome" %}"><span class="cell-primary">{{ token.name }}</span>{% if token.kind == "feed" %}<span class="cell-secondary">{% translate "Token de feed" %}</span>{% endif %}</td>
+  <td data-label="{% translate "Prefixo" %}"><code>skt_{{ token.prefix }}_…</code></td>
+  <td data-label="{% translate "Escopos" %}">{{ token.scopes|join:", " }}</td>
+  <td data-label="{% translate "Válido até" %}" class="col-date">{{ token.expires_at|moment }}</td>
+  <td data-label="{% translate "Último uso" %}" class="col-date">{{ token.last_used_at|moment }}</td>
+  <td data-label="{% translate "Estado" %}">{% if token.expires_at < now %}{{ "expired"|status_badge }}{% elif not token.usable %}{{ "inactive"|status_badge:_("Inválido") }}{% else %}{{ "active"|status_badge }}{% endif %}</td>
+  <td data-label="" class="col-actions"><form method="post" action="{{ token.revoke_url }}" class="row-actions">{% csrf_token %}<input type="hidden" name="revision" value="{{ token.revision }}"><button type="submit" class="btn btn-danger-outline btn-sm">{% include "skeleton/web/components/icon.html" with name="trash" %}{% translate "Revogar" %}</button></form></td>
+</tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=7 message=_("Nenhum token.") icon="api_tokens"|concept_icon %}{% endfor %}
 </tbody></table></div>

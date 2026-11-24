@@ -1,7 +1,7 @@
 {% extends "skeleton/web/platform/base.html" %}
 {% load i18n skeleton_format %}{% block page_title %}{% translate "Jobs" %}{% endblock %}
 {% block content %}
-<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Operação" %}</p><h1>{% translate "Jobs" %}</h1><p class="page-description">{% translate "Fila de trabalho em segundo plano de todas as organizações. A tela mostra tipo, fila, organização, estado e código de erro, nunca o payload. Um job esgotado pode ser reenviado ou descartado." %}</p></div></div>
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Operação" %}</p><h1>{% translate "Jobs" %}</h1><p class="page-description">{% translate "Tarefas em segundo plano de todas as organizações. Um job esgotado pode ser reenviado ou descartado." %}</p></div></div>
 <dl class="stat-grid">
   {% include "skeleton/web/components/stat.html" with label=_("Na fila") value=counts.queued key="queued" %}
   {% blocktranslate asvar lag with seconds=health.oldest_due_lag_s|floatformat:0 %}{{ seconds }} s{% endblocktranslate %}{% include "skeleton/web/components/stat.html" with label=_("Atraso do mais antigo") value=lag key="lag" %}
@@ -27,7 +27,7 @@
   <td class="col-date">{{ job.finished_at|moment }}</td>
   <td class="col-actions">{% if job.state == dead_state %}<form method="post" action="{% url 'platform:job-action' job.pk %}" class="row-actions">{% csrf_token %}<input type="hidden" name="expected_updated_at" value="{{ job.updated_at.isoformat }}"><button type="submit" name="action" value="resend" class="btn btn-secondary btn-sm">{% include "skeleton/web/components/icon.html" with name="refresh" %}{% translate "Reenviar" %}</button><button type="submit" name="action" value="discard" class="btn btn-danger-outline btn-sm">{% include "skeleton/web/components/icon.html" with name="trash" %}{% translate "Descartar" %}</button></form>{% endif %}</td>
 </tr>
-{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=9 message=_("Nenhum job encontrado.") icon="clock" %}{% endfor %}
+{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=9 message=_("Nenhum job encontrado.") icon="jobs"|concept_icon %}{% endfor %}
 </tbody></table></div>
 {% include "skeleton/web/pagination.html" %}
 {% endblock %}

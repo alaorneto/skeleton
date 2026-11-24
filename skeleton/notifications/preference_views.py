@@ -25,6 +25,20 @@ from .models import DEFAULT_TYPE
 HOURS = tuple(range(24))
 
 
+def group_rows(rows):
+    """``(default_row, [{"label", "rows"}])``: the row for every type apart, the others by context.
+
+    The cards of the page (#778) follow the context each type declares (#790): the platform's,
+    the organization's, then one card per app, by name (``skeleton.notifications.catalog``).
+    """
+    from .catalog import group_types
+
+    default = next((row for row in rows if row["type_code"] == DEFAULT_TYPE), None)
+    others = [row for row in rows if row["type_code"] != DEFAULT_TYPE]
+    groups = group_types(others, kind_of=lambda row: row["kind"])
+    return default, [{"label": group.label, "rows": group.items} for group in groups]
+
+
 def _item(line, channel):
     from .registry import type_context
 
@@ -228,6 +242,9 @@ def preferences_page(request):
                     "source": line.channels[channel][0].source,
                     "revision": line.channels[channel][1].revision if line.channels[channel][1] else "",
                     "modes": preferences.MODES[channel],
+                    "channel_label": dict(preferences.CHANNEL_LABELS)[channel],
+                    "options": [(mode, dict(preferences.MODE_LABELS)[mode]) for mode in preferences.MODES[channel]],
+                    "digest": line.channels[channel][0].mode in ("daily", "weekly"),
                     "locked": line.mandatory and channel == "in_app",
                     "unavailable": channel in line.unavailable,
                     "mode_name": _field("mode", line.type_code, channel),
@@ -239,17 +256,14 @@ def preferences_page(request):
         }
         for line in lines
     ]
-    from .catalog import group_types
-
-    default_rows = [row for row in rows if row["type_code"] == DEFAULT_TYPE]
-    groups = group_types([row for row in rows if row["type_code"] != DEFAULT_TYPE], kind_of=lambda row: row["kind"])
+    default_row, groups = group_rows(rows)
     return render(
         request,
         "account/notification_preferences.html",
         {
             "title": gettext("Notificações"),
             "rows": rows,
-            "default_rows": default_rows,
+            "default_row": default_row,
             "groups": groups,
             "errors": errors,
             "hours": HOURS,

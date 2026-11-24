@@ -184,7 +184,7 @@ def open_followup_task(invoice, *, actor):
 
 O manifesto de `billing` declara `com.example.tasks` em `dependencies`. Não há dependência opcional: se a integração só funciona com a outra app presente, ela é declarada, e a ausência por organização é tratada com `Unavailable`.
 
-Uma app first-party, como a agenda, é declarada do mesmo modo, pelo `app_id` e com a faixa da versão do core: `"dependencies": {"org.skeleton.calendar": ">=0.6.0,<0.7.0"}`. A dependência só é satisfeita quando a instância instala a agenda (`SKELETON_BUNDLED_APPS=calendar`); vale para apps do projeto e para apps empacotadas ([extensão](extending.md#apps-first-party-do-núcleo-skeletoncontrib), #254).
+Uma app first-party, como a agenda, é declarada do mesmo modo, pelo `app_id` e com a faixa da versão do core: `"dependencies": {"org.skeleton.calendar": ">=0.6.0,<0.7.0"}`. A agenda e o livro contábil são bibliotecas first-party (#792): a dependência sempre é satisfeita, porque a biblioteca é instalada com a app (#793), e fica efetiva onde a app está ativa, sem ativação própria; vale para apps do projeto e para apps empacotadas ([extensão](extending.md#apps-first-party-do-núcleo-skeletoncontrib), #254).
 
 ## Superfícies públicas do núcleo para apps
 
@@ -207,6 +207,7 @@ Uma app pode importar do núcleo apenas os nomes abaixo. A coluna "Uso" é a lis
 | `skeleton.access.derivation` | `is_authorizable` e `is_derived`: se uma tabela é autorizada direto ou pelo `access_parent` ([tabelas derivadas](access-control.md#tabelas-derivadas)) |
 | `skeleton.tenancy.context` | `current_context` (leitura) e `command_context`, só em `management/commands/` da app (#576): abre o contexto de sistema sem organização de um comando do operador, o único em que uma [tabela global da app](table-catalog.md#tabelas-globais-de-apps) aceita escrita, e é recusado dentro de qualquer contexto já aberto (requisição, tenant, sistema, job, consumidor). `system_context`, `tenant_context` e `request_context` não: o contexto é aberto pelo middleware, pelo worker ou pelo kit de testes, nunca pela app |
 | `skeleton.web.views` | `tenant_page` |
+| `skeleton.web.confirm` | `Confirmation`, `confirmation_step`: a página de confirmação de uma ação irreversível, com a mesma autorização do POST ([interface](ui-design.md#ações-pela-intenção)) |
 | `skeleton.api.views` | `TenantAPI` e `request_fields` (o objeto de campos do corpo) |
 | `skeleton.api.openapi` | `Operation` e construtores de schema para o atributo `openapi` das views de API da app ([OpenAPI](api.md#schema-openapi)) |
 | `skeleton.jobs.registry`, `skeleton.jobs.periodic` | `JobType`, `register_job_type`, `register_periodic` em `ready()`; enfileirar é pelo `JobService` |

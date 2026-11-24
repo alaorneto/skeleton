@@ -66,11 +66,12 @@ def test_inactive_membership_and_disabled_app_drop_the_organization(agenda, logi
     html = client.get(URL).content.decode()
     assert "Bob em A" not in html and "Bob em B" in html
     from skeleton.system.applications import application_state, configure_application
+    from skeleton.testing.applications import LIBRARY_CONSUMER
 
     with actor_tenant(agenda.bob, agenda.b):
-        state = application_state("skeleton_calendar")
+        state = application_state(LIBRARY_CONSUMER)
         configure_application(
-            "skeleton_calendar",
+            LIBRARY_CONSUMER,
             user=agenda.bob,
             enabled=False,
             configuration=state["configuration"],

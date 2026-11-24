@@ -1,5 +1,5 @@
 {% extends "skeleton/web/platform/base.html" %}
-{% load i18n %}{% block page_title %}{% blocktranslate trimmed with name=theme_name %}Pré-visualização: {{ name }}{% endblocktranslate %}{% endblock %}
+{% load i18n skeleton_format %}{% block page_title %}{% blocktranslate trimmed with name=theme_name %}Pré-visualização: {{ name }}{% endblocktranslate %}{% endblock %}
 {% block theme_link %}<link rel="stylesheet" href="{{ preview_css_url }}{% if color_scheme %}{% if "?" in preview_css_url %}&amp;{% else %}?{% endif %}scheme={{ color_scheme }}{% endif %}">{% endblock %}
 {% block content %}
 <div class="max-w-4xl">
@@ -23,7 +23,7 @@
 <section id="preview-components" class="card mb-6" aria-labelledby="preview-buttons">
   <h2 id="preview-buttons" class="section-heading">{% translate "Botões e selos" %}</h2>
   <div class="toolbar mb-4"><button type="button" class="btn btn-primary">{% translate "Principal" %}</button><button type="button" class="btn btn-secondary">{% translate "Secundário" %}</button><button type="button" class="btn btn-danger">{% translate "Perigo" %}</button><a href="#preview-components">{% translate "Um link" %}</a></div>
-  <p class="toolbar"><span class="badge badge-brand">{% translate "marca" %}</span><span class="badge badge-success">{% translate "ativo" %}</span><span class="badge badge-warning">{% translate "pendente" %}</span><span class="badge badge-danger">{% translate "erro" %}</span><span class="badge">{% translate "neutro" %}</span></p>
+  <p class="toolbar">{{ "running"|status_badge }}{{ "active"|status_badge }}{{ "pending"|status_badge }}{{ "failed"|status_badge }}{{ "draft"|status_badge }}{{ "mandatory"|marker }}<span class="counter">3</span></p>
 </section>
 <section class="mb-6" aria-labelledby="preview-alerts">
   <h2 id="preview-alerts" class="section-heading">{% translate "Mensagens" %}</h2>
@@ -35,9 +35,9 @@
 </section>
 <section id="preview-table" class="mb-6" aria-labelledby="preview-table-heading">
   <h2 id="preview-table-heading" class="section-heading">{% translate "Tabela" %}</h2>
-  <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Nome" %}</th><th scope="col">{% translate "Situação" %}</th></tr></thead><tbody>
-  <tr><td><a class="cell-primary" href="#preview-table">{% translate "Registro de exemplo" %}</a></td><td><span class="badge badge-success">{% translate "ativo" %}</span></td></tr>
-  <tr><td><a class="cell-primary" href="#preview-table">{% translate "Outro registro" %}</a></td><td><span class="badge">{% translate "rascunho" %}</span></td></tr>
+  <div class="table-scroll table-stack"><table><thead><tr><th scope="col">{% translate "Nome" %}</th><th scope="col">{% translate "Situação" %}</th></tr></thead><tbody>
+  <tr><td data-label="{% translate "Nome" %}"><a class="cell-primary" href="#preview-table">{% translate "Registro de exemplo" %}</a></td><td data-label="{% translate "Situação" %}">{{ "active"|status_badge }}</td></tr>
+  <tr><td data-label="{% translate "Nome" %}"><a class="cell-primary" href="#preview-table">{% translate "Outro registro" %}</a></td><td data-label="{% translate "Situação" %}">{{ "draft"|status_badge }}</td></tr>
   </tbody></table></div>
 </section>
 <section id="preview-form" class="card mb-6" aria-labelledby="preview-form-heading">
@@ -50,7 +50,7 @@
 </section>
 <section class="card" aria-labelledby="preview-menu">
   <h2 id="preview-menu" class="section-heading">{% translate "Menu lateral" %}</h2>
-  <ul class="sidebar-list"><li><a class="sidebar-link" href="#preview-menu" aria-current="page">{% include "skeleton/web/components/icon.html" with name="home" %}{% translate "Item ativo" %}</a></li><li><a class="sidebar-link" href="#preview-menu">{% include "skeleton/web/components/icon.html" with name="users" %}{% translate "Outro item" %}</a></li></ul>
+  <ul class="sidebar-list"><li><a class="sidebar-link" href="#preview-menu" aria-current="page">{% include "skeleton/web/components/icon.html" with name="home"|concept_icon %}{% translate "Item ativo" %}</a></li><li><a class="sidebar-link" href="#preview-menu">{% include "skeleton/web/components/icon.html" with name="people"|concept_icon %}{% translate "Outro item" %}</a></li></ul>
 </section>
 </div>
 {% endblock %}

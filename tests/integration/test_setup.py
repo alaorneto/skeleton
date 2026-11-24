@@ -571,7 +571,7 @@ def test_email_step_can_wait_outside_production(setup_mode):
     after = client.get("/setup/storage/").content.decode()
     assert "E-mail ficou para depois" in after
     overview = client.get("/setup/").content.decode()
-    assert '<span class="badge badge-warning">depois</span>' in overview
+    assert '<span class="badge badge-warning badge-dot">Depois</span>' in overview
     for name in ("instance", "database", "schema", "storage", "admin"):
         setup_mode.put_setup_state(f"step:{name}", "done")
     finish = client.get("/setup/finish/").content.decode()

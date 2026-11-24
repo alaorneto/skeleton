@@ -11,14 +11,14 @@
   <nav class="toolbar" aria-label="{% translate "Ações" %}"><a class="btn btn-primary" href="{% url 'platform:announcement-create' %}">{% include "skeleton/web/components/icon.html" with name="plus" %}{% translate "Novo comunicado" %}</a></nav>
 </div>
 {% include "skeleton/web/platform/notifications/_tabs.html" %}
-<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Comunicado" %}</th><th scope="col">{% translate "Quem recebe" %}</th><th scope="col" class="col-num">{% translate "Organizações" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col" class="col-date">{% translate "Enviado em" %}</th></tr></thead><tbody>
+<div class="table-scroll table-stack"><table><thead><tr><th scope="col">{% translate "Comunicado" %}</th><th scope="col">{% translate "Quem recebe" %}</th><th scope="col" class="col-num">{% translate "Organizações" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col" class="col-date">{% translate "Enviado em" %}</th></tr></thead><tbody>
 {% for record in rows %}<tr>
-  <td><a class="cell-primary" href="{% url 'platform:announcement' record.pk %}">{{ record.title }}</a></td>
-  <td>{{ record.get_audience_display }}</td>
-  <td class="col-num">{% if record.state == "sent" %}{{ record.organization_count }}{% elif record.organizations %}{{ record.organizations|length }}{% else %}{% translate "Todas" %}{% endif %}</td>
-  <td>{{ record.state|status_badge:"announcement" }}</td>
-  <td class="col-date">{{ record.sent_at|moment }}</td>
-</tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=5 message=_("Nenhum comunicado.") hint=_("Escreva um comunicado para avisar as organizações.") icon="bell" %}{% endfor %}
+  <td data-label="{% translate "Comunicado" %}"><a class="cell-primary" href="{% url 'platform:announcement' record.pk %}">{{ record.title }}</a></td>
+  <td data-label="{% translate "Quem recebe" %}">{{ record.get_audience_display }}</td>
+  <td data-label="{% translate "Organizações" %}" class="col-num">{% if record.state == "sent" %}{{ record.organization_count }}{% elif record.organizations %}{{ record.organizations|length }}{% else %}{% translate "Todas" %}{% endif %}</td>
+  <td data-label="{% translate "Estado" %}">{{ record.state|status_badge:"announcement" }}</td>
+  <td data-label="{% translate "Enviado em" %}" class="col-date">{{ record.sent_at|moment }}</td>
+</tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=5 message=_("Nenhum comunicado.") hint=_("Escreva um comunicado para avisar as organizações.") icon="notifications"|concept_icon %}{% endfor %}
 </tbody></table></div>
 {% if rows.paginator.num_pages > 1 %}{% include 'skeleton/web/pagination.html' %}{% endif %}
 </div>

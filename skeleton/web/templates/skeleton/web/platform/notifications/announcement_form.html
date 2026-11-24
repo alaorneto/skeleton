@@ -9,7 +9,7 @@
     <p class="page-description">{% translate "O comunicado chega na caixa de notificações de quem você escolher e, para quem não desligou, por email." %}</p>
   </div>
 </div>
-{% if errors %}<div class="error-summary mb-6" role="alert" tabindex="-1" data-error-summary><h2>{% include "skeleton/web/components/icon.html" with name="error" class="size-5 shrink-0" %}{% translate "Verifique os dados informados" %}</h2><ul>{% for name, items in errors.items %}{% for error in items %}<li>{{ error }}</li>{% endfor %}{% endfor %}</ul></div>{% endif %}
+{% include "skeleton/web/components/error-summary.html" with title=_("Verifique os dados informados") errors=error_list extra_class="mb-6" %}
 <form method="post" class="card">
   {% csrf_token %}<input type="hidden" name="revision" value="{% if record %}{{ record.revision }}{% endif %}">
   <p class="text-sm text-body-subtle">{% translate "Campos com * são obrigatórios." %}</p>

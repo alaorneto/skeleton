@@ -4,7 +4,7 @@ Only presentation data is produced here. Every target view keeps enforcing its o
 authorization; a link shown here never grants access.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from django.conf import settings
@@ -67,7 +67,8 @@ class SettingsItem:
     ``custom_domains`` (the feature on and the administrator), ``billing`` (billing on and
     ``billing.view``), ``audit`` (the administrator or the ``audit`` action on some table),
     ``member`` (any member) or ``access:<section>`` (a section of ``ACCESS_SECTIONS`` the person
-    sees). ``routes`` are the view names that mark the entry as the current one.
+    sees). ``routes`` are the view names that mark the entry as the current one. ``icon`` is a
+    concept of ``skeleton.web.icons.CONCEPT_ICONS``, never an icon name (#768).
     """
 
     url_name: str
@@ -75,6 +76,8 @@ class SettingsItem:
     icon: str
     gate: str
     routes: tuple[str, ...] = ()
+    # One line on the card of the settings hub (#780): what the person does there.
+    description: Any = ""
 
 
 # The settings area of an organization, grouped by what a person is trying to do (#621). Only the
@@ -87,14 +90,14 @@ SETTINGS_GROUPS: tuple[tuple[str, Any, tuple[SettingsItem, ...]], ...] = (
             SettingsItem(
                 "web:organization-settings",
                 gettext_lazy("Geral"),
-                "building",
+                "organization",
                 "organization_admin",
                 ("web:organization-settings", "web:organization-logo-update", "web:organization-icon-update"),
             ),
             SettingsItem(
                 "web:site-domains",
                 gettext_lazy("Domínios próprios"),
-                "globe",
+                "site_domains",
                 "custom_domains",
                 ("web:site-domains", "web:site-domain-action"),
             ),
@@ -102,7 +105,7 @@ SETTINGS_GROUPS: tuple[tuple[str, Any, tuple[SettingsItem, ...]], ...] = (
             SettingsItem(
                 "web:organization-page-public",
                 gettext_lazy("Página pública"),
-                "document",
+                "public_page",
                 "organization_admin",
                 editor_route_names("organization-page-public", "web"),
             ),
@@ -118,7 +121,7 @@ SETTINGS_GROUPS: tuple[tuple[str, Any, tuple[SettingsItem, ...]], ...] = (
             SettingsItem(
                 "notifications:organization-settings",
                 gettext_lazy("Notificações"),
-                "bell",
+                "notifications",
                 "notifications.manage",
                 (
                     "notifications:organization-settings",
@@ -134,15 +137,15 @@ SETTINGS_GROUPS: tuple[tuple[str, Any, tuple[SettingsItem, ...]], ...] = (
         "people",
         gettext_lazy("Pessoas e acesso"),
         (
-            SettingsItem("web:access-list", gettext_lazy("Pessoas"), "users", "access:people"),
-            SettingsItem("web:access-list", gettext_lazy("Grupos"), "user-group", "access:groups"),
-            SettingsItem("web:access-list", gettext_lazy("Papéis e permissões"), "key", "access:roles"),
+            SettingsItem("web:access-list", gettext_lazy("Pessoas"), "people", "access:people"),
+            SettingsItem("web:access-list", gettext_lazy("Grupos"), "groups", "access:groups"),
+            SettingsItem("web:access-list", gettext_lazy("Papéis e permissões"), "roles", "access:roles"),
             # Who must enrol MFA here (#740).
-            SettingsItem("web:organization-security", gettext_lazy("Segurança"), "shield", "organization_admin"),
+            SettingsItem("web:organization-security", gettext_lazy("Segurança"), "security", "organization_admin"),
             SettingsItem(
                 "web:external",
                 gettext_lazy("Pessoas externas"),
-                "users",
+                "external_people",
                 "external.manage",
                 ("web:external", "web:external-access-revoke", "web:external-invitation-revoke"),
             ),
@@ -155,29 +158,29 @@ SETTINGS_GROUPS: tuple[tuple[str, Any, tuple[SettingsItem, ...]], ...] = (
             SettingsItem(
                 "web:join-requests",
                 gettext_lazy("Solicitações"),
-                "envelope",
+                "join_requests",
                 "admission.decide",
                 ("web:join-requests", "web:join-request-decide"),
             ),
             SettingsItem(
                 "web:join-links",
                 gettext_lazy("Links de ingresso"),
-                "link",
+                "join_links",
                 "invitations.manage",
                 ("web:join-links", "web:join-link-revoke"),
             ),
-            SettingsItem("web:admission", gettext_lazy("Admissão"), "badge-check", "admission.configure"),
+            SettingsItem("web:admission", gettext_lazy("Admissão"), "admission", "admission.configure"),
             SettingsItem(
                 "web:verified-domains",
                 gettext_lazy("Domínios verificados"),
-                "globe",
+                "email_domains",
                 "admission.configure",
                 ("web:verified-domains", "web:verified-domain-action"),
             ),
             SettingsItem(
                 "web:identity",
                 gettext_lazy("Identidade"),
-                "shield",
+                "identity",
                 "identity.configure",
                 ("web:identity", "web:identity-admission"),
             ),
@@ -190,14 +193,14 @@ SETTINGS_GROUPS: tuple[tuple[str, Any, tuple[SettingsItem, ...]], ...] = (
             SettingsItem(
                 "application-list",
                 gettext_lazy("Aplicativos"),
-                "cube",
+                "apps",
                 "apps.manage",
                 ("application-list", "application-admin", "application-admin-screen", "application-configuration"),
             ),
             SettingsItem(
                 "integrations:webhooks",
                 gettext_lazy("Webhooks"),
-                "link",
+                "webhooks",
                 "integrations.manage",
                 (
                     "integrations:webhooks",
@@ -213,7 +216,7 @@ SETTINGS_GROUPS: tuple[tuple[str, Any, tuple[SettingsItem, ...]], ...] = (
             SettingsItem(
                 "integrations:service-accounts",
                 gettext_lazy("Contas de serviço"),
-                "key",
+                "service_accounts",
                 "integrations.manage",
                 (
                     "integrations:service-accounts",
@@ -225,7 +228,7 @@ SETTINGS_GROUPS: tuple[tuple[str, Any, tuple[SettingsItem, ...]], ...] = (
             SettingsItem(
                 "flows:operations",
                 gettext_lazy("Fluxos"),
-                "refresh",
+                "flows",
                 "flows.manage",
                 ("flows:operations", "flows:drafts", "flows:draft"),
             ),
@@ -235,8 +238,8 @@ SETTINGS_GROUPS: tuple[tuple[str, Any, tuple[SettingsItem, ...]], ...] = (
         "data",
         gettext_lazy("Dados"),
         (
-            SettingsItem("web:catalog", gettext_lazy("Tabelas"), "table", "member"),
-            SettingsItem("web:audit", gettext_lazy("Auditoria"), "clock", "audit"),
+            SettingsItem("web:catalog", gettext_lazy("Tabelas"), "tables", "member"),
+            SettingsItem("web:audit", gettext_lazy("Auditoria"), "audit", "audit"),
         ),
     ),
     (
@@ -246,12 +249,48 @@ SETTINGS_GROUPS: tuple[tuple[str, Any, tuple[SettingsItem, ...]], ...] = (
             SettingsItem(
                 "billing-overview",
                 gettext_lazy("Cobrança"),
-                "document",
+                "billing",
                 "billing",
                 ("billing-overview", "billing-action", "billing-pay"),
             ),
         ),
     ),
+)
+
+
+# What each entry of the settings hub is for, by the concept of its icon (#780).
+_SETTINGS_DESCRIPTIONS = {
+    "organization": gettext_lazy("Nome, idioma, fuso horário, marca e expediente."),
+    "site_domains": gettext_lazy("Endereços próprios da organização, comprovados por DNS."),
+    "public_page": gettext_lazy("O que quem não entrou vê no endereço da organização."),
+    "home": gettext_lazy("O que os membros veem ao abrir a organização."),
+    "people": gettext_lazy("Membros, convites e os papéis de cada pessoa."),
+    "groups": gettext_lazy("Grupos de pessoas e os papéis de cada grupo."),
+    "roles": gettext_lazy("Papéis, permissões nas tabelas e concessões de registros."),
+    "security": gettext_lazy("Quem precisa usar a autenticação em dois fatores."),
+    "external_people": gettext_lazy("Quem acessa o portal sem ser membro."),
+    "join_requests": gettext_lazy("Pedidos de entrada à espera de decisão."),
+    "join_links": gettext_lazy("Links que deixam alguém entrar com um papel."),
+    "admission": gettext_lazy("Como novas pessoas podem entrar na organização."),
+    "email_domains": gettext_lazy("Domínios de email cujas pessoas podem entrar direto."),
+    "identity": gettext_lazy("Provedores de login da organização."),
+    "apps": gettext_lazy("Apps ativas e a configuração de cada uma."),
+    "webhooks": gettext_lazy("Endereços que recebem os eventos da organização."),
+    "service_accounts": gettext_lazy("Contas usadas por integrações, com tokens de API."),
+    "flows": gettext_lazy("Processos que a organização define sem código."),
+    "tables": gettext_lazy("As tabelas que você pode consultar."),
+    "audit": gettext_lazy("O que mudou nos registros, por quem e quando."),
+    "billing": gettext_lazy("Plano, apps contratadas e faturas."),
+}
+SETTINGS_GROUPS = tuple(
+    (
+        group,
+        label,
+        tuple(
+            replace(item, description=item.description or _SETTINGS_DESCRIPTIONS.get(item.icon, "")) for item in items
+        ),
+    )
+    for group, label, items in SETTINGS_GROUPS
 )
 # Routes whose screens show the settings menu in the sidebar: the items above, their sub-routes
 # and the hub. Record screens (web:records, web:record...) keep the functional menu: apps link there.
@@ -327,6 +366,7 @@ def settings_navigation(
                 {
                     "label": item.label,
                     "icon": item.icon,
+                    "description": item.description,
                     "url": url,
                     "current": current,
                     "every_member": item.gate in EVERY_MEMBER,

@@ -2,6 +2,6 @@
   <h2 id="member-limit" class="text-base">{% translate "Membros" %}</h2>
   <p class="mt-1 text-sm/6 text-body">{% blocktranslate with used=meter.used limit=meter.limit %}{{ used }} de {{ limit }} membros{% endblocktranslate %}{% if meter.reserved %} · {% blocktranslate count reserved=meter.reserved %}{{ reserved }} convite pendente reserva uma vaga{% plural %}{{ reserved }} convites pendentes reservam vagas{% endblocktranslate %}{% endif %}</p>
   <progress class="mt-2 w-full" max="{{ meter.limit }}" value="{{ meter.taken }}" aria-label="{% translate "Vagas ocupadas" %}">{{ meter.percent }}%</progress>
-  {% if meter.over_limit %}<p class="alert alert-warning mt-3" role="status">{% translate "A organização tem mais membros que o limite atual; novas entradas estão bloqueadas." %}</p>
+  {% if meter.over_limit %}<p class="message warning mt-3" role="status">{% translate "A organização tem mais membros que o limite atual; novas entradas estão bloqueadas." %}</p>
   {% elif meter.full %}<p class="mt-2 text-sm/6 text-body-subtle">{% translate "Sem vagas: novos convites e entradas ficam bloqueados até uma vaga ser liberada ou o limite crescer." %}{% if meter.apps_url %} <a href="{{ meter.apps_url }}">{% translate "Ver os aplicativos da organização" %}</a>{% endif %}</p>{% endif %}
 </section>{% endif %}

@@ -260,6 +260,7 @@ def _detail(request, kind, *, errors=None, posted=None, status=200):
                 {"label": kind.label},
             ],
             "errors": {} if posted else (errors or {}),
+            "error_list": [] if posted else [m for items in (errors or {}).values() for m in items],
         },
         status=status,
     )
@@ -469,6 +470,7 @@ def _announcement_form(request, *, record=None, data=None, errors=None, status=2
             "record": record,
             "data": data,
             "errors": errors or {},
+            "error_list": [m for items in (errors or {}).values() for m in items],
             "audiences": PlatformAnnouncement.Audience.choices,
             "preview_body": plain_html(data.get("body", "")),
             "breadcrumbs": [

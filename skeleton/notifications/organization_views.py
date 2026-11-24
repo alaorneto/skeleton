@@ -152,6 +152,7 @@ def _detail(request, organization_id, config, *, errors=None, posted=None, statu
             "texts": texts,
             "fields": [{"placeholder": "{" + item.name + "}", "label": item.label} for item in config.kind.fields],
             "errors": {} if posted else (errors or {}),
+            "error_list": [] if posted else [m for items in (errors or {}).values() for m in items],
             "breadcrumbs": _crumbs(organization_id, {"label": config.kind.label, "url": ""}),
         },
         status=status,

@@ -1,6 +1,6 @@
 # Livro contábil
 
-O livro contábil (`skeleton_ledger`, `org.skeleton.ledger`) é uma app first-party do núcleo ([extensão](../../../../docs/extending.md#apps-first-party-do-núcleo-skeletoncontrib)): o operador a instala com `SKELETON_BUNDLED_APPS=ledger`; a plataforma a disponibiliza e cada organização a ativa, como qualquer app. Ela não se mistura com a cobrança da plataforma (`skeleton/billing`, que cobra as organizações): nunca importa `skeleton.billing`, e o dinheiro vem de `skeleton.common.money` (inteiros da menor unidade da moeda, nunca `float`).
+O livro contábil (`skeleton_ledger`, `org.skeleton.ledger`) é uma app first-party do núcleo ([extensão](../../../../docs/extending.md#apps-first-party-do-núcleo-skeletoncontrib)): é uma **biblioteca** (`kind: "bundled_library"`, #792): é instalada com a app que depende dela (#793) ou com `SKELETON_BUNDLED_APPS=ledger`, não tem disponibilidade nem ativação próprias e fica efetiva numa organização enquanto uma app ativa ali a usa. Ela não se mistura com a cobrança da plataforma (`skeleton/billing`, que cobra as organizações): nunca importa `skeleton.billing`, e o dinheiro vem de `skeleton.common.money` (inteiros da menor unidade da moeda, nunca `float`).
 
 ## Contract
 
@@ -80,7 +80,7 @@ Páginas renderizadas no servidor, sem JavaScript, sobre o livro padrão da orga
 - Datas e filtros inválidos na URL respondem 400; registro ilegível ou de outra organização, 404. Os botões de escrita só aparecem para quem gere o livro, e o servidor revalida.
 
 ## Acceptance
-- `SKELETON_BUNDLED_APPS=ledger` instala a app; sem a variável, nada do ledger é importado.
+- Uma app instalada que depende de `org.skeleton.ledger`, ou `SKELETON_BUNDLED_APPS=ledger`, instala o livro; sem nenhum dos dois, nada do ledger é importado.
 - Um livro padrão por organização, inclusive com criação concorrente; moeda e regime imutáveis no banco; moeda fora da tabela recusada.
 - A/B, app desativada e default deny em todos os métodos de serviço.
 - Plano de contas com grupos e chaves; vínculo só com conta analítica, ativa e do tipo da chave (#543).

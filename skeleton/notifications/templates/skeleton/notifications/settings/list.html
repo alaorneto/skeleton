@@ -13,16 +13,16 @@
 <section class="mt-8" aria-labelledby="org-notification-group-{{ forloop.counter }}">
   <h2 id="org-notification-group-{{ forloop.counter }}" class="section-heading">{{ group.label }}</h2>
   {% if group.context == "platform" %}<p class="mb-3 text-sm/6 text-body">{% translate "Definidos pela plataforma. Cada pessoa ainda escolhe como recebe nas preferências." %}</p>{% endif %}
-  <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Aviso" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col">{% translate "Texto" %}</th></tr></thead><tbody>
+  <div class="table-scroll table-stack"><table><thead><tr><th scope="col">{% translate "Aviso" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col">{% translate "Texto" %}</th></tr></thead><tbody>
   {% for config in group.items %}<tr>
-    <td><a class="cell-primary" href="{% url 'notifications:organization-setting' organization_id config.kind.code %}">{{ config.kind.label }}</a>{% if config.kind.description %}<span class="cell-secondary">{{ config.kind.description }}</span>{% endif %}</td>
-    <td>{% if config.enabled %}{{ "enabled"|status_badge }}{% else %}{{ "disabled"|status_badge }}{% endif %}{% if config.kind.mandatory %} <span class="badge">{% translate "Obrigatório" %}</span>{% endif %}{% if config.locked_enabled %} <span class="badge">{% translate "Definido pela plataforma" %}</span>{% endif %}{% if config.reason == "instance_disabled" %}<span class="cell-secondary">{% translate "Desligado pela plataforma" %}</span>{% endif %}</td>
-    <td>{% if not config.can_edit_text %}{% translate "Da plataforma" %}{% elif config.has_text %}{% translate "Da organização" %}{% else %}{% translate "Padrão" %}{% endif %}</td>
+    <td data-label="{% translate "Aviso" %}"><a class="cell-primary" href="{% url 'notifications:organization-setting' organization_id config.kind.code %}">{{ config.kind.label }}</a>{% if config.kind.description %}<span class="cell-secondary">{{ config.kind.description }}</span>{% endif %}</td>
+    <td data-label="{% translate "Estado" %}">{% if config.enabled %}{{ "enabled"|status_badge:"notifications" }}{% else %}{{ "disabled"|status_badge:"notifications" }}{% endif %}{% if config.kind.mandatory %} {{ "mandatory"|marker }}{% endif %}{% if config.locked_enabled %} {{ "platform_defined"|marker }}{% endif %}{% if config.reason == "instance_disabled" %}<span class="cell-secondary">{% translate "Desligado pela plataforma" %}</span>{% endif %}</td>
+    <td data-label="{% translate "Texto" %}">{% if not config.can_edit_text %}{% translate "Da plataforma" %}{% elif config.has_text %}{% translate "Da organização" %}{% else %}{% translate "Padrão" %}{% endif %}</td>
   </tr>{% endfor %}
   </tbody></table></div>
 </section>
 {% empty %}
-<div class="table-scroll mt-6"><table><tbody>{% include "skeleton/web/components/empty-row.html" with colspan=1 message=_("Nenhum aviso disponível.") icon="envelope" %}</tbody></table></div>
+<div class="table-scroll table-stack mt-6"><table><tbody>{% include "skeleton/web/components/empty-row.html" with colspan=1 message=_("Nenhum aviso disponível.") icon="notifications"|concept_icon %}</tbody></table></div>
 {% endfor %}
 </div>
 {% endblock %}

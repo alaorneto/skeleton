@@ -483,7 +483,7 @@ def test_disabled_transitive_dependency_closes_app_api(api_guard, monkeypatch):
     assert client.get(url).status_code == 200
     real_state = applications.application_state
     monkeypatch.setattr(
-        applications, "required_labels", lambda label: ("example_dependency",) if label == "example_notes" else ()
+        applications, "required_app_labels", lambda label: ("example_dependency",) if label == "example_notes" else ()
     )
     monkeypatch.setattr(
         applications,

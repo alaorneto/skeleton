@@ -1,4 +1,4 @@
-{% load static i18n appearance %}{% appearance_cached as brand %}<!doctype html>
+{% load static i18n appearance skeleton_format %}{% appearance_cached as brand %}<!doctype html>
 <html lang="pt-br">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
@@ -19,7 +19,7 @@
   <span class="mx-auto mb-5 grid size-12 place-items-center rounded-full bg-danger-soft text-fg-danger ring-1 ring-danger-subtle">{% block icon %}{% include "skeleton/web/components/icon.html" with name="error" class="size-6" %}{% endblock %}</span>
   <h1>{% block heading %}{% endblock %}</h1>
   <p class="mt-2 text-body">{% block message %}{% endblock %}</p>
-  <p class="mt-6 flex flex-wrap justify-center gap-3">{% block actions %}<a class="btn btn-secondary" href="/">{% include "skeleton/web/components/icon.html" with name="home" %}{% translate "Ir para o início" %}</a>{% endblock %}</p>
+  <p class="mt-6 flex flex-wrap justify-center gap-3">{% block actions %}<a class="btn btn-secondary" href="/">{% include "skeleton/web/components/icon.html" with name="home"|concept_icon %}{% translate "Ir para o início" %}</a>{% endblock %}</p>
 </div>
 </main>
 </body>

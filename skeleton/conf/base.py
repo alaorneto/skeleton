@@ -500,23 +500,33 @@ if SKELETON_PACKAGE_MAX_BYTES < 1:
     from django.core.exceptions import ImproperlyConfigured
 
     raise ImproperlyConfigured("SKELETON_PACKAGE_MAX_BYTES must be positive.")
-# First-party apps of the core wheel (#66): opt-in by name from the fixed map, never by import path.
-# They come before the managed apps: a managed app may depend on them, never the reverse (#254).
-from skeleton.conf.bundled import bundled_app_configs
-
-INSTALLED_APPS += bundled_app_configs(SKELETON_BUNDLED_APPS)
 # Apps under development in their own checkout (#518): development and test profiles only;
 # every other profile refuses a non-empty value. Never a code path in production.
-from skeleton.conf.dev_apps import dev_app_configs
+from skeleton.conf.dev_apps import dev_app_configs, dev_app_manifests
 
 SKELETON_DEV_APPS = tuple(env.list("SKELETON_DEV_APPS", default=[]))
+# First-party apps of the core wheel (#66): opt-in by name from the fixed map, never by import path.
+# They come before the managed apps: a managed app may depend on them, never the reverse (#254).
+# A first-party library is installed without the opt-in when an installed or dev app needs it (#793).
+from skeleton.conf.bundled import bundled_app_configs, installed_bundled_names, libraries_required_by
+
+SKELETON_BUNDLED_INSTALLED = installed_bundled_names(
+    SKELETON_BUNDLED_APPS,
+    SKELETON_DEPLOYMENT_STATE.required_libraries,
+    libraries_required_by(dev_app_manifests(SKELETON_DEV_APPS)),
+)
+INSTALLED_APPS += bundled_app_configs(SKELETON_BUNDLED_INSTALLED)
 INSTALLED_APPS += dev_app_configs(SKELETON_DEV_APPS)
 INSTALLED_APPS += list(SKELETON_DEPLOYMENT_STATE.installed_apps)
 # Opted out after migrating (#67): the tables stay, checked against the snapshot in the wheel.
 from skeleton.conf.bundled import retained_snapshot_paths
 
-SKELETON_BUNDLED_RETAINED = tuple(env.list("SKELETON_BUNDLED_RETAINED", default=[]))
+# A library the agent installed for an app that is gone stays retained the same way (#793).
+SKELETON_BUNDLED_RETAINED = installed_bundled_names(
+    env.list("SKELETON_BUNDLED_RETAINED", default=[]),
+    [name for name in SKELETON_DEPLOYMENT_STATE.retained_libraries if name not in SKELETON_BUNDLED_INSTALLED],
+)
 SKELETON_RETAINED_SCHEMA_PATHS = (
     *SKELETON_RETAINED_SCHEMA_PATHS,
-    *retained_snapshot_paths(SKELETON_BUNDLED_RETAINED, installed=SKELETON_BUNDLED_APPS),
+    *retained_snapshot_paths(SKELETON_BUNDLED_RETAINED, installed=SKELETON_BUNDLED_INSTALLED),
 )
