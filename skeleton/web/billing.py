@@ -21,6 +21,7 @@ from django.views.decorators.http import require_POST, require_safe
 from skeleton.access.capabilities import BILLING_MANAGE, BILLING_VIEW, has_capability
 from skeleton.service_api import errors as service_errors
 from skeleton.service_api.billing import BillingService
+from skeleton.web.confirm import Confirmation, confirmation_step
 from skeleton.web.views import tenant_page
 
 TERMS_VERSION = "1"
@@ -85,7 +86,24 @@ def _uuid(value):
         raise Http404 from None
 
 
+def _describe_billing_action(request, organization_id, action):
+    """Cancelling the subscription is confirmed (#769); the other actions post directly."""
+    if action != "cancel":
+        return None
+    return Confirmation(
+        title=gettext("Cancelar a assinatura"),
+        message=gettext(
+            "A assinatura termina no fim do período já pago. Depois disso, a organização fica sem os planos e as "
+            "apps contratadas. Até lá, você pode desfazer o cancelamento."
+        ),
+        submit_label=gettext("Cancelar a assinatura"),
+        cancel_url=_overview_url(organization_id),
+        context={"organization_id": organization_id},
+    )
+
+
 @tenant_page(capability=BILLING_MANAGE)
+@confirmation_step(_describe_billing_action)
 @require_POST
 def billing_action(request, organization_id, action):
     if action not in ACTIONS:

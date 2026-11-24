@@ -7,9 +7,9 @@
   <div class="min-w-0">
     <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'platform:users' %}">{% translate "Usuários" %}</a></li><li><span aria-current="page">{{ subject.email }}</span></li></ol></nav>
     <h1 class="break-all">{{ subject.email }}</h1>
-    <p class="mt-2 flex flex-wrap gap-1.5">{% if subject.is_active %}<span class="badge badge-success badge-dot">{% translate "Ativa" %}</span>{% else %}<span class="badge badge-dot">{% translate "Inativa" %}</span>{% endif %}{% if subject|is_platform_admin %}<span class="badge badge-brand">{% translate "Administrador da plataforma" %}</span>{% endif %}</p>
+    <p class="mt-2 flex flex-wrap gap-1.5">{% if subject.is_active %}{{ "active"|status_badge:_("Ativa") }}{% else %}{{ "inactive"|status_badge:_("Inativa") }}{% endif %}{% if subject|is_platform_admin %}{{ "platform_admin"|marker }}{% endif %}</p>
   </div>
-  <nav class="toolbar" aria-label="{% translate "Ações" %}">{% if mfa_methods and not is_self %}<a class="btn btn-secondary" href="{% url 'platform:user-mfa-reset' subject.pk %}">{% translate "Redefinir MFA" %}</a>{% endif %}<a class="btn btn-secondary text-fg-danger" href="{% url 'platform:user-delete' subject.pk %}">{% include "skeleton/web/components/icon.html" with name="trash" %}{% translate "Remover identidade" %}</a></nav>
+  <nav class="toolbar" aria-label="{% translate "Ações" %}">{% if mfa_methods and not is_self %}<a class="btn btn-danger-outline" href="{% url 'platform:user-mfa-reset' subject.pk %}">{% translate "Redefinir MFA" %}</a>{% endif %}<a class="btn btn-danger-outline" href="{% url 'platform:user-delete' subject.pk %}">{% include "skeleton/web/components/icon.html" with name="trash" %}{% translate "Remover identidade" %}</a></nav>
 </div>
 <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
   <section class="card" aria-labelledby="user-edit">
@@ -38,8 +38,8 @@
   <section class="card lg:col-span-2" aria-labelledby="user-platform-roles">
     <h2 id="user-platform-roles">Papéis de plataforma</h2>
     <p class="mt-1 text-sm/6 text-body-subtle">O auditor lê a auditoria global e o catálogo; o operador de releases cuida das versões e atualizações. Nenhum dos dois administra identidades nem entra em organizações. Conceder ou revogar encerra as sessões da pessoa.</p>
-    <ul class="mt-4 space-y-2">{% for assignment in platform_roles %}<li class="flex flex-wrap items-center gap-3"><span class="badge badge-brand">{{ assignment.get_role_display }}</span>
-      <form method="post" action="{% url 'platform:user-role-revoke' subject.pk assignment.pk %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ assignment.revision }}"><button type="submit" class="btn btn-secondary btn-sm">Revogar<span class="sr-only"> {{ assignment.get_role_display }}</span></button></form></li>
+    <ul class="mt-4 space-y-2">{% for assignment in platform_roles %}<li class="flex flex-wrap items-center gap-3"><span class="font-medium text-heading">{{ assignment.get_role_display }}</span>
+      <a class="btn btn-danger-outline btn-sm" href="{% url 'platform:user-role-revoke' subject.pk assignment.pk %}">{% translate "Revogar" %}<span class="sr-only"> {{ assignment.get_role_display }}</span></a></li>
     {% empty %}<li class="text-body-subtle">Nenhum papel limitado.</li>{% endfor %}</ul>
     <form method="post" action="{% url 'platform:user-roles' subject.pk %}" class="mt-4 flex flex-wrap items-end gap-3">{% csrf_token %}
       <div class="form-field"><label for="platform-role">Conceder papel</label><select id="platform-role" name="role"><option value="auditor">Auditor de plataforma</option><option value="operator">Operador de releases</option></select></div>

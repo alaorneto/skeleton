@@ -25,6 +25,7 @@ from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.http import require_http_methods, require_POST
 
 from skeleton.service_api import Conflict, Forbidden, InvalidInput, NotFound
+from skeleton.web.confirm import Confirmation, confirmation_step
 from skeleton.web.views import tenant_page
 
 from .service_api import CalendarService
@@ -652,8 +653,29 @@ def calendar_sharing(request: HttpRequest, organization_id: UUID, sysid: UUID) -
     return redirect("skeleton_calendar:calendar-detail", organization_id=organization_id, sysid=calendar.pk)
 
 
-@require_POST
+def _describe_calendar_delete(request: HttpRequest, organization_id: UUID, sysid: UUID) -> Confirmation | None:
+    calendar = _readable_calendar_row(request.user, sysid)
+    if calendar.source_app:
+        return None  # A managed calendar changes only in its source app: the view answers 409.
+    return Confirmation(
+        title=gettext("Excluir calendário"),
+        subject=calendar.name,
+        message=gettext(
+            "O calendário sai da agenda de todos com quem ele é compartilhado. Só um calendário sem eventos "
+            "pode ser excluído."
+        ),
+        submit_label=gettext("Excluir calendário"),
+        cancel_url=reverse(
+            "skeleton_calendar:calendar-detail", kwargs={"organization_id": organization_id, "sysid": calendar.pk}
+        ),
+        hidden={"revision": calendar.revision},
+        context={"organization_id": organization_id},
+    )
+
+
 @tenant_page()
+@confirmation_step(_describe_calendar_delete)
+@require_POST
 @transaction.atomic
 def calendar_delete(request: HttpRequest, organization_id: UUID, sysid: UUID) -> HttpResponse:
     from .services import delete_calendar

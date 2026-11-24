@@ -13,8 +13,8 @@
 </dl>
 {% if by_currency %}<section class="card mb-5" aria-labelledby="insights-billing">
   <h2 id="insights-billing">{% translate "Cobrança por moeda" %}</h2>
-  <div class="table-scroll mt-4"><table><thead><tr><th scope="col">{% translate "Moeda" %}</th><th scope="col" class="col-num">MRR</th><th scope="col" class="col-num">{% translate "Em aberto" %}</th><th scope="col" class="col-num">{% translate "Vencido" %}</th></tr></thead><tbody>
-  {% for currency, totals in by_currency %}<tr><td>{{ currency }}</td><td class="col-num">{{ totals.mrr|money:currency }}</td><td class="col-num">{{ totals.open|money:currency }}</td><td class="col-num">{{ totals.overdue|money:currency }}</td></tr>{% endfor %}
+  <div class="table-scroll table-stack mt-4"><table><thead><tr><th scope="col">{% translate "Moeda" %}</th><th scope="col" class="col-num">MRR</th><th scope="col" class="col-num">{% translate "Em aberto" %}</th><th scope="col" class="col-num">{% translate "Vencido" %}</th></tr></thead><tbody>
+  {% for currency, totals in by_currency %}<tr><td data-label="{% translate "Moeda" %}">{{ currency }}</td><td data-label="{% translate "MRR" %}" class="col-num">{{ totals.mrr|money:currency }}</td><td data-label="{% translate "Em aberto" %}" class="col-num">{{ totals.open|money:currency }}</td><td data-label="{% translate "Vencido" %}" class="col-num">{{ totals.overdue|money:currency }}</td></tr>{% endfor %}
   </tbody></table></div>
 </section>{% endif %}
 {% if overdue %}<section class="card mb-5" aria-labelledby="insights-overdue">
@@ -23,8 +23,8 @@
 </section>{% endif %}
 <section class="card" aria-labelledby="insights-apps">
   <h2 id="insights-apps">{% translate "Apps por número de organizações" %}</h2>
-  <div class="table-scroll mt-4"><table><thead><tr><th scope="col">{% translate "App" %}</th><th scope="col" class="col-num">{% translate "Organizações" %}</th></tr></thead><tbody>
-  {% for label, count in apps %}<tr><td><code>{{ label }}</code></td><td class="col-num">{{ count }}</td></tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=2 message=_("Nenhuma app em uso.") %}{% endfor %}
+  <div class="table-scroll table-stack mt-4"><table><thead><tr><th scope="col">{% translate "App" %}</th><th scope="col" class="col-num">{% translate "Organizações" %}</th></tr></thead><tbody>
+  {% for label, count in apps %}<tr><td data-label="{% translate "App" %}"><code>{{ label }}</code></td><td data-label="{% translate "Organizações" %}" class="col-num">{{ count }}</td></tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=2 message=_("Nenhuma app em uso.") %}{% endfor %}
   </tbody></table></div>
 </section>
 </div>

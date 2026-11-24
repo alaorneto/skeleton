@@ -1,15 +1,15 @@
 {% extends "skeleton/web/base.html" %}
 {% load i18n %}{% block title %}{% translate "Fluxos em dados" %} · {{ site_name }}{% endblock %}
 {% block content %}
-<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Fluxos de processo" %}</p><h1>{% translate "Fluxos em dados" %}</h1><p class="page-description">{% translate "Fluxos que a organização define sem código, usando só o que as apps registraram. Um rascunho vira uma versão nova ao ser publicado; uma versão publicada não muda." %}</p></div></div>
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Fluxos de processo" %}</p><h1>{% translate "Fluxos em dados" %}</h1><p class="page-description">{% translate "Processos que a organização define sem código. Um rascunho vira uma versão nova ao ser publicado." %}</p></div></div>
 {% include "skeleton/flows/_nav.html" %}
-<div class="table-scroll mb-6"><table><thead><tr><th scope="col">{% translate "Chave" %}</th><th scope="col">{% translate "Rótulo" %}</th><th scope="col" class="col-num">{% translate "Versão publicada" %}</th><th scope="col" class="col-num">{% translate "Problemas" %}</th></tr></thead><tbody>
-{% for row in rows %}<tr><td><a class="cell-primary" href="{% url 'flows:draft' organization_id row.sysid %}">{{ row.key }}</a></td><td>{{ row.label }}</td><td class="col-num">{{ row.published_version|default:"—" }}</td><td class="col-num">{{ row.problems|length }}</td></tr>
+<div class="table-scroll table-stack mb-6"><table><thead><tr><th scope="col">{% translate "Chave" %}</th><th scope="col">{% translate "Rótulo" %}</th><th scope="col" class="col-num">{% translate "Versão publicada" %}</th><th scope="col" class="col-num">{% translate "Problemas" %}</th></tr></thead><tbody>
+{% for row in rows %}<tr><td data-label="{% translate "Chave" %}"><a class="cell-primary" href="{% url 'flows:draft' organization_id row.sysid %}">{{ row.key }}</a></td><td data-label="{% translate "Rótulo" %}">{{ row.label }}</td><td data-label="{% translate "Versão publicada" %}" class="col-num">{{ row.published_version|default:"—" }}</td><td data-label="{% translate "Problemas" %}" class="col-num">{{ row.problems|length }}</td></tr>
 {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhum fluxo em dados.") %}{% endfor %}
 </tbody></table></div>
 <section class="card" aria-labelledby="new-draft">
   <h2 id="new-draft" class="section-heading">{% translate "Novo rascunho" %}</h2>
-  {% if errors %}<ul class="alert alert-danger mb-3">{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}
+  {% include "skeleton/web/components/error-summary.html" with errors=errors extra_class="mb-3" %}
   <form method="post">{% csrf_token %}
     <label class="mb-1 block text-sm font-medium text-heading" for="draft-spec">{% translate "Especificação (JSON, sem a versão)" %}</label>
     <textarea id="draft-spec" name="specification" rows="12" class="font-mono" required>{{ text }}</textarea>

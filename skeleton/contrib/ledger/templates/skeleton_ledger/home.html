@@ -1,12 +1,12 @@
-{% extends "skeleton/web/base.html" %}{% load i18n ledger_money %}{% block title %}{% translate "Livros" %} · {% translate "Livro contábil" %} · {{ site_name }}{% endblock %}
+{% extends "skeleton/web/base.html" %}{% load i18n ledger_money skeleton_format %}{% block title %}{% translate "Livros" %} · {% translate "Livro contábil" %} · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Livro contábil" %}</p><h1>{% translate "Livros" %}</h1><p class="page-description">{% translate "Livros da organização, cada um numa moeda e num regime." %}</p></div></div>
 {% include "skeleton_ledger/_nav.html" with section="home" %}
 {% if books %}
-<div class="table-scroll"><table>
+<div class="table-scroll table-stack"><table>
   <caption class="sr-only">{% translate "Livros" %}</caption>
   <thead><tr><th scope="col">{% translate "Livro" %}</th><th scope="col">{% translate "Moeda" %}</th><th scope="col">{% translate "Regime" %}</th><th scope="col" class="col-date">{% translate "Travado até" %}</th></tr></thead>
-  <tbody>{% for item in books %}<tr><td>{{ item.name }}{% if item.is_default %} <span class="badge">{% translate "padrão" %}</span>{% endif %}</td><td>{{ item.currency }}</td><td>{% if item.basis == "cash" %}{% translate "Caixa" %}{% else %}{% translate "Competência" %}{% endif %}</td><td class="col-date">{% if item.locked_until %}<time datetime="{{ item.locked_until|date:'Y-m-d' }}">{{ item.locked_until|date:"SHORT_DATE_FORMAT" }}</time>{% else %}—{% endif %}</td></tr>{% endfor %}</tbody>
+  <tbody>{% for item in books %}<tr><td data-label="{% translate "Livro" %}">{{ item.name }}{% if item.is_default %} {{ "default"|marker }}{% endif %}</td><td data-label="{% translate "Moeda" %}">{{ item.currency }}</td><td data-label="{% translate "Regime" %}">{% if item.basis == "cash" %}{% translate "Caixa" %}{% else %}{% translate "Competência" %}{% endif %}</td><td data-label="{% translate "Travado até" %}" class="col-date">{% if item.locked_until %}<time datetime="{{ item.locked_until|date:'Y-m-d' }}">{{ item.locked_until|date:"SHORT_DATE_FORMAT" }}</time>{% else %}—{% endif %}</td></tr>{% endfor %}</tbody>
 </table></div>
 {% endif %}
 {% if book and book.writable %}

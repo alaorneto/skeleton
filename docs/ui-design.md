@@ -58,7 +58,7 @@ O administrador da plataforma define em `/platform/appearance/` o nome do produt
 
 O processador `organization_shell` põe `instance_brand` em todo contexto: `name`, `footer_text`, `color`, `theme_url`, `logo_url`, `logo_dark_url`, `icon_url` e `manifest_url` (URLs com `?v=<versão>`, vazias quando não há valor).
 
-Para criar um tema a partir de um sistema de design, veja [criar e publicar um tema](themes.md). **Contrato estável para o CSS personalizado de um tema:** os tokens `--color-*` (escalas `cobalt-*` e `ink-*` e os semânticos `brand*`, `fg-*`, `neutral-*`, `default*`, `success*`, `warning*`, `danger*`, `focus`), `--radius-base`, `--radius-card`, `--font-sans` e `--font-body` (um tema de pacote com fontes põe a família dele na frente de `--font-sans`), e as classes de componente desta página (`.card`, `.btn`, `.btn-primary`, `.btn-secondary`, `.btn-danger`, `.badge*`, `.message`, `.alert*`, `.page-header`, `.page-eyebrow`, `.page-description`, `.sidebar*`, `.link-tabs`, `.table-scroll`, `.form-stack`, `.form-actions`, `.error-summary`, `.app-header`, `.app-footer`). Classes utilitárias do Tailwind e a estrutura interna dos templates podem mudar entre versões.
+Para criar um tema a partir de um sistema de design, veja [criar e publicar um tema](themes.md). **Contrato estável para o CSS personalizado de um tema:** os tokens `--color-*` (escalas `cobalt-*` e `ink-*` e os semânticos `brand*`, `fg-*`, `neutral-*`, `default*`, `success*`, `warning*`, `danger*`, `focus`), `--radius-base`, `--radius-card`, `--font-sans` e `--font-body` (um tema de pacote com fontes põe a família dele na frente de `--font-sans`), e as classes de componente desta página (`.card`, `.btn`, `.btn-primary`, `.btn-secondary`, `.btn-danger`, `.badge*`, `.counter`, `.danger-zone*`, `.create-panel`, `.message` (+ `.info`), `.alert*`, `.page-header`, `.page-eyebrow`, `.page-description`, `.sidebar*`, `.link-tabs`, `.table-scroll`, `.table-stack`, `.form-stack`, `.form-actions`, `.error-summary`, `.app-header`, `.app-footer`). Classes utilitárias do Tailwind e a estrutura interna dos templates podem mudar entre versões.
 
 ### Modo escuro
 
@@ -98,6 +98,7 @@ Cada pessoa escolhe **Claro**, **Escuro** ou **Seguir o sistema** (o padrão), s
 ```
 
 - O breadcrumb fica dentro do primeiro `div` do `page-header`; toda tela tem eyebrow ou breadcrumb, e telas de lista têm descrição de uma frase.
+- **Texto da página** ([#780](https://github.com/alaorneto/skeleton/issues/780)): a descrição diz, em uma ou duas frases curtas, o que a pessoa faz ali, na língua de quem usa. Termos de implementação (schema, payload, transação, migration, CSS, UUID, worker, API interna) ficam fora da tela e vão para a documentação. Seção sem nome próprio não se chama "Dados do registro": o formulário sem seções declaradas usa "Informações gerais". Um cartão de navegação (o hub da configuração, com `SettingsItem.description`) leva uma linha do que se faz ali. Numa tela de lista com criação, a lista vem primeiro e o formulário de criação fica recolhido num `<details class="create-panel">` (sem script), aberto quando volta com erro.
 - A barra de ações do cabeçalho é `<nav class="toolbar" aria-label="Ações">`; o botão principal é `btn btn-primary` (`.button` continua só como alias legado).
 - O título da aba é `<título da tela> · Skeleton`; nas telas da plataforma, `<título> · Plataforma · Skeleton` (#476).
 
@@ -135,7 +136,7 @@ Use as classes abaixo nos templates do núcleo e das apps; elas encapsulam os pa
 | `page-header`, `page-eyebrow`, `page-description`, `section-heading` | Cabeçalho de página e rótulos de seção. |
 | `btn` + `btn-primary` / `btn-secondary` / `btn-danger` / `btn-danger-outline` / `btn-ghost`, `btn-sm` | Botões e links com aparência de botão. `.button` continua como alias do primário. |
 | `card`, `link-card` (+ `link-card-icon`, `link-card-title`, `link-card-text`) | Superfícies e atalhos navegáveis. |
-| `table-scroll` | Tabela responsiva (rola dentro do cartão, nunca a página); classes de coluna e de célula em [Tabelas](#tabelas). `empty-state` para listas vazias. |
+| `table-scroll` | Tabela responsiva (rola dentro do cartão, nunca a página); classes de coluna e de célula em [Tabelas](#tabelas). Lista vazia por `components/empty-row.html` (tabela) ou `components/empty-state.html` (cartão, lista), ver [Retorno ao usuário](#retorno-ao-usuário). |
 | `pagination` | Componente `skeleton/web/pagination.html` (resumo "Mostrando X–Y de N" e Anterior/Próxima). |
 | `components/cursor-pagination.html` | Paginação por cursor (`next_url`, `label`): "Carregar mais" só quando há próxima página. A view monta `next_url` com `urlencode`, preservando os outros parâmetros (o escopo das tarefas). |
 | `stat-grid`, `stat` | Indicadores: `<dl class="stat-grid">` com `{% include "skeleton/web/components/stat.html" with label=… value=… hint=… key=… %}` (`key` vira `data-count`). Duas colunas no celular, quatro a partir de 640 px. |
@@ -143,16 +144,61 @@ Use as classes abaixo nos templates do núcleo e das apps; elas encapsulam os pa
 | `breadcrumbs`, `toolbar`, `filter-panel`, `record-tabs` | Navegação, ações, filtros e abas. |
 | `header-search` | Caixa da [busca global](#navegação) no cabeçalho: `<form class="header-search" method="get" role="search">` com rótulo `sr-only`, `input type="search"` e botão `btn btn-secondary btn-sm` só com o ícone. Só o cabeçalho a usa; entre `md` e `xl` ela some e o link `header-link header-search-link` (só o ícone, rótulo `sr-only`) toma o lugar. |
 | `link-tabs`, `segmented` | `link-tabs`: abas entre telas irmãs (links com `aria-current="page"`). `segmented` (`components/segmented.html`, com `options` = `[{label, url, current}]` e `label`): alternância de um filtro na mesma tela, uma opção com `aria-current`. Nunca um `badge` como opção ativa ao lado de botões do mesmo grupo (#472). |
-| `message`/`alert` (+ `success`, `warning`, `error`), `error-summary`, `confirmation` | Retorno ao usuário. |
-| `badge` (+ `badge-brand`, `badge-success`, `badge-warning`, `badge-danger`, `badge-neutral`, `badge-dot`), `uuid`, `meta-list` | Estados e metadados; estado de um registro sempre pelo filtro `status_badge`. |
+| `message` (+ `info`, `success`, `warning`, `error`), `components/error-summary.html`, `components/form-errors.html`, `confirmation` | [Retorno ao usuário](#retorno-ao-usuário). `alert*` continua no CSS só como alias para temas antigos. |
+| `badge` (+ `badge-brand`, `badge-success`, `badge-warning`, `badge-danger`, `badge-neutral`, `badge-dot`), `counter`, `uuid`, `meta-list` | Estados, marcadores, contagens e metadados, conforme o [vocabulário visual](#vocabulário-visual): nunca escritos à mão no template. |
 | `form-stack`, `form-field`, `helptext`, `errorlist`, `form-actions` | Formulários simples; `components/form-fields.html` substitui `form.as_p` mantendo ids, ajuda, erros e `aria-describedby`. Todo campo obrigatório (Django `required`, `marked_required` ou o atributo `data-required` no widget) leva `*` e os demais "(opcional)"; checkbox não leva marca; acima dos campos aparece uma vez "Campos com * são obrigatórios.". `hide_marks=True` no `include` desliga as marcas (login, LDAP, token do setup). O renderer de registros (`skeleton_crud/field.html`) segue a mesma regra, sem "(opcional)" nos campos com a caixa "alterar este campo" (#474). |
 | `required`, `optional` | Marcas do rótulo: `*` nos obrigatórios (`show_required`) e "(opcional)" nos demais (`show_optional`), passadas ao `include` de `form-fields.html`. |
 | `setup-steps`, `setup-step-number` | Lista numerada das etapas do setup do primeiro acesso (vertical no desktop, linha rolável no celular); `setup-step-done` e `setup-step-later` marcam o estado. |
 | `setup-files`, `data-files-section` | Passo de anexos do setup ([#729](https://github.com/alaorneto/skeleton/issues/729)): o contêiner dos rádios `files_backend` e das seções `data-files-section="local"` e `"s3"`; o CSS (`:has(input:checked)`) mostra só a seção da opção marcada, sem script. Sem CSS ou sem `:has`, as duas aparecem; os campos escondidos continuam no formulário e a validação é do servidor. |
 
+### Vocabulário visual
+
+Cada forma tem um significado só, igual em todas as telas ([#767](https://github.com/alaorneto/skeleton/issues/767)). Quem usa reconhece pela aparência se está vendo um estado, um marcador, um identificador ou um valor, e a cor diz sempre a mesma coisa.
+
+| Forma | Significado | Como se escreve | Exemplos |
+|---|---|---|---|
+| Pílula redonda **com ponto** | **Estado**: muda com o tempo (ciclo de vida, resultado) | só `{{ codigo|status_badge }}` | Ativa, Concluído, Falhou, Pendente, Publicada |
+| Etiqueta retangular **sem ponto** | **Marcador**: propriedade fixa que muda comportamento ou acesso | só `{{ "codigo"|marker }}` | Obrigatório, Somente leitura, Segredo, Administrador da plataforma, Padrão, Travada |
+| Número em pílula cheia (`counter`) | **Contagem** | `<span class="counter">` | não lidas, tarefas abertas |
+| `code` na segunda linha (`cell-secondary`) | **Identificador técnico** | `<code class="uuid">` | UUID, código, chave, variável de ambiente, slug, código HTTP |
+| Texto | **Valor ou categoria** | texto; código traduzido por `{{ codigo|code_label:"dominio" }}` | origem, tipo, fila, versão ("v0.6.0"), Sim/Não de um campo comum |
+
+Os tons têm um sentido só: `success` funcionando ou concluído; `brand` em andamento; `warning` pede atenção ou uma ação da pessoa; `danger` falhou, está bloqueado ou é irreversível; `neutral` inativo, encerrado ou rascunho. Uma falha é sempre `danger`. Um booleano que é estado (ativo/inativo, `is_active`) sai por `status_badge`; um booleano comum é "Sim"/"Não" em texto.
+
+- `status_badge` lê o mapa `STATUS` e `marker` o mapa `MARKERS` de `skeleton/web/templatetags/skeleton_format.py`; `code_label` lê `CODE_LABELS` (`table_origin`, `table_scope`, `audit_mode`, `app_origin`, `setting_origin`). Um código desconhecido sai neutro (ou como texto) com o próprio valor; nada quebra a página. O argumento troca o rótulo quando ele depende de dados: `{{ "managed"|marker:rotulo }}`, com o rótulo montado por `{% blocktranslate asvar rotulo %}`.
+- Estado novo, marcador novo ou código novo entram no mapa, nunca como `<span class="badge …">` no template: `tests/unit/test_ui_vocabulary.py` recusa a classe `badge` escrita à mão (a única exceção é `allauth/elements/badge.html`, que traduz as tags do allauth para o mesmo vocabulário) e confere os tons.
+- Nunca um código cru na tela (`succeeded`, `bundled`, `third_party`): ele passa por `status_badge` ou por `code_label`.
+
+### Ações pela intenção
+
+A cor de um botão diz o que ele faz, nunca a posição dele na tela ([#769](https://github.com/alaorneto/skeleton/issues/769)).
+
+| Classe | Quando |
+|---|---|
+| `btn-primary` | A ação principal da região: no máximo uma por cabeçalho ou formulário. |
+| `btn-secondary` | Ação neutra, navegação ou reversível ("Editar", "Voltar ao padrão", "Reenviar"). |
+| `btn-danger-outline` | A **entrada** de uma ação destrutiva: a ação de uma linha, o link para a confirmação, o botão de uma zona de perigo ("Sair da organização", "Remover", "Revogar", "Desativar", "Anular"). |
+| `btn-danger` | Só o **envio final** de uma ação destrutiva, na página de confirmação. |
+| `btn-ghost` | Ação terciária ("Limpar" filtros). |
+
+- **Barra de ações do cabeçalho** (`components/toolbar.html`): cada ação traz `url`, `label`, `kind` (`primary`, `secondary` ou `danger`) e `icon` (o nome já resolvido); quem monta as ações decide o `kind`. No detalhe de um registro, "Editar" é a principal, "Gerenciar acesso" é neutra e "Remover" é `danger`.
+- **Zona de perigo** (`components/danger-zone.html`, classes `danger-zone`, `danger-zone-title`, `danger-zone-text`): a ação destrutiva fica separada do resto da tela, com a consequência em uma frase e o botão `btn-danger-outline` que leva à confirmação. `{% url 'web:leave-organization' organization_id as leave_url %}{% include "skeleton/web/components/danger-zone.html" with heading_id="dashboard-membership" title=_("Seu vínculo") text=_("…") url=leave_url label=_("Sair da organização") %}`. Usada em "Seu vínculo", remover webhook, desativar conta de serviço e excluir calendário.
+- **Confirmação.** Uma ação irreversível, ou que afeta outras pessoas, nunca está a um clique: aprovar ou pedir a eliminação de uma identidade, remover webhook, rotacionar o segredo, desativar conta de serviço, desativar cliente da API, revogar papel de plataforma, cancelar processo, cancelar a assinatura, excluir calendário, anular fatura e dar baixa manual (com motivo), reiniciar a instância e reiniciar os nós. O botão da tela é um link para a própria URL da ação; o GET mostra a confirmação (o alvo, a consequência, o motivo quando a ação pede, `btn-danger` e "Cancelar"), e o botão vermelho faz o POST de sempre, com CSRF e revisão. `skeleton/web/confirm.py`: `@confirmation_step(descrever)` fica logo abaixo dos decoradores de autorização da view e acima de `require_POST`; `descrever(request, …)` acha o alvo pela mesma busca autorizada da view (inexistente e sem acesso respondem o mesmo 404) e devolve um `Confirmation`, ou `None` quando aquela ação não pede confirmação. O template é `skeleton/web/confirm.html` (organização e conta) ou `skeleton/web/platform/confirm.html` (plataforma), os dois com `components/confirm-card.html`. Uma app usa o mesmo par (`skeleton.web.confirm` é [superfície pública](service-api.md#superfícies-públicas-do-núcleo-para-apps)).
+- Ação reversível de uma linha (revogar token, remover anexo, recusar solicitação, descartar job) só muda de cor: não pede confirmação.
+- `tests/unit/test_ui_vocabulary.py` recusa um botão `btn-primary`, `btn-secondary` ou `btn-ghost` cujo rótulo começa por um verbo destrutivo (Remover, Revogar, Excluir, Desativar, Sair da organização, Cancelar a assinatura, Cancelar processo, Cancelar título, Descartar, Anular, Eliminar, Estornar, Rotacionar segredo, Redefinir MFA, Destravar).
+
+### Retorno ao usuário
+
+Avisos, erros e listas vazias têm uma aparência por tipo, a mesma em todas as telas ([#776](https://github.com/alaorneto/skeleton/issues/776)).
+
+- **Aviso:** `<div class="message <tom>" role="status">` com o ícone do tom e o texto num `<div class="min-w-0">`. Tons e ícones fixos: `info` (`info`, o padrão; também a faixa de versão nova da plataforma), `success` (`check-circle`), `warning` (`warning`, pede atenção ou ação) e `error` (`error`). As mensagens do Django (`messages`) saem assim por `components/messages.html`; um nível desconhecido cai em `info`. Nunca `alert`, nem código cru (`agent_unavailable`): o erro do agente de deployment vira uma frase, e um código sem frase aparece como "Código para o suporte".
+- **Erro de formulário:** `components/form-errors.html` (os erros do `form`, com link para cada campo). **Erro que não é de campo:** `{% include "skeleton/web/components/error-summary.html" with message=error title=_("Não foi possível revogar") %}`, com `errors` para uma lista, `heading="h1"` numa página de erro, `back_url`/`back_label` para o caminho de volta e `show` quando só há título.
+- **Lista vazia:** numa tabela, `components/empty-row.html`; num cartão ou numa lista, `{% include "skeleton/web/components/empty-state.html" with message=_("Nenhum aplicativo instalado.") icon="apps"|concept_icon %}` (com `hint`, `action_url` e `action_label` opcionais). O ícone é o do conceito da lista.
+- `tests/unit/test_ui_vocabulary.py` recusa `alert`, `error-summary` e `empty-state` escritos à mão fora dos componentes (o estado vazio do início, com seus links, é a única exceção).
+
 ### Tabelas
 
-Toda lista é `<div class="table-scroll"><table>…</table></div>` ([#469](https://github.com/alaorneto/skeleton/issues/469)). A tabela rola dentro do cartão; a página nunca rola na horizontal. As células são alinhadas pelo meio, não preservam o espaço do template e não quebram palavras letra a letra.
+Toda lista é `<div class="table-scroll table-stack"><table>…</table></div>` ([#469](https://github.com/alaorneto/skeleton/issues/469), [#777](https://github.com/alaorneto/skeleton/issues/777)). A página nunca rola na horizontal. Abaixo de 640 px, `table-stack` transforma cada linha num cartão e mostra, ao lado de cada célula, o rótulo dela, lido de `data-label` (o mesmo texto do cabeçalho: `<td data-label="{% translate "Nome" %}">`; a coluna de ações leva `data-label=""`). Tabelas densas, comparadas linha a linha (auditoria, jobs, plano de atualização, relatórios contábeis), e as de colunas condicionais continuam rolando dentro do cartão; elas ficam em `SCROLL_ONLY` de `tests/unit/test_table_stack.py`, com o motivo, e o teste recusa qualquer outra tabela sem `table-stack` ou com célula sem `data-label`. O cabeçalho de linha (`th scope="row"`) quebra como texto, e um campo numa célula tem largura mínima. As células são alinhadas pelo meio, não preservam o espaço do template e não quebram palavras letra a letra.
 
 | Classe | Onde | Uso |
 |---|---|---|
@@ -167,7 +213,7 @@ Toda lista é `<div class="table-scroll"><table>…</table></div>` ([#469](https
 
 - `{% load skeleton_format %}{{ estado|status_badge }}` mostra o código de estado como badge traduzido e colorido (sucesso, em andamento, atenção, falha, neutro). O argumento é um domínio do mapa (`"flows"`, `"invoice"`, `"jobs"`…) quando o mesmo código muda de sentido, ou um rótulo que substitui o do mapa (`{{ job.state|status_badge:job.get_state_display }}`). Um código desconhecido sai neutro, com o próprio texto. Todo `TextChoices` `*Status`/`*State` do núcleo tem entrada no mapa (teste em `tests/unit/test_format_filters.py`).
 - Pessoas pelo nome: a view junta os identificadores da página e chama `skeleton.web.people.people_labels(ids, actor=request.user)` **uma vez** (que usa `IdentityService.people`, só membros ativos da organização atual); o template usa `{{ row.actor_sysid|person:people }}`, que mostra o nome, "Sistema" para vazio e "Pessoa indisponível" com os 8 primeiros caracteres do UUID para quem não é membro ativo. Assim um nome nunca vaza de outra organização. A auditoria global (`/platform/audit/`) continua com o UUID completo ([#475](https://github.com/alaorneto/skeleton/issues/475)).
-- Lista vazia: `{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhum token.") hint=_("Crie um token para integrar.") icon="key" %}`.
+- Lista vazia: `{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhum token.") hint=_("Crie um token para integrar.") icon="api_tokens"|concept_icon %}`. A lista vazia não mostra paginação, e uma página só mostra o resumo sem "Anterior"/"Próxima" (`skeleton/web/pagination.html`).
 - A tabela genérica de registros (`components/record-table.html`) é a referência: `list_context` devolve cada célula como `{"text", "kind"}` e cada cabeçalho como `{"label", "kind"}`, com `kind` em `text`, `num`, `date` ou `bool` pelo tipo do campo, e corta na lista textos com mais de 160 caracteres (o detalhe mostra tudo). Um template derivado que copiou a versão anterior (com `{{ cell }}` e `{{ heading }}`) passa a usar `{{ cell.text }}` e `{{ heading.label }}`.
 
 Regras:
@@ -197,7 +243,41 @@ Toda data e hora na interface aparece como `15/11/2026 14:30` (só a data: `15/1
 - Nunca imprima uma data crua (`{{ x.created_at }}`) nem `|default:"—"` numa data: `tests/unit/test_template_dates.py` recusa. As exceções são os corpos de email.
 - Os valores "Antes"/"Depois" da auditoria são o dado gravado e não passam pelo filtro.
 
-Ícones: `{% include "skeleton/web/components/icon.html" with name="table" class="size-5" %}` (traço 24 px, estilo Heroicons, decorativos com `aria-hidden`).
+### Ícones
+
+Os ícones são de traço, 24 px, estilo Heroicons (MIT), decorativos (`aria-hidden`): o texto ao lado ou um `aria-label` nomeia a ação. **Um conceito tem um ícone, o mesmo em todas as telas, e nenhum ícone representa dois conceitos** ([#768](https://github.com/alaorneto/skeleton/issues/768)).
+
+- O mapa fica em `skeleton/web/icons.py`: `CONCEPT_ICONS` (conceito → ícone) e `ACTION_ICONS` (ações, retorno e controles: `plus`, `pencil`, `trash`, `restore`, `refresh`, `archive`, `copy`, `eye`, `arrow-up-tray`, `external`, `search`, `filter`, `login`, `logout`, setas e chevrons, `menu`, `close`, `check`, `sun`/`moon`/`computer`, `info`/`check-circle`/`warning`/`error`, `clock` e `logo`). Os dois conjuntos não se tocam.
+- O template escreve o conceito, nunca o ícone dele: `{% include "skeleton/web/components/icon.html" with name="billing"|concept_icon class="size-5" %}`, e num estado vazio `{% include "skeleton/web/components/empty-row.html" with … icon="webhooks"|concept_icon %}`. Só ícones de ação são escritos pelo nome. `SettingsItem.icon` (área de configuração) guarda um conceito.
+- `tests/unit/test_concept_icons.py` confere que o mapa é um-para-um, que todo ícone existe em `components/icon.html` e tem um papel, e que os templates não escrevem o ícone de um conceito pelo nome.
+
+| Conceito | Ícone | Conceito | Ícone |
+|---|---|---|---|
+| `home` (Início) | `home` | `overview` (Visão geral) | `grid` |
+| `organization` | `building` | `configuration` (configuração da organização, de uma app) | `cog` |
+| `instance_configuration` | `settings` | `platform` | `server` |
+| `account` (Minha conta, Perfil) | `user` | `notifications` | `bell` |
+| `tasks` | `clipboard-check` | `people` (Pessoas, Usuários) | `users` |
+| `groups` | `user-group` | `roles` (Papéis e permissões, acesso do registro) | `key` |
+| `external_people` | `user-plus` | `security` (Segurança, MFA) | `shield` |
+| `password` | `lock` | `email` | `envelope` |
+| `api_tokens` | `ticket` | `connected_devices` | `signal` |
+| `identity` (Identidade, provedores) | `finger-print` | `privacy` (eliminação) | `user-minus` |
+| `join_requests` | `inbox` | `join_links` | `link` |
+| `admission` | `badge-check` | `email_domains` (domínios verificados) | `at-symbol` |
+| `site_domains` (domínios próprios) | `globe` | `public_page` (páginas em blocos) | `window` |
+| `apps` | `cube` | `webhooks` | `bolt` |
+| `service_accounts` | `cpu-chip` | `flows` | `share` |
+| `calendar` | `calendar` | `documentation` | `book-open` |
+| `tables` | `table` | `audit` (auditoria, histórico) | `document-search` |
+| `files` (anexos) | `document` | `transfers` (exportação e importação) | `arrow-down-tray` |
+| `billing` | `credit-card` | `appearance` | `paint-brush` |
+| `jobs` | `queue-list` | `updates` | `arrow-up-circle` |
+| `native_clients` | `device-phone` | `api_clients` | `command-line` |
+| `remote_instances` | `server-stack` | `bundles` (pacotes de apps) | `rectangle-stack` |
+| `storage` | `database` | `insights` (indicadores) | `chart-bar` |
+
+Conceito novo entra no mapa com um ícone que nenhum outro usa (desenhado em `components/icon.html`); um ícone que já serve a outro conceito é recusado pelo teste.
 
 Elementos sem classe continuam legíveis: `h1`–`h3`, links, listas, `code`, `pre`, inputs, selects e `button` têm estilo de base. Telas de apps que ainda usam `<h1>`/`<p>` soltos recebem o mesmo ritmo do cabeçalho padrão.
 

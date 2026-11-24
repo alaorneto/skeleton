@@ -1,4 +1,4 @@
-{% extends "skeleton/web/base.html" %}{% load i18n ledger_money %}{% block title %}{% translate "Plano de contas" %} · {% translate "Livro contábil" %} · {{ site_name }}{% endblock %}
+{% extends "skeleton/web/base.html" %}{% load i18n ledger_money skeleton_format %}{% block title %}{% translate "Plano de contas" %} · {% translate "Livro contábil" %} · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Livro contábil" %}</p><h1>{% translate "Plano de contas" %}</h1><p class="page-description">{% translate "Contas do livro padrão, as chaves que as apps usam e os centros de custo." %}</p></div></div>
 {% include "skeleton_ledger/_nav.html" with section="accounts" %}
@@ -6,24 +6,24 @@
 <div class="table-scroll mb-6"><table>
   <caption class="sr-only">{% translate "Contas" %}</caption>
   <thead><tr><th scope="col">{% translate "Código" %}</th><th scope="col">{% translate "Conta" %}</th><th scope="col">{% translate "Tipo" %}</th><th scope="col">{% translate "Situação" %}</th>{% if book.writable %}<th scope="col"><span class="sr-only">{% translate "Ações" %}</span></th>{% endif %}</tr></thead>
-  <tbody>{% for account in accounts %}<tr><td>{{ account.code }}</td><td>{% if account.is_group %}<strong>{{ account.name }}</strong>{% else %}{{ account.name }}{% endif %}</td><td>{{ account.kind }}</td><td>{% if account.is_active %}{% translate "Ativa" %}{% else %}<span class="badge badge-neutral">{% translate "Inativa" %}</span>{% endif %}</td>
-  {% if book.writable %}<td><form method="post" action="{% url 'skeleton_ledger:account-active' organization_id account.sysid %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ account.revision }}"><input type="hidden" name="is_active" value="{% if account.is_active %}false{% else %}true{% endif %}"><button type="submit" class="btn btn-secondary">{% if account.is_active %}{% translate "Desativar" %}{% else %}{% translate "Ativar" %}{% endif %}</button></form></td>{% endif %}</tr>
+  <tbody>{% for account in accounts %}<tr><td>{{ account.code }}</td><td>{% if account.is_group %}<strong>{{ account.name }}</strong>{% else %}{{ account.name }}{% endif %}</td><td>{{ account.kind }}</td><td>{% if account.is_active %}{{ "active"|status_badge:_("Ativa") }}{% else %}{{ "inactive"|status_badge:_("Inativa") }}{% endif %}</td>
+  {% if book.writable %}<td><form method="post" action="{% url 'skeleton_ledger:account-active' organization_id account.sysid %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ account.revision }}"><input type="hidden" name="is_active" value="{% if account.is_active %}false{% else %}true{% endif %}"><button type="submit" class="btn {% if account.is_active %}btn-danger-outline{% else %}btn-secondary{% endif %}">{% if account.is_active %}{% translate "Desativar" %}{% else %}{% translate "Ativar" %}{% endif %}</button></form></td>{% endif %}</tr>
   {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=5 message=_("Nenhuma conta ainda.") %}{% endfor %}</tbody>
 </table></div>
 <h2 class="section-heading">{% translate "Chaves de conta" %}</h2>
-<div class="table-scroll mb-6"><table>
+<div class="table-scroll table-stack mb-6"><table>
   <caption class="sr-only">{% translate "Chaves de conta" %}</caption>
   <thead><tr><th scope="col">{% translate "Chave" %}</th><th scope="col">{% translate "Tipo" %}</th><th scope="col">{% translate "Conta vinculada" %}</th></tr></thead>
-  <tbody>{% for key in keys %}<tr><td>{{ key.label }} <code>{{ key.code }}</code></td><td>{{ key.kind }}</td><td>
+  <tbody>{% for key in keys %}<tr><td data-label="{% translate "Chave" %}">{{ key.label }} <code>{{ key.code }}</code></td><td data-label="{% translate "Tipo" %}">{{ key.kind }}</td><td data-label="{% translate "Conta vinculada" %}">
   {% if book.writable %}<form method="post" action="{% url 'skeleton_ledger:bind-key' organization_id %}" class="flex gap-2">{% csrf_token %}<input type="hidden" name="key" value="{{ key.code }}"><label class="sr-only" for="key-{{ forloop.counter }}">{% blocktranslate with key=key.code %}Conta da chave {{ key }}{% endblocktranslate %}</label><select id="key-{{ forloop.counter }}" name="account"><option value="">—</option>{% for account in accounts %}{% if not account.is_group and account.kind == key.kind %}<option value="{{ account.sysid }}"{% if account.sysid == key.account_id %} selected{% endif %}>{{ account.code }} {{ account.name }}</option>{% endif %}{% endfor %}</select><button type="submit" class="btn btn-secondary">{% translate "Vincular" %}</button></form>
   {% else %}{% for account in accounts %}{% if account.sysid == key.account_id %}{{ account.code }} {{ account.name }}{% endif %}{% endfor %}{% if not key.account_id %}—{% endif %}{% endif %}</td></tr>
   {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=3 message=_("Nenhuma chave registrada.") %}{% endfor %}</tbody>
 </table></div>
 <h2 class="section-heading">{% translate "Centros de custo" %}</h2>
-<div class="table-scroll mb-6"><table>
+<div class="table-scroll table-stack mb-6"><table>
   <caption class="sr-only">{% translate "Centros de custo" %}</caption>
   <thead><tr><th scope="col">{% translate "Código" %}</th><th scope="col">{% translate "Nome" %}</th></tr></thead>
-  <tbody>{% for center in centers %}<tr><td>{{ center.code }}</td><td>{{ center.name }}</td></tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=2 message=_("Nenhum centro de custo.") %}{% endfor %}</tbody>
+  <tbody>{% for center in centers %}<tr><td data-label="{% translate "Código" %}">{{ center.code }}</td><td data-label="{% translate "Nome" %}">{{ center.name }}</td></tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=2 message=_("Nenhum centro de custo.") %}{% endfor %}</tbody>
 </table></div>
 {% if book.writable %}
 <div class="grid gap-6 md:grid-cols-2">

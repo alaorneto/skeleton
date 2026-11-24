@@ -5,11 +5,11 @@
 <div class="page-header"><div class="min-w-0">
   <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'platform:remote-instances' %}">{% translate "Instâncias remotas" %}</a></li>{% if connection %}<li><span aria-current="page">{{ connection.label }}</span></li>{% endif %}</ol></nav>
   <h1>{% if connection %}{{ connection.label }}{% else %}{% translate "Instâncias remotas" %}{% endif %}</h1>
-  <p class="page-description">{% translate "Uma instância central lê a API de gestão das outras instâncias. O token de plataforma de cada uma é cifrado e nunca exibido; só a organização liberada lê a conexão, por jobs das apps dela." %}</p>
+  <p class="page-description">{% translate "Conexões com outras instâncias, para ler os dados de gestão delas. O token de cada conexão fica cifrado e nunca é exibido." %}</p>
 </div></div>
-{% if result %}<p class="alert mb-4" role="status">{{ result }}</p>{% endif %}
-{% if not connection %}<div class="table-scroll mb-5"><table><thead><tr><th scope="col">{% translate "Conexão" %}</th><th scope="col">{% translate "Situação" %}</th><th scope="col">{% translate "Último teste" %}</th></tr></thead><tbody>
-{% for row in connections %}<tr><td><a class="cell-primary" href="{% url 'platform:remote-instance' row.pk %}">{{ row.label }}</a><span class="cell-secondary"><code>{{ row.base_url }}</code></span></td><td>{% if row.is_active %}<span class="badge badge-success">{% translate "Ativa" %}</span>{% else %}<span class="badge">{% translate "Desativada" %}</span>{% endif %}</td><td>{% if row.last_checked_at %}{{ row.last_checked_at|moment }}{% if row.last_error_code %} · <code>{{ row.last_error_code }}</code>{% endif %}{% else %}—{% endif %}</td></tr>
+{% if result %}<p class="message info mb-4" role="status">{{ result }}</p>{% endif %}
+{% if not connection %}<div class="table-scroll table-stack mb-5"><table><thead><tr><th scope="col">{% translate "Conexão" %}</th><th scope="col">{% translate "Situação" %}</th><th scope="col">{% translate "Último teste" %}</th></tr></thead><tbody>
+{% for row in connections %}<tr><td data-label="{% translate "Conexão" %}"><a class="cell-primary" href="{% url 'platform:remote-instance' row.pk %}">{{ row.label }}</a><span class="cell-secondary"><code>{{ row.base_url }}</code></span></td><td data-label="{% translate "Situação" %}">{% if row.is_active %}{{ "active"|status_badge:_("Ativa") }}{% else %}{{ "disabled"|status_badge:_("Desativada") }}{% endif %}</td><td data-label="{% translate "Último teste" %}">{% if row.last_checked_at %}{{ row.last_checked_at|moment }}{% if row.last_error_code %} · <code>{{ row.last_error_code }}</code>{% endif %}{% else %}—{% endif %}</td></tr>
 {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=3 message=_("Nenhuma conexão.") %}{% endfor %}
 </tbody></table></div>{% else %}
 <dl class="meta-list mb-5"><div><dt>{% translate "Identidade remota" %}</dt><dd>{% if connection.expected_instance_id %}<code class="uuid">{{ connection.expected_instance_id }}</code>{% else %}{% translate "ainda não fixada" %}{% endif %}</dd></div>

@@ -43,6 +43,8 @@ PUBLIC_CORE_NAMES: dict[str, frozenset[str] | None] = {
     # command_context (#576): only in the app's management commands (COMMAND_ONLY_NAMES).
     "skeleton.tenancy.context": frozenset({"current_context", "command_context"}),
     "skeleton.web.views": frozenset({"tenant_page"}),
+    # The confirmation step of an irreversible action (#769): the same page and authorization as the core.
+    "skeleton.web.confirm": frozenset({"Confirmation", "confirmation_step"}),
     # Metrics of an app in the management figures of the instance (#710).
     "skeleton.service_api.insights": frozenset({"register_instance_metric"}),
     "skeleton.api.views": frozenset({"TenantAPI", "request_fields"}),

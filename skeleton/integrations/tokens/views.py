@@ -25,6 +25,7 @@ from skeleton.accounts.reauthentication import recent_authentication_required
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.integrations.webhooks.views import integrations_page
 from skeleton.tenancy.context import current_context
+from skeleton.web.confirm import Confirmation, confirmation_step
 
 from . import services
 from .models import ApiToken
@@ -258,7 +259,27 @@ def service_account(request, organization_id, sysid):
     )
 
 
+def _describe_deactivate(request, organization_id, sysid):
+    from django.urls import reverse
+
+    account = _account(sysid)
+    return Confirmation(
+        title=gettext("Desativar a conta de serviço"),
+        subject=account.first_name or account.email,
+        message=gettext(
+            "A conta perde os papéis, grupos e concessões, e todos os tokens dela deixam de valer na próxima "
+            "requisição. As integrações que a usam param de funcionar."
+        ),
+        submit_label=gettext("Desativar conta"),
+        cancel_url=reverse(
+            "integrations:service-account", kwargs={"organization_id": organization_id, "sysid": account.pk}
+        ),
+        context={"organization_id": organization_id},
+    )
+
+
 @integrations_page
+@confirmation_step(_describe_deactivate)
 @require_POST
 @recent_authentication_required
 @transaction.atomic

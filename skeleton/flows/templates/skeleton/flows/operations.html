@@ -2,7 +2,7 @@
 {% load i18n skeleton_format %}{% block title %}{% translate "Operação dos processos" %} · {{ site_name }}{% endblock %}
 {% block content %}
 <div>
-  <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Fluxos de processo" %}</p><h1>{% translate "Operação dos processos" %}</h1><p class="page-description">{% translate "O que precisa de ação: instâncias com falha e tarefas abertas sem responsável, atrasadas ou a vencer em 24 horas. Nenhum valor de formulário aparece aqui." %}</p></div></div>
+  <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Fluxos de processo" %}</p><h1>{% translate "Operação dos processos" %}</h1><p class="page-description">{% translate "O que precisa de ação: processos com falha e tarefas sem responsável, atrasadas ou a vencer em 24 horas." %}</p></div></div>
   {% include "skeleton/flows/_nav.html" %}
   <form method="get" class="filter-bar" aria-label="{% translate "Filtros" %}">
     <div class="field"><label for="ops-flow">{% translate "Fluxo" %}</label><select id="ops-flow" name="flow_key"><option value="">{% translate "Todos" %}</option>{% for key in panel.flow_keys %}<option value="{{ key }}"{% if key == flow_key %} selected{% endif %}>{{ key }}</option>{% endfor %}</select></div>
@@ -17,8 +17,8 @@
     {% include "skeleton/web/components/stat.html" with label=_("A vencer em 24 horas") value=panel.counts.due_soon key="due_soon" %}
   </dl>
   <h2 class="section-heading">{% translate "Instâncias com falha" %}</h2>
-  <div class="table-scroll mb-6"><table><thead><tr><th scope="col">{% translate "Fluxo" %}</th><th scope="col" class="col-num">{% translate "Número" %}</th><th scope="col" class="col-date">{% translate "Atualizada em" %}</th></tr></thead><tbody>
-  {% for row in panel.failed %}<tr><td><a class="cell-primary" href="{% url 'flows:instance' organization_id row.sysid %}">{{ row.flow_key }} v{{ row.flow_version }}</a></td><td class="col-num">{{ row.number|default:"—" }}</td><td class="col-date">{{ row.updated_at|moment }}</td></tr>
+  <div class="table-scroll table-stack mb-6"><table><thead><tr><th scope="col">{% translate "Fluxo" %}</th><th scope="col" class="col-num">{% translate "Número" %}</th><th scope="col" class="col-date">{% translate "Atualizada em" %}</th></tr></thead><tbody>
+  {% for row in panel.failed %}<tr><td data-label="{% translate "Fluxo" %}"><a class="cell-primary" href="{% url 'flows:instance' organization_id row.sysid %}">{{ row.flow_key }} v{{ row.flow_version }}</a></td><td data-label="{% translate "Número" %}" class="col-num">{{ row.number|default:"—" }}</td><td data-label="{% translate "Atualizada em" %}" class="col-date">{{ row.updated_at|moment }}</td></tr>
   {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=3 message=_("Nenhuma instância com falha.") icon="check-circle" %}{% endfor %}
   </tbody></table></div>
   {% include "skeleton/flows/operations_tasks.html" with heading=_("Tarefas sem responsável") rows=panel.unassigned empty=_("Nenhuma tarefa sem responsável.") %}

@@ -1,4 +1,4 @@
 {% extends "skeleton/web/base.html" %}{% load i18n %}{% block title %}{% translate "Agenda" %} · {{ site_name }}{% endblock %}
 {% block content %}
-<div class="max-w-3xl"><div class="error-summary" role="alert"><h1>{% translate "Pedido inválido" %}</h1><p class="mt-1">{{ detail }}</p><p class="mt-2"><a href="{% url 'skeleton_calendar:home' organization_id %}">{% translate "Voltar à agenda" %}</a></p></div></div>
+<div class="max-w-3xl">{% url 'skeleton_calendar:home' organization_id as back_url %}{% include "skeleton/web/components/error-summary.html" with message=detail title=_("Pedido inválido") heading="h1" back_url=back_url back_label=_("Voltar à agenda") %}</div>
 {% endblock %}

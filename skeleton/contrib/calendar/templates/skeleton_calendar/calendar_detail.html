@@ -1,4 +1,4 @@
-{% extends "skeleton/web/base.html" %}{% load i18n %}{% block title %}{{ calendar.name }} · {% translate "Agenda" %} · {{ site_name }}{% endblock %}
+{% extends "skeleton/web/base.html" %}{% load i18n skeleton_format %}{% block title %}{{ calendar.name }} · {% translate "Agenda" %} · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="max-w-3xl">
 <div class="page-header"><div class="min-w-0"><nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'skeleton_calendar:home' organization_id %}">{% translate "Agenda" %}</a></li><li><a href="{% url 'skeleton_calendar:calendars' organization_id %}">{% translate "Calendários" %}</a></li><li><span aria-current="page">{{ calendar.name }}</span></li></ol></nav><h1>{{ calendar.name }}</h1><p class="page-description">{% if calendar.kind == "personal" %}{% translate "Calendário pessoal" %}{% else %}{% translate "Calendário compartilhado" %}{% endif %} · {% translate "fuso" %} {{ calendar.timezone }}</p></div>
@@ -6,7 +6,7 @@
 </div>
 {% if managed %}
 <section class="card" aria-labelledby="calendar-managed" data-managed-calendar>
-  <h2 id="calendar-managed"><span class="badge">{% blocktranslate with app=managed.name %}gerenciado por {{ app }}{% endblocktranslate %}</span></h2>
+  <h2 id="calendar-managed">{% blocktranslate asvar managed_label with app=managed.name %}Gerenciado por {{ app }}{% endblocktranslate %}{{ "managed"|marker:managed_label }}</h2>
   <p class="mt-1 text-sm/6">{% translate "O nome, o acesso e a exclusão deste calendário mudam só na app de origem." %} {% if managed.url %}<a class="underline" href="{{ managed.url }}">{% translate "abrir na origem" %}</a>{% else %}<span class="text-body-subtle">{% translate "origem indisponível" %}</span>{% endif %}</p>
 </section>
 {% endif %}
@@ -28,12 +28,7 @@
 </form>
 {% endif %}
 {% if can_delete %}
-<form method="post" action="{% url 'skeleton_calendar:calendar-delete' organization_id calendar.pk %}" class="card mt-6" aria-labelledby="calendar-delete">
-  <h2 id="calendar-delete">{% translate "Excluir" %}</h2>
-  <p class="mt-1 text-sm/6">{% translate "Só um calendário sem eventos pode ser excluído." %}</p>
-  {% csrf_token %}<input type="hidden" name="revision" value="{{ calendar.revision }}">
-  <div class="form-actions"><button type="submit" class="btn btn-danger">{% translate "Excluir calendário" %}</button></div>
-</form>
+{% url 'skeleton_calendar:calendar-delete' organization_id calendar.pk as delete_url %}{% include "skeleton/web/components/danger-zone.html" with heading_id="calendar-delete" title=_("Excluir calendário") text=_("O calendário sai da agenda de todos com quem ele é compartilhado. Só um calendário sem eventos pode ser excluído.") url=delete_url label=_("Excluir calendário") %}
 {% endif %}
 </div>
 {% endblock %}

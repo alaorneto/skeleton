@@ -1,0 +1,9 @@
+{% load i18n %}{% comment %}A confirmação de uma ação irreversível (#769): consequência, motivo quando a ação pede, botão vermelho e Cancelar. O POST vai para a mesma URL.{% endcomment %}<form method="post" class="card">
+  {% csrf_token %}
+  {% for name, value in hidden %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+  {% if form %}{% for field in form.hidden_fields %}{{ field }}{% endfor %}{% endif %}
+  {% include "skeleton/web/components/error-summary.html" with message=error title=_("Não foi possível concluir") extra_class="mb-4" %}
+  <p class="confirmation">{{ message }}</p>
+  {% if reason_label %}<div class="form-field mt-4"><label for="confirm-reason">{{ reason_label }}{% if reason_required %}<span class="required" aria-hidden="true"> *</span>{% else %} <span class="optional">{% translate "(opcional)" %}</span>{% endif %}</label><textarea id="confirm-reason" name="reason" rows="3" maxlength="500"{% if reason_required %} required{% endif %}></textarea></div>{% endif %}
+  <div class="form-actions"><button type="submit" class="btn btn-danger">{{ submit_label }}</button><a class="btn btn-secondary" href="{{ cancel_url }}">{% translate "Cancelar" %}</a></div>
+</form>

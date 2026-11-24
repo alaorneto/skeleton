@@ -1,5 +1,5 @@
 {% extends "skeleton/web/platform/base.html" %}
-{% load i18n %}{% block page_title %}{{ application.label }}{% endblock %}
+{% load i18n skeleton_format %}{% block page_title %}{{ application.label }}{% endblock %}
 {% block content %}
 <div class="page-header">
   <div class="min-w-0">
@@ -7,7 +7,7 @@
     <h1>{{ application.label }}</h1>
     <p class="page-description">{{ application.description }}</p>
   </div>
-  {% if has_documentation %}<nav class="toolbar" aria-label="{% translate "Ações" %}"><a class="btn btn-secondary" href="{% url 'platform:app-documentation' application.app_label %}">{% include "skeleton/web/components/icon.html" with name="document" %}{% translate "Documentação" %}</a></nav>{% endif %}
+  {% if has_documentation %}<nav class="toolbar" aria-label="{% translate "Ações" %}"><a class="btn btn-secondary" href="{% url 'platform:app-documentation' application.app_label %}">{% include "skeleton/web/components/icon.html" with name="documentation"|concept_icon %}{% translate "Documentação" %}</a></nav>{% endif %}
 </div>
 <div class="grid gap-5 lg:grid-cols-3">
   <section class="card lg:col-span-2" aria-labelledby="app-overview">
@@ -25,18 +25,18 @@
   <section class="card" aria-labelledby="app-organizations">
     <h2 id="app-organizations" class="mb-2">{% translate "Disponibilidade" %}</h2>
     {% if library %}
-    <p class="text-sm/6 text-body"><span class="badge badge-dot">{% translate "Biblioteca" %}</span></p>
+    <p class="text-sm/6 text-body">{{ "library"|marker }}</p>
     <p class="mt-3 text-sm/6 text-body">{% translate "Uma biblioteca não tem disponibilidade nem ativação próprias: fica ativa numa organização enquanto uma app que depende dela está ativa, e não entra em pacotes nem na cobrança." %}</p>
     <p class="mt-4 text-xs font-semibold tracking-wide text-body-subtle uppercase">{% translate "Usada por" %}</p>
     <ul class="mt-2">{% for app in used_by %}<li class="text-sm"><a href="{% url 'platform:app' app.app_label %}">{{ app.label }}</a></li>{% empty %}<li class="text-sm text-body">{% translate "Nenhuma app instalada a usa." %}</li>{% endfor %}</ul>
     {% else %}
-    <p class="text-sm/6 text-body">{% if availability.mode == "all" %}<span class="badge badge-success badge-dot">{% translate "Todas as organizações" %}</span>{% elif availability.mode == "selected" %}<span class="badge badge-brand badge-dot">{% blocktranslate count counter=availability.grants|length %}{{ counter }} organização selecionada{% plural %}{{ counter }} organizações selecionadas{% endblocktranslate %}</span>{% else %}<span class="badge badge-dot">{% translate "Indisponível" %}</span>{% endif %}</p>
+    <p class="text-sm/6 text-body">{% if availability.mode == "all" %}{{ "all"|status_badge:"availability" }}{% elif availability.mode == "selected" %}{% blocktranslate asvar selected_label count counter=availability.grants|length %}{{ counter }} organização selecionada{% plural %}{{ counter }} organizações selecionadas{% endblocktranslate %}{{ "availability:selected"|status_badge:selected_label }}{% else %}{{ "none"|status_badge:"availability" }}{% endif %}</p>
     <p class="mt-3 text-sm/6 text-body">{% translate "Ativação e parâmetros são definidos por quem administra cada organização, em Administração › Aplicativos. Acesso de plataforma não concede vínculo nem acesso a dados de organizações." %}</p>
     <p class="mt-4"><a class="btn btn-secondary" href="{% url 'platform:app-availability' application.app_label %}">{% translate "Gerenciar disponibilidade" %}</a></p>
     {% endif %}
     {% if tenant_screens %}<p class="mt-4 text-xs font-semibold tracking-wide text-body-subtle uppercase">{% translate "Telas na organização" %}</p><ul class="mt-2">{% for screen in tenant_screens %}<li class="text-sm">{{ screen.label }}</li>{% endfor %}</ul>{% endif %}
-    {% if instance_themes %}<p class="mt-4 text-xs font-semibold tracking-wide text-body-subtle uppercase">{% translate "Temas da instância" %}</p><ul class="mt-2">{% for theme in instance_themes %}<li>{% if theme.valid %}{{ theme.name }}{% if theme.active %} <span class="badge badge-success">{% translate "ativo" %}</span>{% endif %}{% else %}{{ theme.slug }} — {% translate "Inválido: veja manage.py check" %}{% endif %}</li>{% endfor %}</ul><p class="mt-2"><a href="{% url 'platform:appearance' %}">{% translate "Ver em Aparência" %}</a></p>{% endif %}
+    {% if instance_themes %}<p class="mt-4 text-xs font-semibold tracking-wide text-body-subtle uppercase">{% translate "Temas da instância" %}</p><ul class="mt-2">{% for theme in instance_themes %}<li>{% if theme.valid %}{{ theme.name }}{% if theme.active %} {{ "active"|status_badge:_("Em uso") }}{% endif %}{% else %}{{ theme.slug }} — {% translate "Inválido: veja manage.py check" %}{% endif %}</li>{% endfor %}</ul><p class="mt-2"><a href="{% url 'platform:appearance' %}">{% translate "Ver em Aparência" %}</a></p>{% endif %}
   </section>
 </div>
-{% for section in sections %}<section class="mt-8" aria-labelledby="platform-section-{{ section.id }}"><h2 id="platform-section-{{ section.id }}" class="section-heading">{{ section.label }}</h2><ul class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{% for screen in section.screens %}<li><a class="link-card items-center" href="{{ screen.url }}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="settings" %}</span><span class="link-card-title">{{ screen.label }}</span></a></li>{% endfor %}</ul></section>{% endfor %}
+{% for section in sections %}<section class="mt-8" aria-labelledby="platform-section-{{ section.id }}"><h2 id="platform-section-{{ section.id }}" class="section-heading">{{ section.label }}</h2><ul class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{% for screen in section.screens %}<li><a class="link-card items-center" href="{{ screen.url }}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="configuration"|concept_icon %}</span><span class="link-card-title">{{ screen.label }}</span></a></li>{% endfor %}</ul></section>{% endfor %}
 {% endblock %}

@@ -6,7 +6,7 @@
   <div class="min-w-0">
     <nav class="breadcrumbs" aria-label="Caminho"><ol><li><a href="{% url 'platform:identity-providers' %}">Provedores de identidade</a></li><li><span aria-current="page">{{ row.name }}</span></li></ol></nav>
     <h1>{{ row.name }}</h1>
-    <p class="mt-2">{% if row.enabled %}<span class="badge badge-success badge-dot">Ativo</span>{% else %}<span class="badge badge-dot">Desligado</span>{% endif %}</p>
+    <p class="mt-2">{% if row.enabled %}{{ "active"|status_badge }}{% else %}{{ "inactive"|status_badge:_("Desligado") }}{% endif %}</p>
   </div>
   <form method="post" action="{% url 'platform:identity-provider-check' row.pk %}" class="toolbar">{% csrf_token %}<button type="submit" class="btn btn-secondary">Testar</button></form>
 </div>

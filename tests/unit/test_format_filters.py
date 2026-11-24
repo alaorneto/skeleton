@@ -118,3 +118,30 @@ def test_list_columns_have_a_kind_and_long_text_is_cut():
     assert kinds == {"attempts": "num", "run_after": "date", "job_type": "text", "state": "text", "__label__": "text"}
     assert _list_text("x" * LIST_TEXT_LIMIT) == "x" * LIST_TEXT_LIMIT
     assert _list_text("y" * 400) == "y" * LIST_TEXT_LIMIT + "…"
+
+
+def test_marker(subtests):
+    """A fixed property is a pill without the dot; the state keeps the dot (#767)."""
+    from skeleton.web.templatetags.skeleton_format import marker
+
+    with translation.override("pt-br"):
+        cases = (
+            ("mandatory", None, '<span class="badge badge-brand">Obrigatório</span>'),
+            ("read_only", None, '<span class="badge badge-warning">Somente leitura</span>'),
+            ("managed", "Gerenciado por Agenda", '<span class="badge badge-neutral">Gerenciado por Agenda</span>'),
+            ("xyz", None, '<span class="badge badge-neutral">xyz</span>'),
+            ("<b>x</b>", None, '<span class="badge badge-neutral">&lt;b&gt;x&lt;/b&gt;</span>'),
+            (None, None, ""),
+        )
+        for code, label, expected in cases:
+            with subtests.test(code=code, label=label):
+                assert str(marker(code, label)) == expected
+
+
+def test_code_label_is_plain_translated_text():
+    with translation.override("pt-br"):
+        rendered = Template(
+            '{% load skeleton_format %}{{ a|code_label:"table_origin" }}|{{ b|code_label:"app_origin" }}|'
+            '{{ c|code_label:"audit_mode" }}|{{ d|code_label:"nope" }}|{{ e|code_label:"table_origin" }}'
+        ).render(Context({"a": "third_party", "b": "bundled", "c": "library", "d": "<x>", "e": ""}))
+    assert rendered == "Biblioteca de terceiros|Incluído no núcleo|Da biblioteca|&lt;x&gt;|—"

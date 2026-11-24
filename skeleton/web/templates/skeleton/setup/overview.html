@@ -1,5 +1,5 @@
 {% extends "skeleton/setup/base.html" %}
-{% load i18n %}{% block content %}
+{% load i18n skeleton_format %}{% block content %}
 <p class="page-description">{% blocktranslate trimmed with total=total %}São {{ total }} etapas. Cada uma valida o que você informa antes de gravar. Você pode sair e voltar: o que já foi salvo fica guardado.{% endblocktranslate %}</p>
 <section class="mt-6 rounded-base border border-default bg-neutral-secondary-soft p-4" aria-labelledby="setup-needs">
 <h2 id="setup-needs" class="text-base/6">{% translate "Antes de começar, tenha em mãos" %}</h2>
@@ -16,7 +16,7 @@
 <ol class="divide-y divide-default rounded-base border border-default">
 {% for item in steps %}<li class="flex flex-wrap items-start justify-between gap-2 px-4 py-3">
 <div class="min-w-0"><a class="font-medium" href="{% url 'setup:'|add:item.name %}">{{ item.number }}. {{ item.label }}</a>{% if not item.required %} <span class="optional">{% translate "(opcional neste modo)" %}</span>{% endif %}<p class="text-sm/5 text-body-subtle">{{ item.summary }}</p></div>
-{% if item.skipped %}<span class="badge badge-warning">{% translate "depois" %}</span>{% elif item.done %}<span class="badge badge-success">{% translate "feito" %}</span>{% else %}<span class="badge">{% translate "pendente" %}</span>{% endif %}
+{% if item.skipped %}{{ "skipped"|status_badge:"setup" }}{% elif item.done %}{{ "done"|status_badge:"setup" }}{% else %}{{ "pending"|status_badge:"setup" }}{% endif %}
 </li>{% endfor %}
 </ol>
 <div class="form-actions">

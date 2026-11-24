@@ -109,8 +109,13 @@ def _display(value):
     return value
 
 
-def _cell(value):
-    """One cell of an access list (#470): Sim/Não, "—" when empty, dates kept for |moment."""
+def _cell(value, name=""):
+    """One cell of an access list (#470): Sim/Não, "—" when empty, dates kept for |moment.
+
+    ``is_active`` is a state, not a plain boolean: it renders with status_badge (#767).
+    """
+    if name == "is_active" and (value is True or value is False):
+        return {"value": "active" if value else "inactive", "kind": "state"}
     if value is True or value is False:
         return {"value": _display(value), "kind": "text"}
     if value is None or value == "":
@@ -564,11 +569,16 @@ def access_list(request, organization_id, resource):
     if relations:
         queryset = queryset.select_related(*relations)
     rows = pagination(request, queryset)
+    # The item's name comes first and its code goes on the second line (#767, rule 1 of the tables).
+    coded = "code" in fields and "name" in fields
+    labels = {name: dedicated_label(model, name) for name in fields}
+    shown = ("name", *(name for name in fields if name not in ("code", "name"))) if coded else tuple(fields)
     rows.object_list = [
         {
             "sysid": item.sysid,
+            "secondary": item.code if coded else item.sysid,
             "revision": item.revision,
-            "cells": [_cell(getattr(item, name)) for name in fields],
+            "cells": [{**_cell(getattr(item, name), name), "label": labels[name]} for name in shown],
         }
         for item in rows
     ]
@@ -577,7 +587,7 @@ def access_list(request, organization_id, resource):
         "skeleton/web/access_list.html",
         {
             "title": get_spec(model._meta.label_lower).label,
-            "headings": [dedicated_label(model, name) for name in fields],
+            "headings": [labels[name] for name in shown],
             "rows": rows,
             "organization_id": organization_id,
             "resource": resource,
@@ -660,11 +670,53 @@ def access_delete(request, organization_id, resource, sysid):
                 status = form_error(form, exc)
         else:
             status = 400
+    title, submit_label, confirmation = _access_delete_texts(resource)
     return render(
         request,
         "skeleton/web/form.html",
-        {"title": "Revogar / remover", "form": form, "organization_id": organization_id},
+        {
+            "title": title,
+            "form": form,
+            "organization_id": organization_id,
+            "operation": "delete",
+            "submit_label": submit_label,
+            "confirmation": confirmation,
+            "cancel_url": reverse("web:access-list", kwargs={"organization_id": organization_id, "resource": resource}),
+        },
         status=status,
+    )
+
+
+def _access_delete_texts(resource):
+    """Title, button and consequence of removing one access resource (#771)."""
+    if resource == "memberships":
+        return (
+            gettext("Remover pessoa"),
+            gettext("Remover pessoa"),
+            gettext("A pessoa perde o acesso a esta organização e aos dados dela na hora."),
+        )
+    if resource == "invitations":
+        return (
+            gettext("Revogar convite"),
+            gettext("Revogar convite"),
+            gettext("O link do convite deixa de funcionar. Para convidar de novo, envie outro convite."),
+        )
+    if resource == "roles":
+        return (
+            gettext("Remover papel"),
+            gettext("Remover papel"),
+            gettext("Quem recebia acesso por este papel deixa de recebê-lo."),
+        )
+    if resource == "groups":
+        return (
+            gettext("Remover grupo"),
+            gettext("Remover grupo"),
+            gettext("Os membros do grupo deixam de receber o acesso concedido a ele."),
+        )
+    return (
+        gettext("Revogar acesso"),
+        gettext("Revogar"),
+        gettext("O acesso concedido por esta ligação deixa de valer na hora."),
     )
 
 
@@ -817,10 +869,13 @@ def record_detail(request, organization_id, table_key, sysid):
     if item is None:
         raise Http404
     permissions = record_permissions(item, spec, user=request.user)
+    from skeleton.web.icons import concept_icon
+
+    # The colour of an action follows what it does (#769): editing is the main one, removing is red.
     names = {
-        "update": ("web:record-edit", gettext("Editar")),
-        "delete": ("web:record-delete", gettext("Remover")),
-        "manage_access": ("web:record-access", gettext("Gerenciar acesso")),
+        "update": ("web:record-edit", gettext("Editar"), "primary", "pencil"),
+        "manage_access": ("web:record-access", gettext("Gerenciar acesso"), "secondary", concept_icon("roles")),
+        "delete": ("web:record-delete", gettext("Remover"), "danger", "trash"),
     }
     actions = [
         {
@@ -828,8 +883,10 @@ def record_detail(request, organization_id, table_key, sysid):
                 route, kwargs={"organization_id": organization_id, "table_key": table_key, "sysid": item.pk}
             ),
             "label": label,
+            "kind": kind,
+            "icon": icon,
         }
-        for action, (route, label) in names.items()
+        for action, (route, label, kind, icon) in names.items()
         if permissions[action]
     ]
     from skeleton.comments.views import panel_context as comments_panel

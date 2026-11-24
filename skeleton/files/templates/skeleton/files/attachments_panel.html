@@ -6,7 +6,7 @@
     <td class="col-num">{{ row.size|filesizeformat }}</td>
     <td>{{ row.state|status_badge:"files" }}</td>
     {% if attachments.can_write %}<td class="col-actions"><form method="post" action="{% url 'files:remove' organization_id table_key record.sysid row.sysid %}" class="row-actions">{% csrf_token %}<input type="hidden" name="revision" value="{{ row.revision }}"><button class="btn btn-danger-outline btn-sm" type="submit">{% include "skeleton/web/components/icon.html" with name="trash" %}{% translate "Remover" %}</button></form></td>{% endif %}
-  </tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhum anexo.") icon="document" %}{% endfor %}
+  </tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhum anexo.") icon="files"|concept_icon %}{% endfor %}
   </tbody></table></div>
   {% if attachments.can_write %}
   <form class="mt-4" method="post" enctype="multipart/form-data" action="{% url 'files:upload' organization_id table_key record.sysid %}">{% csrf_token %}

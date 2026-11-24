@@ -1,5 +1,5 @@
 {% extends base_template %}
-{% load i18n %}{% comment %}
+{% load i18n skeleton_format %}{% comment %}
 Editor SSR de páginas em blocos (#619): sem JavaScript; toda mudança é um POST com CSRF e a
 revisão lida (CAS). A autorização é da view concreta que monta o PageEditor.
 {% endcomment %}{% block title %}{{ editor.title }} · {{ site_name }}{% endblock %}
@@ -9,25 +9,25 @@ revisão lida (CAS). A autorização é da view concreta que monta o PageEditor.
   <div class="min-w-0">{% if editor.eyebrow %}<p class="page-eyebrow">{{ editor.eyebrow }}</p>{% endif %}<h1>{{ editor.title }}</h1>
   {% if editor.description %}<p class="page-description">{{ editor.description }}</p>{% endif %}</div>
   <nav class="toolbar" aria-label="{% translate "Ações da página" %}">
-    <a class="btn btn-secondary" href="{{ preview_url }}">{% include "skeleton/web/components/icon.html" with name="document" %}{% translate "Pré-visualizar" %}</a>
+    <a class="btn btn-secondary" href="{{ preview_url }}">{% include "skeleton/web/components/icon.html" with name="eye" %}{% translate "Pré-visualizar" %}</a>
     <form method="post" action="{{ publish_url }}">{% csrf_token %}<input type="hidden" name="revision" value="{{ revision }}">{% if state.published %}<button type="submit" class="btn btn-secondary" name="published" value="off">{% translate "Despublicar" %}</button>{% else %}<button type="submit" class="btn btn-primary" name="published" value="on">{% translate "Publicar" %}</button>{% endif %}</form>
   </nav>
 </div>
-<p class="mb-4 text-sm/6">{% translate "Situação:" %} {% if state.published %}<span class="badge badge-success">{% translate "publicada" %}</span>{% else %}<span class="badge badge-neutral">{% translate "não publicada" %}</span>{% endif %}</p>
+<p class="mb-4 text-sm/6">{% translate "Situação:" %} {% if state.published %}{{ "published"|status_badge }}{% else %}{{ "unpublished"|status_badge }}{% endif %}</p>
 {% if editor.notice %}<div class="message warning mb-4" role="status">{% include "skeleton/web/components/icon.html" with name="warning" %}<div class="min-w-0">{{ editor.notice }}{% if editor.notice_link %} <a href="{{ editor.notice_link.1 }}">{{ editor.notice_link.0 }}</a>{% endif %}</div></div>{% endif %}
-{% if error %}<div class="error-summary mb-4" role="alert" tabindex="-1" data-error-summary><h2>{% include "skeleton/web/components/icon.html" with name="error" class="size-5 shrink-0" %}{% translate "Não foi possível concluir" %}</h2><p class="mt-1">{{ error }}</p></div>{% endif %}
+{% include "skeleton/web/components/error-summary.html" with message=error title=_("Não foi possível concluir") extra_class="mb-4" %}
 
 <section aria-labelledby="page-blocks" class="mb-6">
   <h2 id="page-blocks" class="section-heading">{% translate "Blocos" %}</h2>
-  <div class="table-scroll"><table><thead><tr><th scope="col">#</th><th scope="col">{% translate "Tipo" %}</th><th scope="col">{% translate "Conteúdo" %}</th><th scope="col" class="col-actions">{% translate "Ações" %}</th></tr></thead><tbody>
-  {% for row in rows %}<tr><td class="tabular-nums">{{ row.number }}</td><td>{{ row.label }}</td><td class="break-words [overflow-wrap:anywhere]">{{ row.summary|default:"—" }}</td>
-  <td class="col-actions"><div class="row-actions">
+  <div class="table-scroll table-stack"><table><thead><tr><th scope="col">#</th><th scope="col">{% translate "Tipo" %}</th><th scope="col">{% translate "Conteúdo" %}</th><th scope="col" class="col-actions">{% translate "Ações" %}</th></tr></thead><tbody>
+  {% for row in rows %}<tr><td data-label="{% translate "#" %}" class="tabular-nums">{{ row.number }}</td><td data-label="{% translate "Tipo" %}">{{ row.label }}</td><td data-label="{% translate "Conteúdo" %}" class="break-words [overflow-wrap:anywhere]">{{ row.summary|default:"—" }}</td>
+  <td data-label="{% translate "Ações" %}" class="col-actions"><div class="row-actions">
     <a class="btn btn-secondary btn-sm" href="{{ row.edit_url }}">{% include "skeleton/web/components/icon.html" with name="pencil" %}{% translate "Editar" %}<span class="sr-only"> {% blocktranslate trimmed with number=row.number %}o bloco {{ number }}{% endblocktranslate %}</span></a>
     {% if not row.first %}<form method="post" action="{{ row.move_url }}">{% csrf_token %}<input type="hidden" name="revision" value="{{ revision }}"><button type="submit" class="btn btn-secondary btn-sm" name="direction" value="up">{% translate "Subir" %}<span class="sr-only"> {% blocktranslate trimmed with number=row.number %}o bloco {{ number }}{% endblocktranslate %}</span></button></form>{% endif %}
     {% if not row.last %}<form method="post" action="{{ row.move_url }}">{% csrf_token %}<input type="hidden" name="revision" value="{{ revision }}"><button type="submit" class="btn btn-secondary btn-sm" name="direction" value="down">{% translate "Descer" %}<span class="sr-only"> {% blocktranslate trimmed with number=row.number %}o bloco {{ number }}{% endblocktranslate %}</span></button></form>{% endif %}
     <a class="btn btn-danger-outline btn-sm" href="{{ row.delete_url }}">{% include "skeleton/web/components/icon.html" with name="trash" %}{% translate "Excluir" %}<span class="sr-only"> {% blocktranslate trimmed with number=row.number %}o bloco {{ number }}{% endblocktranslate %}</span></a>
   </div></td></tr>
-  {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhum bloco. Acrescente o primeiro abaixo.") icon="document" %}{% endfor %}
+  {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhum bloco. Acrescente o primeiro abaixo.") icon="public_page"|concept_icon %}{% endfor %}
   </tbody></table></div>
 </section>
 

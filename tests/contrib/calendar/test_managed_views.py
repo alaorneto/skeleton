@@ -59,7 +59,7 @@ def home(organization):
 def test_the_page_marks_a_managed_event_and_links_to_the_source(agenda, login, managed):
     html = login(agenda.alice).get(home(agenda.a) + f"?view=week&date={DAY}").content.decode()
     origin = reverse("web:dashboard", kwargs={"organization_id": agenda.a.pk}) + PATH
-    assert "gerenciado por" in html and f'href="{origin}"' in html and "abrir na origem" in html
+    assert "Gerenciado por" in html and f'href="{origin}"' in html and "abrir na origem" in html
     assert not re.search(r"<script(?![^>]*src=)", html)  # No inline script, as everywhere.
 
 
@@ -104,4 +104,4 @@ def test_ics_and_feed_carry_nothing_of_the_source(agenda, login, managed):
 
 def test_my_agenda_lists_the_managed_event_of_the_attendee(agenda, login, managed):
     html = login(agenda.bob).get("/me/apps/skeleton_calendar/").content.decode()
-    assert "Atendimento" in html and "gerenciado por outra app" in html
+    assert "Atendimento" in html and "Gerenciado por outra app" in html

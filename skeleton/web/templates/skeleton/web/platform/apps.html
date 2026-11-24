@@ -1,14 +1,14 @@
 {% extends "skeleton/web/platform/base.html" %}
-{% load i18n %}{% block page_title %}{% translate "Aplicativos instalados" %}{% endblock %}
+{% load i18n skeleton_format %}{% block page_title %}{% translate "Aplicativos instalados" %}{% endblock %}
 {% block content %}
 <div class="page-header">
-  <div class="min-w-0"><p class="page-eyebrow">{% translate "Aplicativos" %}</p><h1>{% translate "Aplicativos instalados" %}</h1><p class="page-description">{% translate "Código ativo na plataforma. Cada organização ativa e configura as apps na sua própria área; instalar e atualizar é feito em Versões e atualizações." %}</p></div>
-  <nav class="toolbar" aria-label="{% translate "Ações" %}"><a class="btn btn-secondary" href="{% url 'platform:updates' %}">{% include "skeleton/web/components/icon.html" with name="refresh" %}{% translate "Versões e atualizações" %}</a></nav>
+  <div class="min-w-0"><p class="page-eyebrow">{% translate "Aplicativos" %}</p><h1>{% translate "Aplicativos instalados" %}</h1><p class="page-description">{% translate "Aplicativos instalados nesta instância. Cada organização ativa os que usa; instalar e atualizar fica em Versões e atualizações." %}</p></div>
+  <nav class="toolbar" aria-label="{% translate "Ações" %}"><a class="btn btn-secondary" href="{% url 'platform:updates' %}">{% include "skeleton/web/components/icon.html" with name="updates"|concept_icon %}{% translate "Versões e atualizações" %}</a></nav>
 </div>
 <ul class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
 {% for app in applications %}
-<li><a class="link-card h-full" href="{% url 'platform:app' app.app_label %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="cube" %}</span><span class="min-w-0"><span class="link-card-title">{{ app.label }}</span><span class="link-card-text">{{ app.description }}</span><span class="mt-2 flex flex-wrap gap-1.5"><span class="badge">{% translate "versão" %} {{ app.version }}</span><span class="badge">{{ app.origin }}</span></span></span></a></li>
-{% empty %}<li class="card empty-state sm:col-span-2 xl:col-span-3">{% translate "Nenhum aplicativo instalado." %}</li>{% endfor %}
+<li><a class="link-card h-full" href="{% url 'platform:app' app.app_label %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="apps"|concept_icon %}</span><span class="min-w-0"><span class="link-card-title">{{ app.label }}</span><span class="link-card-text">{{ app.description }}</span><span class="mt-2 text-xs text-body-subtle">v{{ app.version }} · {{ app.origin|code_label:"app_origin" }}</span></span></a></li>
+{% empty %}<li class="card sm:col-span-2 xl:col-span-3">{% include "skeleton/web/components/empty-state.html" with message=_("Nenhum aplicativo instalado.") icon="apps"|concept_icon %}</li>{% endfor %}
 </ul>
 {% if libraries %}
 <section class="mt-8" aria-labelledby="platform-libraries">
@@ -16,7 +16,7 @@
   <p class="mb-3 text-sm/6 text-body">{% translate "Recursos usados por outras apps. Não têm disponibilidade nem ativação próprias: ficam ativas numa organização enquanto uma app que depende delas está ativa." %}</p>
   <ul class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
   {% for library in libraries %}
-  <li><a class="link-card h-full" href="{% url 'platform:app' library.app_label %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="cube" %}</span><span class="min-w-0"><span class="link-card-title">{{ library.label }}</span><span class="link-card-text">{{ library.description }}</span><span class="mt-2 flex flex-wrap gap-1.5"><span class="badge">{% translate "biblioteca" %}</span><span class="badge">{% translate "versão" %} {{ library.version }}</span></span><span class="link-card-text mt-2">{% if library.used_by %}{% translate "Usada por" %} {% for app in library.used_by %}{{ app.label }}{% if not forloop.last %}, {% endif %}{% endfor %}{% else %}{% translate "Nenhuma app instalada a usa." %}{% endif %}</span></span></a></li>
+  <li><a class="link-card h-full" href="{% url 'platform:app' library.app_label %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="apps"|concept_icon %}</span><span class="min-w-0"><span class="link-card-title">{{ library.label }}</span><span class="link-card-text">{{ library.description }}</span><span class="mt-2 flex flex-wrap items-center gap-1.5">{{ "library"|marker }}<span class="text-xs text-body-subtle">v{{ library.version }}</span></span><span class="link-card-text mt-2">{% if library.used_by %}{% translate "Usada por" %} {% for app in library.used_by %}{{ app.label }}{% if not forloop.last %}, {% endif %}{% endfor %}{% else %}{% translate "Nenhuma app instalada a usa." %}{% endif %}</span></span></a></li>
   {% endfor %}
   </ul>
 </section>
