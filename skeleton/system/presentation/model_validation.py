@@ -35,7 +35,7 @@ def _widget_allowed(field, widget):
         return bool(field.choices)
     if widget == "text":
         return isinstance(field, (models.CharField, models.TextField))
-    if widget == "textarea":
+    if widget in ("textarea", "markdown"):
         return isinstance(field, (models.CharField, models.TextField))
     if widget == "number":
         return isinstance(field, (models.IntegerField, models.FloatField, models.DecimalField))

@@ -206,6 +206,10 @@ def record_form(spec, *, user, data=None, instance=None, operation="edit"):
             }
             if item.widget == "select":
                 field.widget = forms.Select(choices=field.choices)
+            elif item.widget == "markdown":
+                from .markdown_widget import MarkdownTextarea
+
+                field.widget = MarkdownTextarea(features=item.markdown_features)
             elif item.widget is not None:
                 field.widget = widgets[item.widget]()
             if item.widget == "date":
