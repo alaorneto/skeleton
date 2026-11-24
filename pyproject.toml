@@ -147,6 +147,8 @@ files = [
     # #824/#825: the closed Markdown dialect and the widget of formatted text.
     "skeleton/common/markdown.py",
     "skeleton/web/markdown_widget.py",
+    # #833: states and markers of apps in the visual vocabulary.
+    "skeleton/web/vocabulary.py",
     "skeleton/instance/schema.py",
     "skeleton/instance/store.py",
     "skeleton/instance/crypto.py",

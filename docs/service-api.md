@@ -209,6 +209,7 @@ Uma app pode importar do núcleo apenas os nomes abaixo. A coluna "Uso" é a lis
 | `skeleton.tenancy.context` | `current_context` (leitura) e `command_context`, só em `management/commands/` da app (#576): abre o contexto de sistema sem organização de um comando do operador, o único em que uma [tabela global da app](table-catalog.md#tabelas-globais-de-apps) aceita escrita, e é recusado dentro de qualquer contexto já aberto (requisição, tenant, sistema, job, consumidor). `system_context`, `tenant_context` e `request_context` não: o contexto é aberto pelo middleware, pelo worker ou pelo kit de testes, nunca pela app |
 | `skeleton.web.views` | `tenant_page` |
 | `skeleton.web.markdown_widget` | `MarkdownTextarea`: o widget de formulário do texto formatado, com o editor Markdown ([editor](ui-design.md#editor-markdown), #825) |
+| `skeleton.web.vocabulary` | `register_status` e `register_marker` em `ready()`: os estados e marcadores da app, com rótulo e tom, lidos por `status_badge` e `marker` ([vocabulário visual](ui-design.md#estados-e-marcadores-de-apps), #833) |
 | `skeleton.web.confirm` | `Confirmation`, `confirmation_step`: a página de confirmação de uma ação irreversível, com a mesma autorização do POST ([interface](ui-design.md#ações-pela-intenção)) |
 | `skeleton.api.views` | `TenantAPI` e `request_fields` (o objeto de campos do corpo) |
 | `skeleton.api.openapi` | `Operation` e construtores de schema para o atributo `openapi` das views de API da app ([OpenAPI](api.md#schema-openapi)) |
