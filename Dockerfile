@@ -40,11 +40,14 @@ COPY examples /opt/project/examples
 COPY manage.py /opt/project/manage.py
 COPY --from=project-assets /project-assets/templates /opt/project/templates
 RUN useradd --uid 10001 --create-home skeleton \
-    && mkdir -p /agent/private /agent/state /releases /control /control-state /instance/keys \
+    && mkdir -p /agent/private /agent/state /agent/code /releases /control /control-state /instance/keys \
     && chown -R skeleton:skeleton /agent /releases /control /control-state /instance \
-    && chmod 700 /agent/private /agent/state /instance /instance/keys
+    && chmod 700 /agent/private /agent/state /instance /instance/keys \
+    && chmod 755 /agent/code
 USER skeleton
-CMD ["python", "-m", "deployment_agent.bootstrap"]
+# The entrypoint runs the agent of the agent_code volume (/agent/code, agent_root) when a self-update
+# put a newer one there, else the image's own (#772).
+CMD ["python", "-m", "deployment_agent.entry"]
 
 FROM python:3.14.10-slim@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 SKELETON_PROJECT_ROOT=/app

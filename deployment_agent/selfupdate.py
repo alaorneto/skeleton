@@ -436,6 +436,30 @@ def rollback(config: "Config | Mapping[str, Any]", *, root: StrPath | None = Non
     return {**restored, "next_steps": ["systemctl restart skeleton-agent"]}
 
 
+def confirm_start(config: "Config | Mapping[str, Any]", *, prefix: StrPath | None = None) -> bool:
+    """The control socket serves: this version started well, its count in ``boot.json`` goes back to 0.
+
+    Only when this process runs from ``agent_root/versions/<name>`` (the container entrypoint counts
+    those starts, #772); the image's agent leaves the count alone, so a version that never served is
+    not tried again. Never raises: a failure here never stops the agent from serving.
+    """
+    from .entry import BOOT_FILE
+
+    value = config.get("agent_root")
+    if not value:
+        return False
+    try:
+        root = Path(value)
+        running = Path(prefix if prefix is not None else sys.prefix).resolve()
+        versions = (root / "versions").resolve()
+        if running.parent.parent != versions or running.name != "venv":
+            return False
+        atomic_json(root / BOOT_FILE, {"candidate": running.parent.name, "attempts": 0}, 0o644)
+    except OSError:
+        return False
+    return True
+
+
 def selfcheck(config: "Config") -> JSON:
     """``selfcheck``: the new agent loads its configuration and modules; writes nothing."""
     from . import catalogue, environments, paths, planning, releases, server  # noqa: F401 - import check

@@ -97,7 +97,7 @@ Crie um token de acesso de escopo mínimo (leitura de conteúdo só dos reposit�
 
 ## Atualizar o agente
 
-O agente informa a própria versão em "Versões instaladas". Como ele valida e instala o núcleo, uma prévia de núcleo de linha acima da do agente é recusada com `agent_update_required`, e a tela mostra "Atualize o agente primeiro". Com `agent_root` configurado, "Atualizar agente" monta um virtualenv novo a partir do pacote de release (sem rede), testa-o com `selfcheck`, troca o link `current` e reinicia o serviço (código de saída 75 com `Restart=on-failure`). Sem `agent_root`, use o servidor:
+O agente informa a própria versão em "Versões instaladas". Como ele valida e instala o núcleo, uma prévia de núcleo de linha acima da do agente é recusada com `agent_update_required`, e a tela mostra "Atualize o agente primeiro". Com `agent_root` configurado, "Atualizar agente" monta um virtualenv novo a partir do pacote de release (sem rede), testa-o com `selfcheck`, troca o link `current` e reinicia o serviço (código de saída 75 com `Restart=on-failure`). Nos containers, `agent_root` é o volume `agent_code`, e o iniciador da imagem sobe a versão nova sozinho; uma instalação de containers anterior a isso precisa de uma última imagem nova ([atualizar o agente nos containers](deployment.md#atualizar-o-agente-nos-containers-772)). Num servidor systemd sem `agent_root`, use o servidor:
 
 ```sh
 "$AGENT" --config "$CONFIG" agent-install --release /srv/skeleton/artifacts/skeleton-0.7.0.release.skapp --root /opt/skeleton-agent
@@ -107,7 +107,7 @@ sudo systemctl restart skeleton-agent
 
 Migração de uma instalação antiga (`/opt/skeleton-agent/venv`) e o leiaute de `agent_root`: [atualizar o agente](deployment.md#atualizar-o-agente).
 
-Num cluster (#689), "Atualizar agente" em qualquer nó chega ao primário, que confere o pacote, grava a versão que todos seguem e responde que a atualização está em rolagem. Cada outro nó com `agent_root` baixa o pacote do primário, confere de novo a assinatura e o publicador, monta a versão nova e reinicia; o primário se atualiza por último, depois de os outros nós vivos informarem a versão nova (ou de 15 minutos). Nos containers, sem `agent_root`, o agente vem da imagem: atualize a imagem e rode `docker compose up -d` em cada nó. A coluna **Agente** do painel de nós mostra a versão de cada nó, e um aviso aparece quando os nós vivos estão em versões diferentes; nesse estado, nenhuma atualização começa (`agent_versions_differ`).
+Num cluster (#689), "Atualizar agente" em qualquer nó chega ao primário, que confere o pacote, grava a versão que todos seguem e responde que a atualização está em rolagem. Cada outro nó com `agent_root` baixa o pacote do primário, confere de novo a assinatura e o publicador, monta a versão nova e reinicia; o primário se atualiza por último, depois de os outros nós vivos informarem a versão nova (ou de 15 minutos). Nos containers com o volume `agent_code` (#772), cada nó segue sozinho como no systemd; num container sem ele, o agente vem da imagem: atualize a imagem e rode `docker compose up -d` nesse nó. A coluna **Agente** do painel de nós mostra a versão de cada nó, e um aviso aparece quando os nós vivos estão em versões diferentes; nesse estado, nenhuma atualização começa (`agent_versions_differ`).
 
 ## Atualizar um cluster de vários nós
 
@@ -153,8 +153,8 @@ Com um pacote de release que traz o alvo do servidor, o lock e os wheels das dep
 | `agent_target_unavailable` | O pacote não traz a plataforma do interpretador do agente. | Peça ao publicador o alvo, ou instale o agente à mão. |
 | `agent_build_failed` | A montagem ou o `selfcheck` do agente novo falhou; o atual continua. | Veja o log do agente no servidor. |
 | `agent_rollback_unavailable` | Não há versão anterior pronta. | Instale a versão desejada com `agent-install`. |
-| `agent_versions_differ` | Num cluster, os nós vivos têm agentes em versões diferentes; nenhuma atualização começa. | Atualize o agente (com `agent_root`, "Atualizar agente"; nos containers, a imagem de cada nó). |
-| `agent_update_manual` | Num cluster, um nó sem `agent_root` não segue a versão do agente sozinho. | Atualize a imagem desse nó e rode `docker compose up -d`. |
+| `agent_versions_differ` | Num cluster, os nós vivos têm agentes em versões diferentes; nenhuma atualização começa. | Atualize o agente (com `agent_root`, inclusive nos containers com o volume `agent_code`, "Atualizar agente"; sem ele, à mão em cada nó). |
+| `agent_update_manual` | Num cluster, um nó sem `agent_root` (systemd antigo, ou container sem o volume `agent_code`) não segue a versão do agente sozinho. | Atualize o agente desse nó à mão (no container, a imagem nova e `docker compose up -d`). |
 | `release_environment_conflict` | O mesmo núcleo chegou com outro conjunto de dependências. | O publicador precisa publicar outra versão. |
 | `dependency_version_conflict` | `project_requirements_lock` fixa outra versão de uma dependência do núcleo. | Alinhe a versão com o lock do publicador. |
 | `locked_wheel_unavailable` | Alvo sem ambiente no pacote e wheel faltando no `wheelhouse`. | Disponibilize o wheel ou use um pacote com o alvo. |
@@ -231,7 +231,7 @@ As respostas trazem os bytes verificados, `ETag` (o SHA-256), `Content-Length`, 
 ## Limites desta versão
 
 - Não há aplicação automática; cada passo tem a sua janela de manutenção.
-- Sem `agent_root`, o agente não se atualiza sozinho.
+- Num servidor systemd sem `agent_root`, o agente não se atualiza sozinho; nos containers, só a partir da versão que traz o volume `agent_code`.
 - Alvos sem ambiente no pacote continuam com o lock e o wheelhouse do operador.
 - Apps do projeto e apps first-party não têm fonte própria.
 - GitHub Enterprise Server não é testado (as chaves `api_url` e `download_hosts` existem).
@@ -251,4 +251,5 @@ Num servidor de teste Linux com systemd e PostgreSQL, com um repositório de tes
 7. Conclua os dois passos; confira que a página da operação oferece o passo seguinte e que a faixa de aviso some no fim. Com três releases em linhas seguidas, escolha em "Atualizar até a versão" a do meio, conclua os passos até ela e confira que, ao chegar, nenhum passo do núcleo é oferecido (#653).
 8. Rode `agent-rollback` e reinicie; confira a versão anterior do agente.
 9. No sandbox (`compose.sandbox.yaml`, [sandbox no Coolify](deployment.md#sandbox-no-coolify-369)) recriado do zero: confira que a primeira partida instalou o release publicado mais novo, que `/platform/updates/` mostra o agente, o core e a fonte oficial, que a agenda, o livro contábil e a app de exemplo aparecem instaladas e que a cobrança sobe sem `skeleton.E037`; depois de um release novo, escolha-o como alvo e conclua os passos.
-10. Confira nos logs do agente e do web que nenhum token, chave ou URL de download assinada aparece.
+10. No sandbox, atualize o agente pela tela e confira que o container reinicia sozinho na versão nova e que `docker compose up -d --force-recreate agent` a mantém; com `SKELETON_AGENT_USE_IMAGE=1`, confira o agente da imagem; apague o virtualenv da versão do volume e confira, depois de 3 partidas, o agente da imagem e `agent.entry_fallback` no log (#772).
+11. Confira nos logs do agente e do web que nenhum token, chave ou URL de download assinada aparece.
