@@ -1124,8 +1124,9 @@
   .setting-row {
     @apply scroll-mt-24;
   }
+  /* Última coluna com largura fixa: "Alterar" e o badge "Somente leitura" não deslocam o valor (#835). */
   .setting-line {
-    @apply grid gap-x-6 gap-y-2 py-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-start;
+    @apply grid gap-x-6 gap-y-2 py-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_8rem] md:items-start;
   }
   summary.setting-line {
     @apply cursor-pointer list-none rounded-base focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus;
@@ -1151,9 +1152,6 @@
   }
   details[open] > summary .setting-toggle {
     @apply text-body-subtle;
-  }
-  .setting-toggle-off {
-    @apply text-xs font-normal text-body-subtle;
   }
   .setting-form {
     @apply mb-4 grid max-w-xl gap-2 rounded-base bg-neutral-secondary-soft p-4;

@@ -96,7 +96,10 @@ def test_environment_keys_are_read_only(store, platform, monkeypatch):
     _, client = platform
     monkeypatch.setenv("DEFAULT_FROM_EMAIL", "env@example.test")
     html = client.get(reverse("platform:instance")).content.decode()
-    assert "Somente leitura (ambiente)" in html
+    # The badge sits in the last column, where editable keys have "Alterar"; not next to the value (#835).
+    row = html.split('id="setting-default_from_email"', 1)[1].split('class="setting-row"', 1)[0]
+    assert '<span class="setting-toggle"><span class="badge badge-warning">Somente leitura</span></span>' in row
+    assert row.count("Somente leitura") == 1 and "Alterar" not in row
     assert change(client, "default_from_email", "ops@example.test").status_code == 409
     assert "default_from_email" not in store.settings()
 

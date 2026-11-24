@@ -34,7 +34,7 @@
       {% if row.error %}<p class="errorlist" id="error-{{ row.key }}">{{ row.error }}</p>{% endif %}
       <div class="setting-actions"><button type="submit" name="action" value="set" class="btn btn-primary btn-sm">{% translate "Gravar" %}</button>{% if row.clearable %}<button type="submit" name="action" value="clear" class="btn btn-secondary btn-sm">{% translate "Voltar ao padrão" %}</button>{% endif %}</div>
     </form>
-  </details>{% else %}<div class="setting-row" id="setting-{{ row.key }}"><div class="setting-line">{% include "skeleton/web/platform/instance-setting-line.html" %}<span class="setting-toggle setting-toggle-off">{% if cluster %}{% translate "Somente leitura (modo cluster)" %}{% else %}{% translate "Somente leitura (ambiente)" %}{% endif %}</span></div></div>{% endif %}
+  </details>{% else %}<div class="setting-row" id="setting-{{ row.key }}"><div class="setting-line">{% include "skeleton/web/platform/instance-setting-line.html" %}<span class="setting-toggle">{{ "read_only"|marker }}</span></div></div>{% endif %}
   {% endfor %}</div>
 </section>{% empty %}<div class="card">{% include "skeleton/web/components/empty-state.html" with message=_("Nenhuma chave com esses filtros.") icon="instance_configuration"|concept_icon action_url=instance_url action_label=_("Limpar filtros") %}</div>{% endfor %}
 <p class="mt-4 text-sm/6 text-body-subtle">{% translate "Cada alteração exige autenticação recente e fica registrada (chave, ação e quem alterou, nunca o valor). A URL do banco passa pela mesma validação de privilégios do setup." %}</p>
