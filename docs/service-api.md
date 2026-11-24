@@ -184,7 +184,7 @@ def open_followup_task(invoice, *, actor):
 
 O manifesto de `billing` declara `com.example.tasks` em `dependencies`. Não há dependência opcional: se a integração só funciona com a outra app presente, ela é declarada, e a ausência por organização é tratada com `Unavailable`.
 
-Uma app first-party, como a agenda, é declarada do mesmo modo, pelo `app_id` e com a faixa da versão do core: `"dependencies": {"org.skeleton.calendar": ">=0.9.0,<0.10.0"}`. A agenda e o livro contábil são bibliotecas first-party (#792): a dependência sempre é satisfeita, porque a biblioteca é instalada com a app (#793), e fica efetiva onde a app está ativa, sem ativação própria; vale para apps do projeto e para apps empacotadas ([extensão](extending.md#apps-first-party-do-núcleo-skeletoncontrib), #254).
+Uma app first-party, como a agenda, é declarada do mesmo modo, pelo `app_id` e com a faixa da versão do core: `"dependencies": {"org.skeleton.calendar": ">=0.10.0,<0.11.0"}`. A agenda e o livro contábil são bibliotecas first-party (#792): a dependência sempre é satisfeita, porque a biblioteca é instalada com a app (#793), e fica efetiva onde a app está ativa, sem ativação própria; vale para apps do projeto e para apps empacotadas ([extensão](extending.md#apps-first-party-do-núcleo-skeletoncontrib), #254).
 
 ## Superfícies públicas do núcleo para apps
 
