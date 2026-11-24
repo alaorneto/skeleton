@@ -354,6 +354,77 @@ O início interno (`/o/<org>/`, rota `web:dashboard`; [#624](https://github.com/
 
 No editor, a escolha de `widget` lista os quadros que o administrador vê; a validação aceita todo nome registrado, então desligar uma app não invalida a página. A pré-visualização (`…/home/preview/`) é o próprio início com o documento em edição. Com o documento padrão, o início de um membro custa um número fixo de consultas (`tests/integration/test_organization_home_page.py`).
 
+## Texto formatado (Markdown)
+
+Um campo longo pode guardar **texto formatado**: o valor gravado é Markdown de um dialeto pequeno e fechado (epic [#827](https://github.com/alaorneto/skeleton/issues/827)). É opcional, por campo: comentários, páginas em blocos e textos de aviso continuam texto simples. A API, a exportação CSV, a busca global e a auditoria tratam o valor como o texto que ele é (o Markdown); só as telas de leitura o mostram formatado, e quem edita usa o [editor](#editor-markdown).
+
+### O dialeto
+
+`skeleton/common/markdown.py` ([#824](https://github.com/alaorneto/skeleton/issues/824)) define o dialeto e o renderiza no servidor com `markdown-it-py`, a versão Python do `markdown-it` que o editor usa no navegador. Os dois lados aplicam as mesmas regras, e `tests/fixtures/markdown/corpus.json` (entrada e HTML esperado) é conferido pelos dois (`tests/unit/test_markdown.py` e `frontend/tests`).
+
+| Recurso | Sintaxe | HTML |
+|---|---|---|
+| `emphasis` | `**negrito**`, `*itálico*` (também `__` e `_`) | `<strong>`, `<em>` |
+| `underline` | `++sublinhado++` | `<u>` |
+| `strike` | `~~tachado~~` | `<s>` |
+| `code` | `` `código` `` | `<code>` |
+| `heading` | `#`, `##`, `###` (níveis maiores viram o 3) | `<h1>` a `<h3>` |
+| `lists` | `- item`, `1. item` | `<ul>`, `<ol>` |
+| `quote` | `> citação` | `<blockquote>` |
+| `link` | `[rótulo](https://…)` ou `[rótulo](/caminho)` | `<a rel="nofollow noopener noreferrer">` |
+
+Sempre valem parágrafos (linha em branco), quebra de linha simples (vira `<br>`, como quem escreve uma anotação espera), escape com `\` e entidades. Não existem HTML bruto, imagens, tabelas, blocos de código (nem indentado, nem cercado), títulos sublinhados (`===`), linhas horizontais, autolinks nem referências de link: o que se parece com eles fica texto. Um campo pode aceitar só parte dos recursos; a sintaxe de um recurso desligado também fica texto.
+
+**Segurança.** O servidor nunca recebe nem guarda HTML. O analisador roda com HTML bruto desligado, então todo `<` e `&` digitado sai escapado; um link só abre `https://` (com host) ou caminho local (`/…`, nunca `//` nem `\`), e qualquer outro destino (`javascript:`, `data:`, `http:`, `mailto:`) deixa o texto como está; o aninhamento é limitado e a entrada tem até `MAX_SOURCE_LENGTH` (100 000) caracteres, acima disso `MarkdownTooLong`.
+
+**Uso.** Em Python (superfície pública para apps, [API de serviços](service-api.md#superfícies-públicas-do-núcleo-para-apps)):
+
+```python
+from skeleton.common.markdown import render_html, to_plain_text
+
+render_html("**a** <b>")  # '<p><strong>a</strong> &lt;b&gt;</p>\n'
+render_html("# t", features=["lists"])  # '<p># t</p>\n'
+to_plain_text("- **a**\n- b")  # 'a\nb'
+```
+
+Nos templates, `{% load skeleton_markdown %}`: `{{ texto|markdown }}` devolve o HTML num `<div class="markdown">` (os estilos de leitura de `site.css`, claro e escuro), `{{ texto|markdown:"emphasis,lists" }}` restringe os recursos (use a lista do campo, a mesma que o editor oferece) e `{{ texto|markdown_plain }}` devolve o texto sem marcadores, para listas e resumos. Um valor gravado acima do limite aparece como texto escapado. Nunca marque como seguro (`|safe`, `mark_safe`) um texto formatado por outro caminho.
+
+### Editor Markdown
+
+O editor ([#825](https://github.com/alaorneto/skeleton/issues/825)) é o widget `MarkdownTextarea` (`skeleton/web/markdown_widget.py`, [superfície pública](service-api.md#superfícies-públicas-do-núcleo-para-apps)), usável em qualquer formulário do núcleo ou de app:
+
+```python
+from django import forms
+from skeleton.web.markdown_widget import MarkdownTextarea
+
+
+class AnotacaoForm(forms.Form):
+    texto = forms.CharField(widget=MarkdownTextarea(attrs={"rows": 8}))
+    resumo = forms.CharField(required=False, widget=MarkdownTextarea(features=["emphasis", "lists"]))
+```
+
+O campo continua sendo um `<textarea>` comum: sem JavaScript, a pessoa escreve o Markdown nele e o formulário funciona igual. O widget também renderiza, num `<template>` ao lado, a faixa de opções (só os botões dos recursos do campo), as abas de modo e o diálogo de link, com os textos já traduzidos pelo servidor, e o módulo `skeleton/web/static/skeleton/web/markdown_editor.js`. O módulo esconde o textarea e monta o editor por cima dele:
+
+- **Visual** (padrão): o texto já formatado, sem marcadores, editável (ProseMirror). Colar de um processador de texto mantém negrito, itálico, sublinhado, tachado, títulos, listas, citações e links `https://`; o resto vira texto. Texto colado sem HTML é lido como Markdown. `- `, `1. `, `> ` e `#` no começo da linha viram lista, citação e título.
+- **Markdown**: o texto com os marcadores à vista, já formatados (CodeMirror 6): em `**negrito**` os asteriscos e o texto ficam em negrito, e os marcadores esmaecidos. Enter continua a lista ou a citação; numa linha só com o marcador, encerra.
+- **Faixa de opções**, a mesma nos dois modos: negrito (Ctrl+B), itálico (Ctrl+I), sublinhado (Ctrl+U), tachado (Ctrl+Shift+X), código (Ctrl+E), título (Ctrl+Alt+2; Ctrl+Alt+1 e 3 para os outros níveis), lista com marcadores (Ctrl+Shift+8), lista numerada (Ctrl+Shift+7), citação (Ctrl+Shift+9) e link (Ctrl+K, com um `<dialog>` que só aceita `https://` ou caminho local). No modo Markdown o botão escreve ou tira os marcadores; no visual, aplica a formatação. O botão aparece ligado quando a seleção já está formatada.
+
+O valor do textarea é sempre o Markdown, gravado a cada edição (com o evento `input`). Alternar de modo sem editar não muda o valor; editar no modo visual reescreve o texto na forma canônica do dialeto (`*itálico*`, `- item`), com a mesma formatação. A escolha do modo fica no `localStorage` do navegador (`skeleton.markdown-editor.mode`). `required`, `rows`, `aria-invalid` e `aria-describedby` do textarea valem no editor; um campo obrigatório vazio recebe o foco e a mensagem do navegador no envio, e o servidor continua validando. Textarea `disabled` ou `readonly` não é aprimorado. A faixa é uma `toolbar` e as abas uma `tablist`, as duas navegáveis por setas; a área de edição é um `textbox` com o rótulo do campo.
+
+**CSP.** O módulo é servido do próprio domínio, sem script inline; o modo Markdown chega por `import()` do mesmo diretório. O CSS do CodeMirror entra por folha de estilo adotada (CSSOM), que a CSP permite: o build ajusta o `style-mod` para isso e falha se o trecho mudar numa atualização. O realce usa classes (`tok-*`) e o visual usa os estilos `.markdown` de leitura, os dois em `site.css`, com os tokens do tema (claro e escuro). Ao colar HTML, os atributos `style` e `on*` são renomeados antes da leitura (`frontend/src/markdown-editor/paste.js`), o que evita violações de CSP e preserva a formatação vinda do Google Docs e do Word.
+
+**Acrescentar um recurso.** Os recursos são uma lista fechada, igual nos dois lados: a regra no dialeto (`skeleton/common/markdown.py` e `frontend/src/markdown-editor/dialect.js`), um caso no corpus `tests/fixtures/markdown/corpus.json`, o nó ou a marca do modo visual (`schema.js`), a leitura e a escrita (`conversion.js`), o realce do modo Markdown (`source-mode.js`), o comando (`commands.js`) e o botão (`TOOL_GROUPS` em `markdown_widget.py`, conferido contra `COMMANDS` por `tests/unit/test_markdown_widget.py`). Testes: `npm test` em `frontend/` (corpus, ida e volta e comandos) e `tests/unit/test_markdown.py`.
+
+### Campo formatado na interface declarativa
+
+Na [interface declarativa](application-admin-ui-plan.md#5-formulário-e-detalhe-padronizados), um `TextField` ou `CharField` declara `"widget": "markdown"` ([#826](https://github.com/alaorneto/skeleton/issues/826)), com `markdown_features` opcional (lista não vazia de recursos, sem repetição; padrão: todos) e `rows`:
+
+```json
+{"name": "body", "label": "Texto", "widget": "markdown", "markdown_features": ["emphasis", "lists", "link"], "rows": 8}
+```
+
+O formulário usa o `MarkdownTextarea` com esses recursos; o detalhe e o campo só leitura do formulário mostram o HTML do servidor com a mesma lista; a lista mostra o texto sem marcadores (`to_plain_text`, cortado como os demais). O widget exige o núcleo `MARKDOWN_WIDGET_CORE_MINIMUM` (0.9.0) em `compatibility.skeleton`: `package build` acrescenta o piso e a validação do manifesto recusa um piso menor. `markdown_features` sem o widget, recurso desconhecido ou repetido e o widget num campo que não é de texto são recusados (validação pura e `skeleton.E013`).
+
 ## Django admin
 
 Não há tela do Django admin: toda a administração da plataforma usa views próprias em `/platform/`, no mesmo shell, componentes e tokens do site. O Django admin não é usado: `django.contrib.admin` fica instalado só como dependência técnica (modelo `LogEntry` e migrations históricas que concedem privilégios em `django_admin_log`), via `SimpleAdminConfig`, sem autodiscover, site ou rota; `/admin/…` responde 404.
@@ -365,9 +436,14 @@ frontend/
   package.json, package-lock.json   versões fixas (Tailwind 4.3.5, Flowbite 4.0.2, IBM Plex Sans 5.3.0)
   src/tokens.css                    tokens compartilhados
   src/site.css                      interface SSR (base, componentes, grade do renderer)
+  src/markdown-editor/              editor de texto formatado (CodeMirror 6, ProseMirror, markdown-it), empacotado com esbuild
+  tests/                            testes do editor (npm test)
   scripts/build.mjs                 build e verificação
 skeleton/web/static/skeleton/web/
   site.css                          saída compilada e minificada (versionada)
+  markdown_editor.js                editor de texto formatado: src/markdown-editor e bibliotecas, em módulos ES
+  markdown_editor-*-<hash>.js       pedaços do editor (o modo Markdown, carregado só quando aberto)
+  markdown_editor.LICENSES.txt      versão e licença de cada biblioteca empacotada no editor
   vendor/flowbite-4.0.2/            flowbite.min.js + LICENSE.md
   vendor/ibm-plex-sans-5.3.0/       woff2 (normal e itálico) + LICENSE
   vendor/VENDOR.json                versões, licenças e SHA-256 dos arquivos vendorizados
@@ -376,8 +452,9 @@ skeleton/web/static/skeleton/web/
 ```sh
 cd frontend
 npm ci --ignore-scripts      # instala exatamente o lockfile, sem scripts de instalação
-npm run build                # gera site.css e copia os assets vendorizados
+npm run build                # gera site.css, o editor de texto formatado e copia os assets vendorizados
 npm run check                # falha se static/ estiver desatualizado em relação às fontes
+npm test                     # testes do editor de texto formatado
 ```
 
 Rode `npm run build` sempre que alterar `frontend/src/` **ou templates**: o Tailwind só gera as classes que encontra nos templates de todos os pacotes do núcleo (`skeleton/**/templates`, conferido por `tests/unit/test_css_sources.py`), em `skeleton/contrib`, `skeleton/web/static/skeleton/web/*.js`, `skeleton/system/app_template/*.html-tpl` e `examples/notes/templates`. Versione o resultado junto com a mudança.
@@ -388,4 +465,6 @@ Templates de apps derivadas em `applications/` não são varridos, porque o CSS 
 - `overrides` em `package.json` impedem que dependências transitivas do Flowbite tragam outra versão do Tailwind.
 - Para atualizar Flowbite, Tailwind ou a IBM Plex Sans: altere a versão em `package.json`, rode `npm install --ignore-scripts`, ajuste o caminho versionado em `skeleton/web/templates/skeleton/web/base.html`, `skeleton/web/templates/skeleton/portal/base.html` e `tokens.css` (o build recusa referências a outra versão), rode `npm run build` e confira as telas.
 
-O job `assets` do CI executa `npm ci --ignore-scripts` e `npm run check`; ver [testes](testing.md#integração-contínua).
+- As bibliotecas do editor (CodeMirror, ProseMirror, markdown-it e dependências, todas MIT exceto `entities`, BSD-2-Clause) entram nos módulos `markdown_editor*.js`; `VENDOR.json` lista cada uma com `bundled_in`, e `markdown_editor.LICENSES.txt` traz as licenças. O módulo principal (modo visual) tem cerca de 120 KB comprimido e só é carregado nas páginas com um campo formatado; o modo Markdown (CodeMirror, cerca de 100 KB comprimido) fica num pedaço à parte, com o hash do conteúdo no nome, importado só quando alguém o abre. Cada arquivo fica abaixo do limite de 500 KB do hook `check-added-large-files`.
+
+O job `assets` do CI executa `npm ci --ignore-scripts`, `npm run check` e `npm test`; ver [testes](testing.md#integração-contínua).

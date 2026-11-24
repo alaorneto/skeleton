@@ -8,6 +8,7 @@
 @import "tailwindcss" source(none);
 @import "flowbite/src/themes/default.css";
 @import "./tokens.css";
+@import "prosemirror-view/style/prosemirror.css";
 @plugin "flowbite/plugin" {
   charts: false;
   datatables: false;
@@ -19,6 +20,8 @@
 @source "../../skeleton/**/templates/**/*.html";
 @source "../../skeleton/contrib";
 @source "../../skeleton/web/static/skeleton/web/*.js";
+@source not "../../skeleton/web/static/skeleton/web/markdown_editor.js";
+@source "./markdown-editor";
 @source "../../skeleton/system/app_template/*.html-tpl";
 @source "../../examples/notes/templates";
 
@@ -611,6 +614,165 @@
   }
   .read-only-value {
     @apply mt-1.5 rounded-base border border-dashed border-default-medium bg-neutral-secondary-soft px-3 py-2.5 text-sm/5 break-words whitespace-pre-wrap text-heading [overflow-wrap:anywhere];
+  }
+  /* Texto formatado (#824): o HTML de skeleton.common.markdown.render_html. */
+  .markdown {
+    @apply whitespace-normal;
+    & > * + * {
+      @apply mt-3;
+    }
+    & h1 {
+      @apply text-lg/7 font-semibold text-heading;
+    }
+    & h2 {
+      @apply text-base/7 font-semibold text-heading;
+    }
+    & h3 {
+      @apply text-sm/6 font-semibold tracking-wide text-heading uppercase;
+    }
+    & ul {
+      @apply list-disc ps-6;
+    }
+    & ol {
+      @apply list-decimal ps-6;
+    }
+    & li > ul,
+    & li > ol,
+    & li + li,
+    & li > p + p {
+      @apply mt-1;
+    }
+    & blockquote {
+      @apply border-s-4 border-default-medium ps-4 text-body;
+    }
+    & code {
+      @apply rounded-sm bg-neutral-tertiary px-1 py-0.5 font-mono text-[0.875em] text-heading;
+    }
+    & a {
+      @apply font-medium text-fg-brand underline underline-offset-2 hover:text-fg-brand-strong;
+    }
+    & strong {
+      @apply font-semibold;
+    }
+    & u {
+      @apply underline-offset-2;
+    }
+  }
+  /* Editor de texto formatado (#825): markdown_editor.js sobre o textarea do campo. */
+  .markdown-editor {
+    @apply relative overflow-hidden rounded-base border border-default-medium bg-neutral-primary-soft shadow-xs;
+    &[data-focused] {
+      @apply border-brand ring-1 ring-brand;
+    }
+    &[data-invalid] {
+      @apply border-danger ring-danger;
+    }
+  }
+  .markdown-editor-bar {
+    @apply flex flex-wrap items-center justify-between gap-2 border-b border-default bg-neutral-secondary-soft px-2 py-1.5;
+  }
+  .markdown-toolbar {
+    @apply flex flex-wrap items-center gap-1;
+  }
+  .markdown-toolbar-group {
+    @apply flex items-center gap-0.5;
+    & + & {
+      @apply ms-1 border-s border-default ps-1.5;
+    }
+  }
+  .markdown-tool {
+    @apply inline-flex size-8 items-center justify-center rounded-sm text-body hover:bg-neutral-tertiary hover:text-heading focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus;
+    &[aria-pressed="true"] {
+      @apply bg-brand-softer text-fg-brand;
+    }
+  }
+  .markdown-modes {
+    @apply inline-flex rounded-sm border border-default bg-neutral-primary p-0.5;
+    & .markdown-mode {
+      @apply rounded-xs bg-transparent px-2.5 py-1 text-xs/5 font-medium text-body hover:text-heading focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus;
+    }
+    & .markdown-mode[aria-selected="true"] {
+      @apply bg-brand-softer text-fg-brand;
+    }
+  }
+  /* O modo Markdown (CodeMirror) tem o tema em src/markdown-editor/source-mode.js. */
+  .markdown-editor-surface {
+    --markdown-min-height: calc(var(--markdown-rows, 6) * 1.5rem + 1.5rem);
+    & .ProseMirror {
+      @apply px-3 py-3 text-sm/6 text-heading outline-none sm:text-base/7;
+      min-height: var(--markdown-min-height);
+    }
+  }
+  .markdown-editor-source {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+    resize: none;
+  }
+  .markdown-editor-error {
+    @apply border-t border-danger-subtle bg-danger-soft px-3 py-2 text-sm/5 text-fg-danger;
+  }
+  /* Realce do modo Markdown: os marcadores ficam com a formatação do trecho, esmaecidos. */
+  .tok-strong {
+    @apply font-semibold;
+  }
+  .tok-em {
+    @apply italic;
+  }
+  .tok-u {
+    @apply underline underline-offset-2;
+  }
+  .tok-s {
+    @apply line-through;
+  }
+  .tok-u.tok-s {
+    text-decoration-line: underline line-through;
+  }
+  .tok-code {
+    @apply rounded-xs bg-neutral-tertiary;
+  }
+  .tok-h1 {
+    @apply text-lg font-semibold;
+  }
+  .tok-h2 {
+    @apply text-base font-semibold;
+  }
+  .tok-h3 {
+    @apply font-semibold;
+  }
+  .tok-quote {
+    @apply text-body;
+  }
+  .tok-link {
+    @apply text-fg-brand;
+  }
+  .tok-url {
+    @apply text-body-subtle;
+  }
+  .tok-mark {
+    @apply text-fg-disabled;
+  }
+  .markdown-link-dialog {
+    @apply m-auto w-full max-w-md rounded-base border border-default bg-neutral-primary p-5 text-heading shadow-lg;
+    &::backdrop {
+      @apply bg-dark-backdrop/50;
+    }
+    & h2 {
+      @apply mb-4 text-base font-semibold;
+    }
+    & .field + .field {
+      @apply mt-4;
+    }
+    & input {
+      @apply w-full;
+    }
+    & .toolbar {
+      @apply mt-5;
+    }
   }
   .record-form textarea[data-crud-rows] {
     min-height: 0;

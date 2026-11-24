@@ -1,0 +1,25 @@
+{% load i18n static %}{% comment %}
+Texto formatado (#825): o textarea é o campo; markdown_editor.js clona o <template> ao lado dele
+e monta o editor. Só os botões dos recursos do campo são renderizados (skeleton/web/markdown_widget.py).
+{% endcomment %}<textarea name="{{ widget.name }}"{% include "django/forms/widgets/attrs.html" %}>
+{% if widget.value %}{{ widget.value }}{% endif %}</textarea>
+<template data-markdown-chrome="{{ widget.attrs.id }}"><div class="markdown-editor">
+  <div class="markdown-editor-bar">
+    <div class="markdown-toolbar" role="toolbar" aria-label="{% translate 'Formatação' %}">
+      {% for group in widget.markdown_tools %}<div class="markdown-toolbar-group">{% for tool in group %}<button type="button" class="markdown-tool" data-command="{{ tool.command }}" aria-label="{{ tool.label }}" title="{{ tool.label }} ({{ tool.shortcut }})" aria-pressed="false">{% include "skeleton/web/components/icon.html" with name=tool.icon class="size-4" stroke="2" %}</button>{% endfor %}</div>{% endfor %}
+    </div>
+    <div class="markdown-modes" role="tablist" aria-label="{% translate 'Modo de edição' %}">
+      <button type="button" class="markdown-mode" role="tab" data-mode="visual" aria-selected="true">{% translate "Visual" %}</button>
+      <button type="button" class="markdown-mode" role="tab" data-mode="source" aria-selected="false">{% translate "Markdown" %}</button>
+    </div>
+  </div>
+  <div class="markdown-editor-surface" role="tabpanel" data-markdown-surface></div>
+  <p class="markdown-editor-error" data-markdown-error hidden></p>
+  {% if widget.markdown_link %}<dialog class="markdown-link-dialog" data-markdown-link-dialog aria-labelledby="{{ widget.attrs.id }}-link-title">
+    <h2 id="{{ widget.attrs.id }}-link-title">{% translate "Link" %}</h2>
+    <div class="field"><label for="{{ widget.attrs.id }}-link-text">{% translate "Texto" %}</label><input id="{{ widget.attrs.id }}-link-text" type="text" data-link-text autocomplete="off"></div>
+    <div class="field"><label for="{{ widget.attrs.id }}-link-href">{% translate "Endereço" %}</label><input id="{{ widget.attrs.id }}-link-href" type="text" inputmode="url" spellcheck="false" autocomplete="off" placeholder="https://" data-link-href aria-describedby="{{ widget.attrs.id }}-link-help {{ widget.attrs.id }}-link-error"><p class="help" id="{{ widget.attrs.id }}-link-help">{% translate "Use um endereço que comece com https:// ou um caminho deste site que comece com /." %}</p><ul class="errorlist" id="{{ widget.attrs.id }}-link-error" data-link-error hidden><li>{% translate "Este endereço não é aceito. Use https:// ou um caminho que comece com /." %}</li></ul></div>
+    <div class="toolbar"><button type="button" class="btn btn-primary" data-link-apply>{% translate "Aplicar" %}</button><button type="button" class="btn btn-danger-outline" data-link-remove>{% translate "Remover link" %}</button><button type="button" class="btn btn-secondary" data-link-cancel>{% translate "Cancelar" %}</button></div>
+  </dialog>{% endif %}
+</div></template>
+<script type="module" src="{% static 'skeleton/web/markdown_editor.js' %}"></script>

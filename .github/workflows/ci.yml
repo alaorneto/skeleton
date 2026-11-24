@@ -65,6 +65,10 @@ jobs:
         # Falha se site.css/admin.css ou os arquivos de vendor/ estiverem desatualizados.
         working-directory: frontend
         run: npm run check
+      - name: Testes do editor de texto formatado (dialeto, conversão e comandos)
+        # O corpus de tests/fixtures/markdown é o mesmo que tests/unit/test_markdown.py confere.
+        working-directory: frontend
+        run: npm test
 
   locks:
     name: Locks correspondem aos requirements .in
