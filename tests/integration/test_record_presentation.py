@@ -234,11 +234,16 @@ def test_declared_list_column_order_exact_filters_and_title_are_respected(record
 
 
 @pytest.mark.needs_example_app
-def test_database_page_loads_projection_dependencies_without_per_row_queries(records):
+def test_database_page_loads_projection_dependencies_without_per_row_queries(records, monkeypatch):
     from examples.notes.models import Note
+    from skeleton.system.presentation import get_model_ui
     from skeleton.web.services import create_record, record_queryset
 
     spec = get_spec(Note._meta.label_lower)
+    # The example lists body since #830; this test needs a readable field outside the list.
+    declared = get_model_ui(Note._meta.label_lower)
+    columns = tuple(column for column in declared.list.columns if column != "body")
+    set_ui(monkeypatch, replace(declared, list=replace(declared.list, columns=columns)))
     with actor_tenant(records.alice, records.a):
         for number in range(24):
             create_record(

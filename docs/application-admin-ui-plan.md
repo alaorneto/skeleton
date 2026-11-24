@@ -79,12 +79,12 @@ Exemplo do contrato atual:
   },
   "model_ui": [{
     "table_key": "example_notes.note",
-    "list": {"columns": ["code", "title", "updated_at"], "filters": ["code"], "title_field": "title"},
+    "list": {"columns": ["code", "title", "body", "updated_at"], "filters": ["code"], "title_field": "title"},
     "form": {
       "tabs": [{"id": "general", "label": "Identificação"}, {"id": "content", "label": "Conteúdo"}],
       "sections": [
         {"id": "identification", "label": "Identificação", "tab_id": "general", "columns": 2, "fields": [{"name": "code", "label": "Código", "col_span": 4}, {"name": "title", "label": "Título", "col_span": 8}]},
-        {"id": "content", "label": "Conteúdo", "tab_id": "content", "fields": [{"name": "body", "label": "Texto", "help_text": "Conteúdo da anotação.", "widget": "textarea", "col_span": 12, "rows": 8}]}
+        {"id": "content", "label": "Conteúdo", "tab_id": "content", "fields": [{"name": "body", "label": "Texto", "help_text": "Conteúdo da anotação, com texto formatado.", "widget": "markdown", "col_span": 12, "rows": 8}]}
       ]
     }
   }]

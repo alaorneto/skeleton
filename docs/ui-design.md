@@ -429,6 +429,8 @@ Na [interface declarativa](application-admin-ui-plan.md#5-formulário-e-detalhe-
 
 O formulário usa o `MarkdownTextarea` com esses recursos; o detalhe e o campo só leitura do formulário mostram o HTML do servidor com a mesma lista; a lista mostra o texto sem marcadores (`to_plain_text`, cortado como os demais). O widget exige o núcleo `MARKDOWN_WIDGET_CORE_MINIMUM` (0.9.0) em `compatibility.skeleton`: `package build` acrescenta o piso e a validação do manifesto recusa um piso menor. `markdown_features` sem o widget, recurso desconhecido ou repetido e o widget num campo que não é de texto são recusados (validação pura e `skeleton.E013`).
 
+O exemplo `notes` usa o widget no texto da anotação ([#830](https://github.com/alaorneto/skeleton/issues/830)): `examples/notes/manifest.json` declara `body` com `"widget": "markdown"`, sem `markdown_features` (todos os recursos), põe o campo na lista e pede o núcleo `>=0.9.0`.
+
 ## Django admin
 
 Não há tela do Django admin: toda a administração da plataforma usa views próprias em `/platform/`, no mesmo shell, componentes e tokens do site. O Django admin não é usado: `django.contrib.admin` fica instalado só como dependência técnica (modelo `LogEntry` e migrations históricas que concedem privilégios em `django_admin_log`), via `SimpleAdminConfig`, sem autodiscover, site ou rota; `/admin/…` responde 404.

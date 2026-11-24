@@ -7,9 +7,9 @@
   "app_config": "applications.notes.apps.NotesConfig",
   "name": "Anotações",
   "description": "Anotações de demonstração do contrato de extensão",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "publisher": "skeleton-examples",
-  "compatibility": {"skeleton": ">=0.0.0,<1.0.0", "python": ">=3.12,<3.15", "django": ">=6.1,<6.2"},
+  "compatibility": {"skeleton": ">=0.9.0,<1.0.0", "python": ">=3.12,<3.15", "django": ">=6.1,<6.2"},
   "dependencies": {},
   "conflicts": {},
   "runtime": {
@@ -27,12 +27,12 @@
     },
     "model_ui": [{
       "table_key": "example_notes.note",
-      "list": {"columns": ["code", "title", "updated_at"], "filters": ["code"], "title_field": "title"},
+      "list": {"columns": ["code", "title", "body", "updated_at"], "filters": ["code"], "title_field": "title"},
       "form": {
         "tabs": [{"id": "general", "label": "Identificação"}, {"id": "content", "label": "Conteúdo"}],
         "sections": [
           {"id": "identification", "label": "Identificação", "tab_id": "general", "columns": 2, "fields": [{"name": "code", "label": "Código", "col_span": 4}, {"name": "title", "label": "Título", "col_span": 8}]},
-          {"id": "content", "label": "Conteúdo", "tab_id": "content", "fields": [{"name": "body", "label": "Texto", "help_text": "Conteúdo da anotação.", "widget": "textarea", "col_span": 12, "rows": 8}]}
+          {"id": "content", "label": "Conteúdo", "tab_id": "content", "fields": [{"name": "body", "label": "Texto", "help_text": "Conteúdo da anotação, com texto formatado.", "widget": "markdown", "col_span": 12, "rows": 8}]}
         ]
       }
     }]
@@ -41,5 +41,5 @@
   "files": [],
   "python_dependencies": [],
   "lifecycle": {"data_retention": "retain", "maintenance": true, "backup": true},
-  "release_notes": "Quadro do painel da organização example_notes.recent (#620), com as cinco anotações alteradas mais recentemente pelo novo NoteService.recent_notes."
+  "release_notes": "O texto da anotação usa o widget markdown (#830): o formulário mostra o editor de texto formatado, o detalhe mostra o texto formatado e a lista, o resumo sem marcadores. Exige o núcleo 0.9.0."
 }
