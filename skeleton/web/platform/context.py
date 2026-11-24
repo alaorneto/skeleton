@@ -34,9 +34,5 @@ def platform_notifications(request):
             memo["n"] = unread_count(user)
         return memo["n"]
 
-    def label():
-        from skeleton.notifications.inbox import counter_label
-
-        return counter_label(count())
-
-    return {"platform_unread": SimpleLazyObject(count), "platform_unread_label": SimpleLazyObject(label)}
+    # A point of attention, not a count (#815): templates only test whether there is something.
+    return {"platform_unread": SimpleLazyObject(count)}

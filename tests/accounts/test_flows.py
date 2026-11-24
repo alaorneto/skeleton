@@ -242,6 +242,7 @@ def test_recovery_codes_page_finishes_only_after_the_saved_confirmation(local_us
     import time
 
     from allauth.mfa import app_settings
+    from allauth.mfa.models import Authenticator
     from allauth.mfa.recovery_codes.internal.auth import RecoveryCodes
     from allauth.mfa.totp.internal.auth import TOTP, format_hotp_value, hotp_value
     from cryptography.fernet import Fernet
@@ -257,7 +258,15 @@ def test_recovery_codes_page_finishes_only_after_the_saved_confirmation(local_us
         code = format_hotp_value(hotp_value(secret, int(time.time()) // app_settings.TOTP_PERIOD))
         assert client.post(challenge, {"code": code}).status_code == 302
         url = reverse("mfa_view_recovery_codes")
-        assert client.post(reverse("account_reauthenticate"), {"password": PASSWORD}).status_code == 302
+        # With MFA enrolled, reauthentication is by MFA only (#818). The login code may not be reused,
+        # so its "used" mark is dropped to confirm with the same period.
+        from django.core.cache import cache
+
+        cache.delete(TOTP(Authenticator.objects.get(user=local_user, type="totp"))._get_used_cache_key(code))
+        assert client.post(reverse("account_reauthenticate"), {"password": PASSWORD})["Location"].startswith(
+            reverse("mfa_reauthenticate")
+        )
+        assert client.post(reverse("mfa_reauthenticate"), {"code": code}).status_code == 302
 
         # First view (#734): the codes, and a GET form back to mfa_index that the browser only
         # submits with the required, unnamed confirmation checked.

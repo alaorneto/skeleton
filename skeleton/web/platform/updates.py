@@ -350,7 +350,7 @@ ERROR_TEXT = {
     "github_token_missing": gettext_lazy("Repositório privado exige o token configurado no arquivo do agente."),
     # Update path and sources (#500).
     "version_jump_forbidden": gettext_lazy(
-        "Esta versão está mais de uma linha à frente da instalada. Atualize antes para a versão indicada em Novas versões."
+        "Esta versão está mais de uma linha à frente da instalada. Siga os passos indicados em Atualizações da plataforma."
     ),
     "release_environment_conflict": gettext_lazy(
         "Este núcleo já foi recebido com outro conjunto de dependências. O publicador precisa publicar outra versão."

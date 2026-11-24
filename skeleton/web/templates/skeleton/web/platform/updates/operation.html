@@ -25,7 +25,7 @@
       <li><form method="post" action="{% url 'platform:updates-status-link' operation.sysid %}" target="_blank" class="inline">{% csrf_token %}<button type="submit" class="font-medium text-fg-brand underline">{% translate "Abra o acompanhamento" %}</button></form> {% translate "numa aba nova: a manutenção fecha esta interface, e o acompanhamento continua no ar. O link é privado e vale por cinco minutos." %}</li>
       <li>{% translate "Aprove. O agente faz o backup, aplica a mudança, confere a saúde e só então libera o tráfego." %}</li>
     </ol>
-    <form method="post">{% csrf_token %}{{ confirmation_form.as_div }}<button type="submit" class="btn btn-primary w-full">{% translate "Aprovar e iniciar" %}</button></form>
+    <form method="post">{% csrf_token %}{{ confirmation_form.as_div }}<button type="submit" class="btn btn-primary w-full" data-busy-label="{% translate "Enviando ao agente…" %}">{% translate "Aprovar e iniciar" %}</button></form>
   </section>{% endif %}
   <section class="card" aria-labelledby="operation-discard">
     <h2 id="operation-discard" class="mb-2 text-base">{% if stale %}{% translate "O que fazer" %}{% else %}{% translate "Não vai aplicar?" %}{% endif %}</h2>
@@ -37,7 +37,7 @@
   <section class="card" aria-labelledby="operation-retry">
     <h2 id="operation-retry" class="mb-3">{% translate "Reenviar solicitação" %}</h2>
     <p class="mb-4 text-sm/6 text-body">{% translate "O agente não confirmou o recebimento da aprovação. Reenviar entrega a mesma aprovação de novo; o agente não executa a operação duas vezes." %}</p>
-    <form method="post">{% csrf_token %}{{ confirmation_form.as_div }}<input type="hidden" name="intent" value="retry"><button type="submit" class="btn btn-primary w-full">{% translate "Reenviar solicitação ao agente" %}</button></form>
+    <form method="post">{% csrf_token %}{{ confirmation_form.as_div }}<input type="hidden" name="intent" value="retry"><button type="submit" class="btn btn-primary w-full" data-busy-label="{% translate "Enviando ao agente…" %}">{% translate "Reenviar solicitação ao agente" %}</button></form>
   </section>
   {% endif %}
   {% if status_url %}<section class="card"><p class="text-sm/6"><a href="{{ status_url }}" target="_blank" rel="noopener noreferrer">{% translate "Abrir canal independente de acompanhamento" %}</a></p></section>{% endif %}

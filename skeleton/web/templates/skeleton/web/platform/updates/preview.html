@@ -6,7 +6,7 @@
 {% block description %}{% translate "Veja o que muda e o risco antes de seguir para a aprovação. Nada foi aplicado." %}{% endblock %}
 {% block step %}
 {% if plan_state == 'preparing' %}
-<div class="message info" role="status" aria-live="polite">{% include "skeleton/web/components/icon.html" with name="refresh" %}<div class="min-w-0">{% translate "Preparando a prévia…" %} {% translate "O agente copia o projeto, instala os pacotes e roda os checks; esta página se atualiza sozinha." %} <a href="{% url 'platform:updates-preview' plan_id %}">{% translate "Atualizar agora" %}</a></div></div>
+<div class="message info" role="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span><div class="min-w-0">{% translate "Preparando a prévia…" %} {% translate "O agente copia o projeto, instala os pacotes e roda os checks; esta página se atualiza sozinha." %} <a href="{% url 'platform:updates-preview' plan_id %}">{% translate "Atualizar agora" %}</a></div></div>
 {% else %}
 {% for warning in theme_warnings %}{% if warning.active %}<div class="message warning mb-4" role="status">{% include "skeleton/web/components/icon.html" with name="warning" %}<div class="min-w-0">{% blocktranslate trimmed with name=warning.active %}O tema ativo da instância ({{ name }}) vem desta app. Depois da desinstalação, a instância volta ao tema do núcleo, a menos que você ative outro tema antes em{% endblocktranslate %} {% if platform_admin %}<a href="{% url 'platform:appearance' %}">{% translate "Aparência" %}</a>{% else %}{% translate "Aparência" %}{% endif %}.</div></div>{% endif %}<div class="message info mb-4" role="status">{% include "skeleton/web/components/icon.html" with name="info" %}<div class="min-w-0">{% blocktranslate trimmed with app=warning.app names=warning.names %}A app {{ app }} traz temas da instância ({{ names }}). Eles saem do catálogo com a desinstalação.{% endblocktranslate %}</div></div>{% endfor %}
 <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
@@ -18,7 +18,7 @@
   <section class="card" aria-labelledby="preview-continue">
     <h2 id="preview-continue" class="mb-3">{% translate "Plano pronto" %}</h2>
     <p class="mb-4 text-sm/6 text-body">{% translate "Continue para a aprovação. O plano fica guardado aguardando você; se preparar outro para os mesmos componentes, este é substituído." %}</p>
-    <form method="post">{% csrf_token %}<button type="submit" class="btn btn-primary w-full">{% translate "Continuar para a aprovação" %}{% include "skeleton/web/components/icon.html" with name="arrow-right" %}</button></form>
+    <form method="post">{% csrf_token %}<button type="submit" class="btn btn-primary w-full" data-busy-label="{% translate "Guardando o plano…" %}">{% translate "Continuar para a aprovação" %}{% include "skeleton/web/components/icon.html" with name="arrow-right" %}</button></form>
     <p class="mt-3"><a class="btn btn-ghost w-full" href="{{ area_meta.url }}">{% translate "Voltar sem guardar" %}</a></p>
   </section>
   <details class="card">
