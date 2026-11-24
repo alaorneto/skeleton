@@ -46,6 +46,7 @@ CONCEPT_ICONS: dict[str, str] = {
     "public_page": "window",
     # Apps and integrations.
     "apps": "cube",
+    "libraries": "puzzle-piece",
     "webhooks": "bolt",
     "service_accounts": "cpu-chip",
     "flows": "share",

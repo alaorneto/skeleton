@@ -844,14 +844,19 @@ def app_list(request):
     from skeleton.system.administration import application_identity
     from skeleton.system.app_registry import all_apps, dependent_app_labels
 
+    def card(manifest):
+        # One card for apps and libraries (#807): kind, version, origin and dependencies; a
+        # first-party library (#792) also lists the apps that use it.
+        return {
+            **application_identity(manifest),
+            "library": manifest.library,
+            "requires": _app_labels(manifest.dependencies),
+            "used_by": _app_labels(dependent_app_labels(manifest.app_label)) if manifest.library else [],
+        }
+
     manifests = sorted(all_apps(), key=lambda manifest: manifest.label)
-    applications = [application_identity(manifest) for manifest in manifests if not manifest.library]
-    # First-party libraries (#792): read-only, with the apps that use them.
-    libraries = [
-        {**application_identity(manifest), "used_by": _app_labels(dependent_app_labels(manifest.app_label))}
-        for manifest in manifests
-        if manifest.library
-    ]
+    applications = [card(manifest) for manifest in manifests if not manifest.library]
+    libraries = [card(manifest) for manifest in manifests if manifest.library]
     return render(
         request,
         "skeleton/web/platform/apps.html",
