@@ -118,8 +118,8 @@ def test_forms_mark_required_and_optional_fields_once():
     assert "Campos com * são obrigatórios." not in login and "(opcional)" not in login
 
 
-def test_audit_shows_the_actor_by_name_and_the_platform_keeps_the_identifier():
-    """One name lookup for the page; the global audit keeps the full UUID (#475)."""
+def test_audit_shows_the_actor_by_name_and_the_identifier_in_the_details():
+    """One name lookup for the page (#475); the UUID only in the details panel (#834)."""
     client, actor, organization = logged_client("nav-audit")
     created = client.post(
         reverse("web:access-create", kwargs={"organization_id": organization.pk, "resource": "groups"}),
@@ -129,8 +129,8 @@ def test_audit_shows_the_actor_by_name_and_the_platform_keeps_the_identifier():
     html = client.get(reverse("web:audit", kwargs={"organization_id": organization.pk})).content.decode()
     assert f'<span title="{actor.pk}">nav-audit</span>' in html
     assert actor.email not in html.split("<tbody>", 1)[1]  # The account menu shows it; the table never.
-    platform = client.get("/platform/audit/").content.decode()
-    assert f'<code class="uuid">{actor.pk}</code>' in platform
+    # The full identifier lives in the row's details panel (#834).
+    assert f'<dt>Ator</dt><dd><code class="uuid">{actor.pk}</code></dd>' in html
 
 
 def test_person_filter_names_members_and_hides_the_rest():
