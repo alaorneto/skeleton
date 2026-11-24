@@ -156,7 +156,14 @@ def notify_attendees(event: Any, type_code: str, *, users: tuple[UUID, ...] | No
         actor=actor,
         type_code=type_code,
         recipients=Recipients(users=targets),
-        payload=(("title", title), ("event", str(event.series_id or event.pk))),
+        # The start is a marker of the text (#806): a timed event has ``starts_at``, an all-day one
+        # ``start_date``; the other one stays empty.
+        payload=(
+            ("title", title),
+            ("event", str(event.series_id or event.pk)),
+            ("starts_at", event.starts_at.isoformat() if not event.all_day and event.starts_at else None),
+            ("start_date", event.start_date.isoformat() if event.all_day and event.start_date else None),
+        ),
         dedupe_key=key,
     )
 
@@ -164,35 +171,44 @@ def notify_attendees(event: Any, type_code: str, *, users: tuple[UUID, ...] | No
 def register_attendee_notifications() -> None:
     from skeleton.notifications.registry import NotificationField, NotificationType, register_notification_type
 
-    for code, label, description, title in (
+    # Only one of {starts_at} and {start_date} has a value: the body shows the start either way.
+    for code, label, description, title, body in (
         (
             INVITED,
             gettext_lazy("Convite para evento"),
             gettext_lazy("Quando você é convidado para um evento"),
             gettext_lazy("Convite para {title}"),
+            gettext_lazy("Começa em {starts_at}{start_date}."),
         ),
         (
             UPDATED,
             gettext_lazy("Evento alterado"),
             gettext_lazy("Quando um evento em que você está muda"),
             gettext_lazy("O evento {title} mudou"),
+            gettext_lazy("Agora começa em {starts_at}{start_date}."),
         ),
         (
             CANCELLED,
             gettext_lazy("Evento cancelado"),
             gettext_lazy("Quando um evento em que você está é cancelado"),
             gettext_lazy("O evento {title} foi cancelado"),
+            gettext_lazy("Estava marcado para {starts_at}{start_date}."),
         ),
     ):
         register_notification_type(
             NotificationType(
                 code,
                 label,
-                payload_fields=("title", "event"),
+                payload_fields=("title", "event", "starts_at", "start_date"),
                 owner_app="skeleton_calendar",
                 context="app",
                 description=description,
-                fields=(NotificationField("title", gettext_lazy("Título do evento")),),
+                fields=(
+                    NotificationField("title", gettext_lazy("Título do evento")),
+                    NotificationField("starts_at", gettext_lazy("Início (evento com hora)"), kind="datetime"),
+                    NotificationField("start_date", gettext_lazy("Início (evento de dia inteiro)"), kind="date"),
+                ),
                 title=title,
+                body=body,
             )
         )

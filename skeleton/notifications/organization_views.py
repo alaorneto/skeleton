@@ -99,8 +99,8 @@ def settings_list(request, organization_id):
 
 def _texts(config):
     from .instance_settings import instance_texts, languages
+    from .texts import fixed_samples, sample_values
     from .texts import render as render_text
-    from .texts import sample_values
 
     names = dict(settings.LANGUAGES)
     platform = instance_texts(config.kind.code)
@@ -119,7 +119,7 @@ def _texts(config):
                 title, body, source = str(config.kind.label), "", "label"
             values = {
                 **sample_values(config.kind.fields),
-                "organizacao": gettext("Sua organização"),
+                **fixed_samples(organization=gettext("Sua organização")),
                 "aviso": str(config.kind.label),
             }
             items.append(
@@ -138,6 +138,8 @@ def _texts(config):
 
 
 def _detail(request, organization_id, config, *, errors=None, posted=None, status=200):
+    from .texts import placeholder_list
+
     texts = _texts(config)
     for item in texts:
         if posted and posted.get("language") == item["language"]:
@@ -150,7 +152,7 @@ def _detail(request, organization_id, config, *, errors=None, posted=None, statu
             "config": config,
             "kind": config.kind,
             "texts": texts,
-            "fields": [{"placeholder": "{" + item.name + "}", "label": item.label} for item in config.kind.fields],
+            "fields": placeholder_list(config.kind),
             "errors": {} if posted else (errors or {}),
             "error_list": [] if posted else [m for items in (errors or {}).values() for m in items],
             "breadcrumbs": _crumbs(organization_id, {"label": config.kind.label, "url": ""}),

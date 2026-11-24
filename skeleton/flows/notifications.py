@@ -33,7 +33,13 @@ TEXTS = {
         gettext_lazy("Tarefa atrasada: {step}"),
     ),
 }
-PAYLOAD = ("flow", "step", "number", "task")
+PAYLOAD = ("flow", "step", "number", "task", "due_at")
+BODIES = {
+    "flows.task_assigned": gettext_lazy("Processo {flow} nº {number}."),
+    # Reminders and overdue notices exist only for a task with a deadline: the text shows it (#806).
+    "flows.task_reminder": gettext_lazy("Processo {flow} nº {number}. Prazo: {due_at}."),
+    "flows.task_overdue": gettext_lazy("Processo {flow} nº {number}. O prazo era {due_at}."),
+}
 
 
 def task_url(user: Any, row: Any) -> str | None:
@@ -59,6 +65,7 @@ def register_flow_notification_types() -> None:
         NotificationField("flow", gettext_lazy("Processo")),
         NotificationField("step", gettext_lazy("Etapa")),
         NotificationField("number", gettext_lazy("Número do processo")),
+        NotificationField("due_at", gettext_lazy("Prazo"), kind="datetime"),
     )
     for code, label in TYPES.items():
         description, title = TEXTS[code]
@@ -74,7 +81,7 @@ def register_flow_notification_types() -> None:
                 description=description,
                 fields=fields,
                 title=title,
-                body=gettext_lazy("Processo {flow} nº {number}."),
+                body=BODIES[code],
             )
         )
 
@@ -103,6 +110,7 @@ def _send(
                 "step": step.title,
                 "number": execution.instance.number,
                 "task": str(task.pk),
+                "due_at": task.due_at,
             },
         )
     except ValidationError:

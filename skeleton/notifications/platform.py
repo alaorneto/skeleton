@@ -143,7 +143,14 @@ def platform_fan_out(*, notification_id: str) -> int:
             people = people[:MAX_RECIPIENTS]
         rows = rows_by_user([person.pk for person in people])
         chosen = state_of(kind.code).default_channels
-        texts = render_for_people(kind, payload=notification.payload, snapshot={}, users=people, organization_name="")
+        texts = render_for_people(
+            kind,
+            payload=notification.payload,
+            snapshot={},
+            users=people,
+            organization_name="",
+            sent_at=notification.created_at,
+        )
         for person in people:
             in_app = wants(person.pk, kind, "in_app", rows, chosen) != "off"
             email = wants(person.pk, kind, "email", rows, chosen) != "off"

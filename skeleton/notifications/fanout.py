@@ -178,6 +178,7 @@ def rendered_texts(notification, people: list[UUID]) -> dict:
         snapshot=notification.snapshot,
         users=users,
         organization_name=organization_name(),
+        sent_at=notification.created_at,
     )
 
 

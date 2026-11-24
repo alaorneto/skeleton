@@ -47,6 +47,17 @@ def scenario(settings):
             )
         )
         register_notification_type(NotificationType("notes.plain", "Aviso simples", owner_app="example_notes"))
+        register_notification_type(
+            NotificationType(
+                "notes.personal",
+                gettext_lazy("Pessoal"),
+                payload_fields=("due",),
+                fields=(NotificationField("due", "Vencimento", kind="date"),),
+                title="Olá, {destinatario_primeiro_nome}: vence em {due}",
+                body="{destinatario} · {plataforma} · {organizacao} · {aviso} · {data_atual}",
+                owner_app="example_notes",
+            )
+        )
         yield build_service_scenario(Note, slug="texts")
 
 
@@ -138,3 +149,44 @@ def test_forgetting_a_person_redacts_the_rows_that_name_them(scenario):
         row = NotificationRecipient.objects.get(user=scenario.member)
     assert result["redacted"] == 1
     assert (row.title, row.body, row.subject_people) == ("Evento", "", [])
+
+
+def test_a_text_that_names_the_recipient_is_rendered_for_each_person(scenario, monkeypatch):
+    from django.utils import timezone
+
+    from skeleton.notifications import rendering
+
+    calls = []
+    original = rendering.render_notification
+    monkeypatch.setattr(rendering, "render_notification", lambda *a, **k: calls.append(1) or original(*a, **k))
+    set_profile(scenario.member, language="pt-br", zone="America/Sao_Paulo", name="Maria da Silva")
+    set_profile(scenario.denied, language="pt-br", zone="America/Sao_Paulo", name="")
+    with system_context(reason="test:texts-names"):
+        scenario.denied.first_name, scenario.denied.last_name = "João", "Souza"
+        scenario.denied.save(update_fields={"first_name", "last_name"})
+    send(scenario, "notes.personal", users=(scenario.member, scenario.denied), due="2026-11-30")
+    maria, joao = row_of(scenario, scenario.member), row_of(scenario, scenario.denied)
+    assert maria.title == "Olá, Maria: vence em 30/11/2026"
+    assert joao.title == "Olá, João: vence em 30/11/2026"
+    with system_context(reason="test:texts-sent", organization_id=scenario.a.pk):
+        sent = maria.notification.created_at
+    with timezone.override("America/Sao_Paulo"):
+        today = timezone.localtime(sent).strftime("%d/%m/%Y")
+    assert maria.body.startswith("Maria da Silva · Skeleton · ")
+    assert maria.body.endswith(f" · Pessoal · {today}")
+    assert joao.body.startswith("João Souza · ")
+    assert len(calls) == 2  # Same language and time zone, but one rendering per person.
+    assert maria.subject_people == []  # The recipient is not a subject: forgetting them deletes their rows.
+
+
+def test_a_text_without_the_recipient_is_rendered_once_per_language_and_zone(scenario, monkeypatch):
+    from skeleton.notifications import rendering
+
+    calls = []
+    original = rendering.render_notification
+    monkeypatch.setattr(rendering, "render_notification", lambda *a, **k: calls.append(1) or original(*a, **k))
+    set_profile(scenario.member, language="pt-br", zone="America/Sao_Paulo", name="Maria")
+    set_profile(scenario.denied, language="pt-br", zone="America/Sao_Paulo", name="João")
+    send(scenario, users=(scenario.member, scenario.denied), **PAYLOAD)
+    assert len(calls) == 1
+    assert row_of(scenario, scenario.member).body == row_of(scenario, scenario.denied).body

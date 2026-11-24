@@ -14,10 +14,11 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from .texts import BODY_MAX, TITLE_MAX, format_value, render
+from .texts import BODY_MAX, RECIPIENT, TITLE_MAX, first_name, format_value, placeholders, render
 
 ORGANIZATION = "organization"
 INSTANCE = "instance"
@@ -29,6 +30,10 @@ class TextTemplate:
     title: str
     body: str
     source: str  # "organization", "instance" or "type"
+
+    def names_recipient(self) -> bool:
+        """Whether the text uses a placeholder of the person who receives it."""
+        return bool((placeholders(self.title) | placeholders(self.body)) & set(RECIPIENT))
 
 
 @dataclass(frozen=True)
@@ -96,6 +101,13 @@ def person_codes(kind: Any, payload: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(str(payload[name]) for name in names if payload.get(name)))
 
 
+def display_name(user: Any) -> str:
+    """The name the screens show: the profile's display name, else first and last name."""
+    profile = getattr(user, "profile", None)
+    name = (getattr(profile, "display_name", "") or "").strip()
+    return name or f"{getattr(user, 'first_name', '')} {getattr(user, 'last_name', '')}".strip()
+
+
 def people_names(user_ids: Iterable[str]) -> dict[str, str]:
     """Display names of people who are or were members of the current organization; nobody else."""
     from skeleton.tenancy.context import current_context
@@ -116,8 +128,7 @@ def people_names(user_ids: Iterable[str]) -> dict[str, str]:
     )
     for membership in rows:
         user = membership.user
-        profile = getattr(user, "profile", None)
-        name = (getattr(profile, "display_name", "") or "").strip() or f"{user.first_name} {user.last_name}".strip()
+        name = display_name(user)
         if name:
             names[str(user.pk)] = name
     return names
@@ -132,9 +143,12 @@ def render_notification(
     people: Mapping[str, str],
     resolver: TextResolver,
     language: str,
+    recipient_name: str = "",
+    sent_at: datetime | None = None,
+    template: TextTemplate | None = None,
 ) -> Rendered:
     """Title and body for one language; call it inside the person's language and time zone."""
-    template = resolver.template(language)
+    template = template or resolver.template(language)
     subjects = person_codes(kind, payload)
     if template is None:
         title = str(kind.label)
@@ -144,11 +158,26 @@ def render_notification(
     values: dict[str, Any] = {
         item.name: format_value(item, raw.get(item.name), values=raw, people=people) for item in kind.fields
     }
-    values["organizacao"] = organization_name
-    values["aviso"] = str(kind.label)
+    values.update(fixed_values(kind, organization_name=organization_name, sent_at=sent_at))
+    values["destinatario"] = recipient_name
+    values["destinatario_primeiro_nome"] = first_name(recipient_name)
     title = " ".join(render(template.title, values).split())
     body = render(template.body, values).strip()
     return Rendered(title[:TITLE_MAX] or str(kind.label)[:TITLE_MAX], body[:BODY_MAX], subjects)
+
+
+def fixed_values(kind: Any, *, organization_name: str, sent_at: datetime | None = None) -> dict[str, str]:
+    """The fixed placeholders but the recipient's; call it inside the person's language and time zone."""
+    from django.utils import timezone
+
+    from .texts import date_text, product_name
+
+    return {
+        "organizacao": organization_name,
+        "aviso": str(kind.label),
+        "plataforma": product_name(),
+        "data_atual": date_text(sent_at or timezone.now()),
+    }
 
 
 def recipient_locales(users: Iterable[Any]) -> dict[Any, tuple[str, str]]:
@@ -182,20 +211,33 @@ def render_for_people(
     users: Iterable[Any],
     organization_name: str,
     resolver: TextResolver | None = None,
+    sent_at: datetime | None = None,
 ) -> dict[Any, Rendered]:
-    """One rendering per distinct (language, time zone), shared by everyone with that pair."""
+    """One rendering per distinct (language, time zone), shared by everyone with that pair.
+
+    A text that names the person who receives it is rendered for each person instead (#806).
+    ``sent_at`` (the creation of the notification) is the ``{data_atual}`` of every batch.
+    """
     from django.utils import timezone, translation
 
     resolver = resolver or resolver_for(kind)
+    users = list(users)
+    names = {user.pk: display_name(user) for user in users}
     locales = recipient_locales(users)
     people = people_names(person_codes(kind, payload))
-    cache: dict[tuple[str, str], Rendered] = {}
+    templates: dict[str, TextTemplate | None] = {}
+    cache: dict[tuple[str, str, str], Rendered] = {}
     result = {}
     for user_id, pair in locales.items():
-        if pair not in cache:
-            language, zone = pair
-            with translation.override(language), timezone.override(zone):
-                cache[pair] = render_notification(
+        language, zone = pair
+        with translation.override(language), timezone.override(zone):
+            if language not in templates:
+                templates[language] = resolver.template(language)
+            template = templates[language]
+            name = names.get(user_id, "") if template is not None and template.names_recipient() else ""
+            key = (language, zone, name)
+            if key not in cache:
+                cache[key] = render_notification(
                     kind,
                     payload=payload,
                     snapshot=snapshot,
@@ -203,8 +245,11 @@ def render_for_people(
                     people=people,
                     resolver=resolver,
                     language=language,
+                    recipient_name=name,
+                    sent_at=sent_at,
+                    template=template,
                 )
-        result[user_id] = cache[pair]
+        result[user_id] = cache[key]
     return result
 
 

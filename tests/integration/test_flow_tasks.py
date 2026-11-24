@@ -482,6 +482,9 @@ def test_sla_reminds_once_and_reassigns_an_overdue_task(world):
     run_pending_jobs()
     [task] = open_tasks(world, instance_id, "review")
     assert task.reminded_count == 1 and kinds(world, instance_id).count("task_reminded") == 1
+    with actor_tenant(world.bob, world.a):
+        reminder = NotificationRecipient.objects.get(user=world.bob, type_code="flows.task_reminder")
+    assert reminder.payload["due_at"] and "Prazo: " in reminder.body  # The deadline is a marker (#806).
     due_now("flows.task_due")
     run_pending_jobs()
     [task] = open_tasks(world, instance_id, "review")

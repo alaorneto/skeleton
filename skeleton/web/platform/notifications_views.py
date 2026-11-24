@@ -196,7 +196,7 @@ def notification_types(request):
 def _texts(kind):
     """Per language: the platform's row, the text that applies now and a preview with sample values."""
     from skeleton.notifications.instance_settings import languages, text_rows
-    from skeleton.notifications.texts import render, sample_values
+    from skeleton.notifications.texts import fixed_samples, render, sample_values
 
     rows = text_rows(kind.code)
     result = []
@@ -207,7 +207,7 @@ def _texts(kind):
             factory_title, factory_body = str(kind.title or ""), str(kind.body or "")
             values = {
                 **sample_values(kind.fields),
-                "organizacao": gettext("Organização Exemplo"),
+                **fixed_samples(organization=gettext("Organização Exemplo")),
                 "aviso": str(kind.label),
             }
             title = row.title if row else (factory_title or str(kind.label))
@@ -230,6 +230,7 @@ def _texts(kind):
 def _detail(request, kind, *, errors=None, posted=None, status=200):
     from skeleton.notifications.catalog import AUDIENCE_LABELS, CHANNEL_LABELS
     from skeleton.notifications.instance_settings import allowed_channels, enabled_in_instance, state_of
+    from skeleton.notifications.texts import placeholder_list
 
     state = state_of(kind.code)
     channels = state.default_channels if state.default_channels is not None else kind.default_channels
@@ -254,7 +255,7 @@ def _detail(request, kind, *, errors=None, posted=None, status=200):
             ],
             "channels_from_instance": state.default_channels is not None,
             "texts": texts,
-            "fields": [{"placeholder": "{" + item.name + "}", "label": item.label} for item in kind.fields],
+            "fields": placeholder_list(kind),
             "breadcrumbs": [
                 {"label": gettext("Avisos"), "url": reverse("platform:notification-types")},
                 {"label": kind.label},

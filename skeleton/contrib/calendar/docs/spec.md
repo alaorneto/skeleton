@@ -46,7 +46,7 @@ As operações de participantes, lembretes, exclusão e ocorrências são oferec
 - O convite dá leitura do evento (inclusive em calendário pessoal) e das substituições da série; não dá escrita.
 - Cada pessoa responde só ao próprio convite: o de outra pessoa, ou nenhum, é 404.
 - Remover o participante revoga a leitura na próxima requisição; um vínculo inativo deixa de ler e de ser notificado.
-- Convidar, alterar e cancelar notificam os participantes (`calendar.invited`, `calendar.updated`, `calendar.cancelled`) pela API de notificações, na transação da mudança; o payload leva o título (ou "Ocupado", se o evento for privado) e o UUID do evento. Cada lote de convites notifica as pessoas daquele lote: a chave de deduplicação de `calendar.invited` inclui um resumo dos UUIDs convidados, e repetir o mesmo lote não notifica de novo (#235).
+- Convidar, alterar e cancelar notificam os participantes (`calendar.invited`, `calendar.updated`, `calendar.cancelled`) pela API de notificações, na transação da mudança; o payload leva o título (ou "Ocupado", se o evento for privado), o UUID do evento e o início: `starts_at` num evento com hora, `start_date` num de dia inteiro (o outro fica vazio), ambos marcadores do texto, que o corpo de fábrica mostra (#806). Cada lote de convites notifica as pessoas daquele lote: a chave de deduplicação de `calendar.invited` inclui um resumo dos UUIDs convidados, e repetir o mesmo lote não notifica de novo (#235).
 
 ### Lembretes (#73)
 `EventReminder` pede um aviso `minutes_before` (0 a 40320, 28 dias) cada ocorrência, com `channel_hint` indicativo: o canal final segue as preferências de notificação da pessoa.
