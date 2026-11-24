@@ -14,7 +14,12 @@ from allauth.account import app_settings as account_settings
 from allauth.account.authentication import get_authentication_records
 from allauth.core.exceptions import ReauthenticationRequired
 
-__all__ = ["has_recent_authentication", "recent_authentication_required", "require_recent_authentication"]
+__all__ = [
+    "has_recent_authentication",
+    "reauthentication_url",
+    "recent_authentication_required",
+    "require_recent_authentication",
+]
 
 
 def has_recent_authentication(request, *, allow_without_reauthentication_flow=False):
@@ -34,6 +39,15 @@ def has_recent_authentication(request, *, allow_without_reauthentication_flow=Fa
             return True
     records = get_authentication_records(request, user)
     return bool(records) and time.time() - records[-1]["at"] < account_settings.REAUTHENTICATION_TIMEOUT
+
+
+def reauthentication_url(user):
+    """Where this person reauthenticates: MFA when enrolled, else the password (#818)."""
+    from allauth.account.adapter import get_adapter
+    from django.urls import reverse
+
+    methods = get_adapter().get_reauthentication_methods(user)
+    return methods[0]["url"] if methods else reverse("account_reauthenticate")
 
 
 def require_recent_authentication(request):

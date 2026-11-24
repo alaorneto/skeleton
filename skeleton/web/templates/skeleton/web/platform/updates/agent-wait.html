@@ -12,7 +12,7 @@
   </ul>
   <p class="mt-4 text-sm/6"><a href="{% url 'platform:updates' %}">{% translate "Ver as versões instaladas" %}</a></p>
   {% else %}
-  <div class="message info mt-3" role="status" aria-live="polite">{% include "skeleton/web/components/icon.html" with name="refresh" %}<div class="min-w-0">{% translate "O agente de deployment monta a versão nova, testa e reinicia. Só o agente reinicia; o site continua no ar. Esta página se atualiza sozinha e, com o agente novo de pé, mostra o plano do núcleo." %}</div></div>
+  <div class="message info mt-3" role="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span><div class="min-w-0">{% translate "O agente de deployment monta a versão nova, testa e reinicia. Só o agente reinicia; o site continua no ar. Esta página se atualiza sozinha e, com o agente novo de pé, mostra o plano do núcleo." %}</div></div>
   <dl class="mt-4 grid gap-3 text-sm/6 sm:grid-cols-2">
     <div><dt class="text-body-subtle">{% translate "Agente agora" %}</dt><dd class="font-medium text-heading">{% if progress.reachable %}{{ progress.current|default:_("versão desconhecida") }}{% else %}{% translate "reiniciando…" %}{% endif %}</dd></div>
     <div><dt class="text-body-subtle">{% translate "Versão esperada" %}</dt><dd class="font-medium text-heading">{{ required }}</dd></div>

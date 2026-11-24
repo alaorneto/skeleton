@@ -1,5 +1,6 @@
 """Release packages in /platform/updates/ (#495): planned through the core package they carry."""
 
+import re
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -845,6 +846,9 @@ def test_platform_banner_for_release_operators(admin, monkeypatch, notice_cache,
         body = client.get(reverse("platform:overview")).content.decode()
         assert "Há uma versão nova do núcleo: 0.7.1." in body
         assert reverse("platform:updates-available") in body
+    with subtests.test("the menu marks the updates with a point of attention (#815)"):
+        link = re.search(r'<a class="sidebar-link" href="/platform/updates/"[^>]*>(.*?)</a>', body, re.S)
+        assert link and 'class="attention-dot' in link[1] and "há atualização disponível" in link[1]
     with subtests.test("one agent call for many pages"):
         client.get(reverse("platform:users"))
         assert double.calls.count("update_status") == 1
@@ -886,6 +890,7 @@ def test_overview_says_up_to_date(admin, monkeypatch, notice_cache):
     client = support.login(admin, password=PASSWORD, csrf=False)
     body = client.get(reverse("platform:overview")).content.decode()
     assert "Tudo atualizado." in body and "Há atualizações" not in body
+    assert "attention-dot" not in body  # No point of attention without an update (#815).
 
 
 def test_banner_never_breaks_a_page_when_the_agent_is_down(admin, monkeypatch, notice_cache):

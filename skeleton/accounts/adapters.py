@@ -92,6 +92,17 @@ class AccountAdapter(DefaultAccountAdapter):
     def clean_email(self, email: str) -> str:
         return normalized_email(super().clean_email(email))
 
+    def get_reauthentication_methods(self, user: Any) -> list[dict[str, Any]]:
+        """With MFA enrolled, sensitive actions are confirmed by MFA only, never by the password (#818).
+
+        The authenticator code (or a recovery code, or a security key) proves the person holds the
+        device; the password alone does not. allauth refuses a method outside this list, so its
+        password page sends the person to the MFA one. Without MFA the password stays.
+        """
+        methods = super().get_reauthentication_methods(user)
+        mfa = [method for method in methods if method["id"].startswith("mfa_reauthenticate")]
+        return mfa or methods
+
     def is_email_verified(self, request: HttpRequest, email: str) -> bool:
         if getattr(request, "_skeleton_verified_invitation_email", None) == normalized_email(email):
             return True
