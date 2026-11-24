@@ -224,9 +224,11 @@ def test_sections_filters_and_the_error_on_its_own_row(store, platform):
     assert 'id="setting-trust_proxy"' in filtered and 'id="setting-email_url"' not in filtered
     by_origin = client.get(reverse("platform:instance"), {"origem": "instance"}).content.decode()
     assert 'id="setting-email_url"' in by_origin and 'id="setting-trust_proxy"' not in by_origin
-    refused = change(client, "trusted_proxy_count", "abc")
+    # Not hexadecimal, with a space and an accent: it cannot turn up by chance in a UUID or the CSRF token (#808).
+    rejected = "três proxies"
+    refused = change(client, "trusted_proxy_count", rejected)
     page = refused.content.decode()
     assert refused.status_code == 400
     row = page.split('id="setting-trusted_proxy_count"', 1)
     assert row[0].endswith('<details class="setting-row" ') and row[1].startswith(" open>")
-    assert 'id="error-trusted_proxy_count"' in page and "abc" not in page
+    assert 'id="error-trusted_proxy_count"' in page and rejected not in page
