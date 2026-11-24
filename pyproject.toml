@@ -27,6 +27,8 @@ dependencies = [
     "dnspython>=2.7,<3",
     # LDAP login and directory sync (skeleton/accounts/ldap, #32, #33).
     "ldap3>=2.9.1,<3",
+    # Formatted text: the closed Markdown dialect rendered by the server (skeleton/common/markdown.py, #824).
+    "markdown-it-py>=4.0,<5",
 ]
 
 [project.optional-dependencies]
@@ -142,6 +144,9 @@ files = [
     "skeleton/web/page_editor.py",
     "skeleton/tenancy/pages.py",
     "skeleton/system/dashboard_widgets.py",
+    # #824/#825: the closed Markdown dialect and the widget of formatted text.
+    "skeleton/common/markdown.py",
+    "skeleton/web/markdown_widget.py",
     "skeleton/instance/schema.py",
     "skeleton/instance/store.py",
     "skeleton/instance/crypto.py",

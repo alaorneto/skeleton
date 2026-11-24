@@ -11,11 +11,193 @@
       "version": "5.3.0",
       "license": "OFL-1.1",
       "source": "npm:@fontsource-variable/ibm-plex-sans"
+    },
+    "@codemirror/commands": {
+      "version": "6.11.1",
+      "license": "MIT",
+      "source": "npm:@codemirror/commands",
+      "bundled_in": "markdown_editor.js"
+    },
+    "@codemirror/language": {
+      "version": "6.13.1",
+      "license": "MIT",
+      "source": "npm:@codemirror/language",
+      "bundled_in": "markdown_editor.js"
+    },
+    "@codemirror/state": {
+      "version": "6.7.6",
+      "license": "MIT",
+      "source": "npm:@codemirror/state",
+      "bundled_in": "markdown_editor.js"
+    },
+    "@codemirror/streamparser": {
+      "version": "6.0.0",
+      "license": "MIT",
+      "source": "npm:@codemirror/streamparser",
+      "bundled_in": "markdown_editor.js"
+    },
+    "@codemirror/view": {
+      "version": "6.43.15",
+      "license": "MIT",
+      "source": "npm:@codemirror/view",
+      "bundled_in": "markdown_editor.js"
+    },
+    "@lezer/common": {
+      "version": "1.5.6",
+      "license": "MIT",
+      "source": "npm:@lezer/common",
+      "bundled_in": "markdown_editor.js"
+    },
+    "@lezer/highlight": {
+      "version": "1.2.5",
+      "license": "MIT",
+      "source": "npm:@lezer/highlight",
+      "bundled_in": "markdown_editor.js"
+    },
+    "@lezer/markdown": {
+      "version": "1.8.1",
+      "license": "MIT",
+      "source": "npm:@lezer/markdown",
+      "bundled_in": "markdown_editor.js"
+    },
+    "@marijn/find-cluster-break": {
+      "version": "1.0.4",
+      "license": "MIT",
+      "source": "npm:@marijn/find-cluster-break",
+      "bundled_in": "markdown_editor.js"
+    },
+    "crelt": {
+      "version": "1.0.7",
+      "license": "MIT",
+      "source": "npm:crelt",
+      "bundled_in": "markdown_editor.js"
+    },
+    "entities": {
+      "version": "8.1.0",
+      "license": "BSD-2-Clause",
+      "source": "npm:entities",
+      "bundled_in": "markdown_editor.js"
+    },
+    "linkify-it": {
+      "version": "6.1.0",
+      "license": "MIT",
+      "source": "npm:linkify-it",
+      "bundled_in": "markdown_editor.js"
+    },
+    "markdown-it": {
+      "version": "15.0.3",
+      "license": "MIT",
+      "source": "npm:markdown-it",
+      "bundled_in": "markdown_editor.js"
+    },
+    "mdurl": {
+      "version": "2.1.0",
+      "license": "MIT",
+      "source": "npm:mdurl",
+      "bundled_in": "markdown_editor.js"
+    },
+    "orderedmap": {
+      "version": "2.1.1",
+      "license": "MIT",
+      "source": "npm:orderedmap",
+      "bundled_in": "markdown_editor.js"
+    },
+    "prosemirror-commands": {
+      "version": "1.7.2",
+      "license": "MIT",
+      "source": "npm:prosemirror-commands",
+      "bundled_in": "markdown_editor.js"
+    },
+    "prosemirror-history": {
+      "version": "1.5.2",
+      "license": "MIT",
+      "source": "npm:prosemirror-history",
+      "bundled_in": "markdown_editor.js"
+    },
+    "prosemirror-inputrules": {
+      "version": "1.7.0",
+      "license": "MIT",
+      "source": "npm:prosemirror-inputrules",
+      "bundled_in": "markdown_editor.js"
+    },
+    "prosemirror-keymap": {
+      "version": "1.2.3",
+      "license": "MIT",
+      "source": "npm:prosemirror-keymap",
+      "bundled_in": "markdown_editor.js"
+    },
+    "prosemirror-markdown": {
+      "version": "1.14.0",
+      "license": "MIT",
+      "source": "npm:prosemirror-markdown",
+      "bundled_in": "markdown_editor.js"
+    },
+    "prosemirror-model": {
+      "version": "1.25.13",
+      "license": "MIT",
+      "source": "npm:prosemirror-model",
+      "bundled_in": "markdown_editor.js"
+    },
+    "prosemirror-schema-list": {
+      "version": "1.6.1",
+      "license": "MIT",
+      "source": "npm:prosemirror-schema-list",
+      "bundled_in": "markdown_editor.js"
+    },
+    "prosemirror-state": {
+      "version": "1.4.4",
+      "license": "MIT",
+      "source": "npm:prosemirror-state",
+      "bundled_in": "markdown_editor.js"
+    },
+    "prosemirror-transform": {
+      "version": "1.12.7",
+      "license": "MIT",
+      "source": "npm:prosemirror-transform",
+      "bundled_in": "markdown_editor.js"
+    },
+    "prosemirror-view": {
+      "version": "1.44.0",
+      "license": "MIT",
+      "source": "npm:prosemirror-view",
+      "bundled_in": "markdown_editor.js"
+    },
+    "punycode.js": {
+      "version": "2.3.1",
+      "license": "MIT",
+      "source": "npm:punycode.js",
+      "bundled_in": "markdown_editor.js"
+    },
+    "rope-sequence": {
+      "version": "1.3.4",
+      "license": "MIT",
+      "source": "npm:rope-sequence",
+      "bundled_in": "markdown_editor.js"
+    },
+    "style-mod": {
+      "version": "4.1.5",
+      "license": "MIT",
+      "source": "npm:style-mod",
+      "bundled_in": "markdown_editor.js"
+    },
+    "uc.micro": {
+      "version": "3.0.0",
+      "license": "MIT",
+      "source": "npm:uc.micro",
+      "bundled_in": "markdown_editor.js"
+    },
+    "w3c-keyname": {
+      "version": "2.2.8",
+      "license": "MIT",
+      "source": "npm:w3c-keyname",
+      "bundled_in": "markdown_editor.js"
     }
   },
   "files": {
     "vendor/flowbite-4.0.2/flowbite.min.js": "93127c1aa8ddcfaeaa484ed44d60b87dac0c31926ffac47fb86684f3bb14d90d",
     "vendor/flowbite-4.0.2/LICENSE.md": "2ef12ba4b6b1172b8139d382e8b285e1ae034350151a71cb43fe55ca63199e6e",
+    "markdown_editor.js": "8c697ab9704fb82d41c96eedf378999f23dd647016713feb50611f361f3f0010",
+    "markdown_editor.LICENSES.txt": "de2adcc1c1f603fc9a77cccb1e9a56a11505b7406499b0774118eaf15735d80c",
     "vendor/ibm-plex-sans-5.3.0/ibm-plex-sans-latin-wght-normal.woff2": "e2291e842cf5af167122a22881a740c7f2dda7716f1e8cd76680264f4a859470",
     "vendor/ibm-plex-sans-5.3.0/ibm-plex-sans-latin-ext-wght-normal.woff2": "d160e20920ae4d6556518d352d3af27a74e9b0de3d8fe17b1c1044fc75aa2f81",
     "vendor/ibm-plex-sans-5.3.0/ibm-plex-sans-latin-wght-italic.woff2": "4363757d2695c7633f98472855849f7c30528eba869d7968ee35b58c87cf14c1",

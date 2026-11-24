@@ -106,6 +106,17 @@ ACTION_ICONS: frozenset[str] = frozenset(
         "warning",
         "error",
         "clock",
+        # Toolbar of the formatted-text editor (#825).
+        "format-bold",
+        "format-italic",
+        "format-underline",
+        "format-strike",
+        "format-code",
+        "format-heading",
+        "format-list-bullet",
+        "format-list-number",
+        "format-quote",
+        "format-link",
         # The product mark.
         "logo",
     }

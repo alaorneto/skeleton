@@ -13,8 +13,23 @@ MAX_HELP_TEXT_LENGTH = 2000
 # Manifest v2 and field dimensions: understood by every published core (0.1.0 on, #569).
 MANIFEST_V2_CORE_MINIMUM = "0.0.0"
 FIELD_DIMENSIONS_CORE_MINIMUM = "0.0.0"
+# Formatted text (#826): the release that publishes the markdown widget.
+MARKDOWN_WIDGET_CORE_MINIMUM = "0.9.0"
 WIDGETS = frozenset(
-    {"text", "textarea", "number", "checkbox", "select", "date", "datetime", "time", "uuid", "json", "reference"}
+    {
+        "text",
+        "textarea",
+        "markdown",
+        "number",
+        "checkbox",
+        "select",
+        "date",
+        "datetime",
+        "time",
+        "uuid",
+        "json",
+        "reference",
+    }
 )
 SYSTEM_READ_FIELDS = frozenset(SYSTEM_FIELD_NAMES)  # Single source in skeleton.common.field_names (#310).
 _IDENTIFIER = re.compile(r"[a-z][a-z0-9_]*\Z")
@@ -59,6 +74,8 @@ class FieldUISpec:
     read_only: bool = False
     col_span: int | None = None
     rows: int | None = None
+    # Only with the markdown widget: the features of the dialect the field accepts (None: all).
+    markdown_features: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)

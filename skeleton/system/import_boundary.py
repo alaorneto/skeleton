@@ -26,6 +26,18 @@ PUBLIC_CORE_NAMES: dict[str, frozenset[str] | None] = {
     "skeleton.common.money": frozenset(
         {"CURRENCY_EXPONENTS", "exponent", "format_amount", "parse", "percent", "scale", "validate_currency"}
     ),
+    # Formatted text (#824): the closed Markdown dialect, rendered as escaped HTML by the server.
+    "skeleton.common.markdown": frozenset(
+        {
+            "FEATURES",
+            "MAX_SOURCE_LENGTH",
+            "MarkdownError",
+            "MarkdownTooLong",
+            "render_html",
+            "to_plain_text",
+            "validate_features",
+        }
+    ),
     "skeleton.records.sealing": frozenset({"seal_record", "seal_payload", "verify_seal"}),
     "skeleton.common.migration_operations": frozenset({"InstallRecordInfrastructure", "InstallSearchIndex"}),
     "skeleton.system.app_registry": frozenset({"AppManifest", "register_app"}),
@@ -43,6 +55,8 @@ PUBLIC_CORE_NAMES: dict[str, frozenset[str] | None] = {
     # command_context (#576): only in the app's management commands (COMMAND_ONLY_NAMES).
     "skeleton.tenancy.context": frozenset({"current_context", "command_context"}),
     "skeleton.web.views": frozenset({"tenant_page"}),
+    # The form widget of formatted text (#825), with the Markdown editor.
+    "skeleton.web.markdown_widget": frozenset({"MarkdownTextarea"}),
     # The confirmation step of an irreversible action (#769): the same page and authorization as the core.
     "skeleton.web.confirm": frozenset({"Confirmation", "confirmation_step"}),
     # Metrics of an app in the management figures of the instance (#710).

@@ -9,8 +9,10 @@ from django.apps import apps
 from django.db import models
 from django.urls import reverse
 from django.utils import formats, timezone
+from django.utils.safestring import SafeString
 from django.utils.translation import gettext, gettext_lazy
 
+from skeleton.common.markdown import MarkdownTooLong, render_html, to_plain_text
 from skeleton.records.services import SYSTEM_FIELDS, records_data
 from skeleton.system.app_registry import get_app
 from skeleton.system.presentation import SYSTEM_READ_FIELDS, FieldUISpec, FormSectionSpec, get_model_ui
@@ -81,6 +83,39 @@ def _value(field, value):
     return str(formats.localize(value)) if value != "" else "—"
 
 
+def _markdown_fields(spec):
+    """The fields declared with the markdown widget, by name, with their features (#826)."""
+    _, sections = _layout(spec)
+    return {
+        item.name: item.markdown_features
+        for section in sections
+        for item in section.fields
+        if item.widget == "markdown"
+    }
+
+
+def _markdown_entry(entry, value, features):
+    """A read-only entry of formatted text: the HTML of the server, never the stored markers."""
+    if value in (None, ""):
+        return entry
+    try:
+        html = render_html(str(value), features=features)
+    except MarkdownTooLong:
+        return entry  # Shown as escaped text, as every other value.
+    # render_html escapes everything typed by a person (skeleton.common.markdown).
+    entry["html"] = SafeString(html)
+    return entry
+
+
+def _markdown_plain(value, features):
+    if value in (None, ""):
+        return value
+    try:
+        return to_plain_text(str(value), features=features) or "—"
+    except MarkdownTooLong:
+        return value
+
+
 LIST_TEXT_LIMIT = 160
 
 
@@ -112,6 +147,7 @@ def list_context(spec, records, *, user, params=None):
     projected = records_data(records, list_fields(spec), user=user)
     kinds = {name: _column_kind(spec, name) for name in ui.columns}
     labels = {name: _field_label(spec, name) for name in ui.columns}
+    markdown = _markdown_fields(spec)
     rows = []
     for record, values in zip(records, projected, strict=True):
         rows.append(
@@ -123,7 +159,12 @@ def list_context(spec, records, *, user, params=None):
                         "text": _list_text(
                             safe_record_label(record, spec)
                             if name == "__label__"
-                            else _value(spec.model._meta.get_field(name), values.get(name))
+                            else _value(
+                                spec.model._meta.get_field(name),
+                                _markdown_plain(values.get(name), markdown[name])
+                                if name in markdown
+                                else values.get(name),
+                            )
                         ),
                         "kind": kinds[name],
                         # The column of the cell, for the stacked table below 640 px (#777).
@@ -255,19 +296,20 @@ def form_sections(form, spec, *, instance=None, user, operation="edit"):
             field = spec.model._meta.get_field(item.name)
             if item.read_only:
                 if instance is not None and item.name in values:
-                    fields.append(
-                        {
-                            "label": item.label or _field_label(spec, item.name),
-                            "read_only": True,
-                            "value": _value(field, values[item.name]),
-                            "help_text": item.help_text if item.help_text is not None else field.help_text,
-                            "col_span": resolve_field_span(
-                                item.col_span,
-                                declared.columns,
-                                wide=field.get_internal_type() in ("TextField", "JSONField"),
-                            ),
-                        }
-                    )
+                    entry = {
+                        "label": item.label or _field_label(spec, item.name),
+                        "read_only": True,
+                        "value": _value(field, values[item.name]),
+                        "help_text": item.help_text if item.help_text is not None else field.help_text,
+                        "col_span": resolve_field_span(
+                            item.col_span,
+                            declared.columns,
+                            wide=field.get_internal_type() in ("TextField", "JSONField"),
+                        ),
+                    }
+                    if item.widget == "markdown":
+                        entry = _markdown_entry(entry, values[item.name], item.markdown_features)
+                    fields.append(entry)
                 continue
             if item.name not in form.fields:
                 continue
@@ -319,17 +361,18 @@ def detail_sections(record, spec, *, user):
             if item.name not in permitted:
                 continue
             field = spec.model._meta.get_field(item.name)
-            fields.append(
-                {
-                    "label": item.label or _field_label(spec, item.name),
-                    "help_text": item.help_text if item.help_text is not None else field.help_text,
-                    "read_only": True,
-                    "value": _value(field, values.get(item.name)),
-                    "col_span": resolve_field_span(
-                        item.col_span, declared.columns, wide=field.get_internal_type() in ("TextField", "JSONField")
-                    ),
-                }
-            )
+            entry = {
+                "label": item.label or _field_label(spec, item.name),
+                "help_text": item.help_text if item.help_text is not None else field.help_text,
+                "read_only": True,
+                "value": _value(field, values.get(item.name)),
+                "col_span": resolve_field_span(
+                    item.col_span, declared.columns, wide=field.get_internal_type() in ("TextField", "JSONField")
+                ),
+            }
+            if item.widget == "markdown":
+                entry = _markdown_entry(entry, values.get(item.name), item.markdown_features)
+            fields.append(entry)
             seen.add(item.name)
         if fields:
             sections.append(

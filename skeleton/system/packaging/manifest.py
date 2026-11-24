@@ -11,6 +11,7 @@ from packaging.version import Version
 from skeleton.system.presentation import (
     FIELD_DIMENSIONS_CORE_MINIMUM,
     MANIFEST_V2_CORE_MINIMUM,
+    MARKDOWN_WIDGET_CORE_MINIMUM,
     required_presentation_core,
     validate_runtime_presentation,
 )
@@ -232,10 +233,15 @@ def _validate_navigation(r, label):
 def _validate_presentation(m, r, label, prefix):
     """Manifest v2 presentation and service API, with the core floors they require."""
     validate_runtime_presentation(r, label, error_class=PackageError)
-    if required_presentation_core(r) == FIELD_DIMENSIONS_CORE_MINIMUM and not _core_floor_at_least(
+    required = required_presentation_core(r)
+    if required == FIELD_DIMENSIONS_CORE_MINIMUM and not _core_floor_at_least(
         m["compatibility"]["skeleton"], FIELD_DIMENSIONS_CORE_MINIMUM
     ):
         _fail("Field dimensions require a core minimum of 0.3.0.")
+    if required == MARKDOWN_WIDGET_CORE_MINIMUM and not _core_floor_at_least(
+        m["compatibility"]["skeleton"], MARKDOWN_WIDGET_CORE_MINIMUM
+    ):
+        _fail("The markdown widget requires a core minimum of " + MARKDOWN_WIDGET_CORE_MINIMUM + ".")
     if "service_api" in r:
         _validate_service_api(r["service_api"], prefix)
         if not _core_floor_at_least(m["compatibility"]["skeleton"], SERVICE_API_CORE_MINIMUM):

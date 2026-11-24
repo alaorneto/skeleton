@@ -2,10 +2,13 @@
 
 import re
 
+from skeleton.common.markdown import FEATURES as MARKDOWN_FEATURES
+
 from .specs import (
     _IDENTIFIER,
     FIELD_DIMENSIONS_CORE_MINIMUM,
     MANIFEST_V2_CORE_MINIMUM,
+    MARKDOWN_WIDGET_CORE_MINIMUM,
     MAX_ADMIN_ENTRIES,
     MAX_HELP_TEXT_LENGTH,
     MAX_LABEL_LENGTH,
@@ -174,7 +177,9 @@ def _validate_form_field(c, field, field_names):
         c.identifier(field)
         field_names.append(field)
         return
-    c.obj(field, ("name", "label", "help_text", "widget", "read_only", "col_span", "rows"), ("name",))
+    c.obj(
+        field, ("name", "label", "help_text", "widget", "read_only", "col_span", "rows", "markdown_features"), ("name",)
+    )
     c.identifier(field["name"])
     field_names.append(field["name"])
     if field.get("label") is not None:
@@ -190,9 +195,20 @@ def _validate_form_field(c, field, field_names):
         if value is not None and (type(value) is not int or not 1 <= value <= maximum):
             c.fail(f"{dimension} must be an integer from 1 to {maximum} or null.")
     if field.get("rows") is not None and (
-        field.get("read_only", False) or field.get("widget") not in (None, "textarea", "json")
+        field.get("read_only", False) or field.get("widget") not in (None, "textarea", "markdown", "json")
     ):
         c.fail("rows requires an editable textarea widget.")
+    if field.get("markdown_features") is not None:
+        features = field["markdown_features"]
+        if field.get("widget") != "markdown":
+            c.fail("markdown_features requires the markdown widget.")
+        if (
+            type(features) is not list
+            or not features
+            or any(type(name) is not str or name not in MARKDOWN_FEATURES for name in features)
+        ):
+            c.fail("markdown_features must be a non-empty list of known Markdown features.")
+        c.unique(features, "Duplicate Markdown feature.")
 
 
 def _validate_form_layout(c, layout):
@@ -250,12 +266,23 @@ def validate_runtime_presentation(runtime, app_label, *, error_class=ValueError)
 
 def required_presentation_core(runtime) -> str:
     """Return the minimum core for validated JSON without adding signed defaults."""
+    dimensions = False
     for model in runtime.get("model_ui", ()):
         for section in model.get("form", {}).get("sections", ()):
             for field in section["fields"]:
-                if isinstance(field, dict) and ("col_span" in field or "rows" in field):
-                    return FIELD_DIMENSIONS_CORE_MINIMUM
-    return MANIFEST_V2_CORE_MINIMUM
+                if not isinstance(field, dict):
+                    continue
+                if field.get("widget") == "markdown":
+                    return MARKDOWN_WIDGET_CORE_MINIMUM
+                dimensions = dimensions or "col_span" in field or "rows" in field
+    return FIELD_DIMENSIONS_CORE_MINIMUM if dimensions else MANIFEST_V2_CORE_MINIMUM
+
+
+def _field_spec(field):
+    values = dict(field)
+    if values.get("markdown_features") is not None:
+        values["markdown_features"] = tuple(values["markdown_features"])
+    return FieldUISpec(**values)
 
 
 def presentation_from_runtime(runtime):
@@ -285,7 +312,7 @@ def presentation_from_runtime(runtime):
                             section["id"],
                             section["label"],
                             tuple(
-                                FieldUISpec(field) if isinstance(field, str) else FieldUISpec(**field)
+                                FieldUISpec(field) if isinstance(field, str) else _field_spec(field)
                                 for field in section["fields"]
                             ),
                             section.get("tab_id"),

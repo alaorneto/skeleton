@@ -196,6 +196,7 @@ Uma app pode importar do núcleo apenas os nomes abaixo. A coluna "Uso" é a lis
 | `skeleton.service_api.insights` | `register_instance_metric`: métricas da app somadas aos números de gestão da instância ([API de gestão](platform-api.md#resumo-e-métricas-skeletoninsights), #710) |
 | `skeleton.common.models` | Bases `SystemRecord`, `OrganizationRecord`, `SecuredRecord` e o `SealableMixin` dos registros selados |
 | `skeleton.common.money` | Dinheiro em inteiros da menor unidade: `parse`, `format_amount`, `scale`, `percent`, `exponent`, `validate_currency` e a tabela `CURRENCY_EXPONENTS` (#541) |
+| `skeleton.common.markdown` | Texto formatado em Markdown ([texto formatado](ui-design.md#texto-formatado-markdown), #824): `render_html` (HTML já escapado), `to_plain_text` (texto sem marcadores), `validate_features`, a lista `FEATURES`, o limite `MAX_SOURCE_LENGTH` e os erros `MarkdownError` e `MarkdownTooLong`; nos templates, os filtros `markdown` e `markdown_plain` de `{% load skeleton_markdown %}` |
 | `skeleton.common.sealing` | `canonical_bytes` e `digest`: o resumo SHA-256 das partes da app que entram no selo (`extra_digest`) |
 | `skeleton.records.sealing` | `seal_record`, `seal_payload` e `verify_seal`: selar e verificar os modelos da própria app em processo ([modelo de dados](data-model.md#registros-selados-526)) |
 | `skeleton.common.migration_operations` | `InstallRecordInfrastructure` e `InstallSearchIndex`, só em migrations |
@@ -207,6 +208,7 @@ Uma app pode importar do núcleo apenas os nomes abaixo. A coluna "Uso" é a lis
 | `skeleton.access.derivation` | `is_authorizable` e `is_derived`: se uma tabela é autorizada direto ou pelo `access_parent` ([tabelas derivadas](access-control.md#tabelas-derivadas)) |
 | `skeleton.tenancy.context` | `current_context` (leitura) e `command_context`, só em `management/commands/` da app (#576): abre o contexto de sistema sem organização de um comando do operador, o único em que uma [tabela global da app](table-catalog.md#tabelas-globais-de-apps) aceita escrita, e é recusado dentro de qualquer contexto já aberto (requisição, tenant, sistema, job, consumidor). `system_context`, `tenant_context` e `request_context` não: o contexto é aberto pelo middleware, pelo worker ou pelo kit de testes, nunca pela app |
 | `skeleton.web.views` | `tenant_page` |
+| `skeleton.web.markdown_widget` | `MarkdownTextarea`: o widget de formulário do texto formatado, com o editor Markdown ([editor](ui-design.md#editor-markdown), #825) |
 | `skeleton.web.confirm` | `Confirmation`, `confirmation_step`: a página de confirmação de uma ação irreversível, com a mesma autorização do POST ([interface](ui-design.md#ações-pela-intenção)) |
 | `skeleton.api.views` | `TenantAPI` e `request_fields` (o objeto de campos do corpo) |
 | `skeleton.api.openapi` | `Operation` e construtores de schema para o atributo `openapi` das views de API da app ([OpenAPI](api.md#schema-openapi)) |

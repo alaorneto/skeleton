@@ -128,7 +128,9 @@ Criação, edição e leitura usam Django Forms renderizados no servidor por **d
 | `columns` da seção | 1 ou 2 define somente a largura padrão: 12 ou 6; não limita spans explícitos |
 | Ordem e mobile | Arrays de abas/seções/campos definem DOM e foco, sem compactação densa; até 600px todos os campos ocupam a linha inteira |
 
-Bool, string, float e inteiros fora dos intervalos são recusados. Sem span explícito, campos largos também usam 12. `rows` não é permitido com `read_only=True`, relações, inputs ou selects; override explícito exige `textarea`/`json` compatível com o tipo, e sem override o widget efetivo deve ser `forms.Textarea`. Validação pura, check `skeleton.E013` e formulário verificam esse contrato, sem conversão implícita. Labels/help são texto escapado, não templates ou HTML executável.
+O widget `markdown` (texto formatado, piso de núcleo 0.9.0) aceita `rows` e a lista opcional `markdown_features`; o formulário usa o editor e o detalhe mostra o HTML do servidor ([texto formatado](ui-design.md#campo-formatado-na-interface-declarativa)).
+
+Bool, string, float e inteiros fora dos intervalos são recusados. Sem span explícito, campos largos também usam 12. `rows` não é permitido com `read_only=True`, relações, inputs ou selects; override explícito exige `textarea`/`markdown`/`json` compatível com o tipo, e sem override o widget efetivo deve ser `forms.Textarea`. Validação pura, check `skeleton.E013` e formulário verificam esse contrato, sem conversão implícita. Labels/help são texto escapado, não templates ou HTML executável.
 
 Perfil, gestão dedicada de acesso e configuração usam o mesmo renderer de formulários, sem receber layout de negócio. Sem seções declaradas, campos visíveis do formulário já construído recebem a seção padrão `fields`/`Dados do registro`, na sua ordem e com span 12. O shell conserva um CSRF, campos hidden uma vez e `form.media` uma vez; o helper crispy não cria outro `<form>` nem renderiza campos omitidos silenciosamente.
 

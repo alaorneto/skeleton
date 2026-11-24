@@ -1,7 +1,7 @@
 {
   "name": "skeleton-frontend",
   "private": true,
-  "description": "Build reprodutível do CSS (Tailwind + Flowbite) e dos assets vendorizados do pacote skeleton.",
+  "description": "Build reprodutível do CSS (Tailwind + Flowbite), do editor de texto formatado e dos assets vendorizados do pacote skeleton.",
   "license": "UNLICENSED",
   "type": "module",
   "engines": {
@@ -9,12 +9,30 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "check": "node scripts/build.mjs --check"
+    "check": "node scripts/build.mjs --check",
+    "test": "node --test \"tests/*.test.mjs\""
   },
   "devDependencies": {
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/language": "6.13.1",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.15",
     "@fontsource-variable/ibm-plex-sans": "5.3.0",
+    "@lezer/highlight": "1.2.5",
+    "@lezer/markdown": "1.8.1",
     "@tailwindcss/cli": "4.3.5",
+    "esbuild": "0.28.2",
     "flowbite": "4.0.2",
+    "markdown-it": "15.0.3",
+    "prosemirror-commands": "1.7.2",
+    "prosemirror-history": "1.5.2",
+    "prosemirror-inputrules": "1.7.0",
+    "prosemirror-keymap": "1.2.3",
+    "prosemirror-markdown": "1.14.0",
+    "prosemirror-model": "1.25.13",
+    "prosemirror-schema-list": "1.6.1",
+    "prosemirror-state": "1.4.4",
+    "prosemirror-view": "1.44.0",
     "tailwindcss": "4.3.5"
   },
   "overrides": {
