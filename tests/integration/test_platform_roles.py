@@ -142,3 +142,50 @@ def test_schema_check_requires_the_auditor_policy(setup):
             "OR (organization_id IS NULL AND current_setting('skeleton.platform_admin',true)='on'))"
         )
     assert any("sk_audit_auditevent" in error for error in check_deployed_schema())
+
+
+def sidebar(client, url):
+    """The platform menu as ``[(heading, [section, ...]), ...]``; the untitled first group has heading ``None``."""
+    import re
+
+    html = client.get(url).content.decode()
+    start = html.index('<nav id="platform-sidebar"')
+    nav = html[start : html.index("</nav>", start)]
+    groups, heading = [], None
+    for match in re.finditer(
+        r'class="sidebar-heading"[^>]*>([^<]+)<|<ul class="sidebar-list"|href="/platform/([^"]*)"', nav
+    ):
+        if match.group(1):
+            heading = match.group(1).strip()
+        elif match.group(0).startswith("<ul"):
+            groups.append((heading, []))
+        else:
+            groups[-1][1].append(match.group(2).rstrip("/"))
+    return groups
+
+
+def test_platform_sidebar_groups_by_subject_and_hides_empty_groups(setup):
+    """The menu order of #799; each link keeps its visibility, and a role never sees an empty heading."""
+    admin_menu = sidebar(login(setup["admin"]), reverse("platform:overview"))
+    assert admin_menu == [
+        (None, ["", "instance", "organizations", "remote-instances", "notifications"]),
+        ("Identidade", ["users", "identity-providers", "privacy"]),
+        ("Aplicativos", ["apps", "bundles", "updates", "native-clients"]),
+        ("Dados", ["catalog", "storage", "insights", "audit"]),
+        ("Operação", ["domains", "api-clients", "billing", "appearance", "jobs"]),
+    ]
+    assert sidebar(login(setup["auditor"]), reverse("platform:notifications")) == [
+        (None, ["notifications"]),
+        ("Dados", ["catalog", "insights", "audit"]),
+    ]
+    assert sidebar(login(setup["operator"]), reverse("platform:notifications")) == [
+        (None, ["notifications"]),
+        ("Aplicativos", ["updates", "native-clients"]),
+    ]
+    billing = person("billing-operator@example.test")
+    with request_context(actor=setup["admin"], request_id=uuid4(), source="test:platform-sidebar-billing"):
+        grant_platform_role(actor=setup["admin"], user=billing, role="billing")
+    assert sidebar(login(billing), reverse("platform:notifications")) == [
+        (None, ["notifications"]),
+        ("Operação", ["billing"]),
+    ]
