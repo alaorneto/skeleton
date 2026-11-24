@@ -106,6 +106,8 @@ def _inbox_row():
             "updated_at": "updated_at",
         },
         label=string(),
+        title=string(),
+        body=string(),
         snapshot=OBJECT,
         payload=OBJECT,
         read=BOOLEAN,

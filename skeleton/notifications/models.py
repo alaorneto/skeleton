@@ -83,6 +83,12 @@ class NotificationRecipient(OperationalRecord):
     archived_at = models.DateTimeField(null=True, blank=True)
     # Set when the row joins a daily or weekly digest (#55): it never joins another one.
     digest_sent_at = models.DateTimeField(null=True, blank=True)
+    # The text rendered at fan-out in the person's language (#783): the global inbox has no tenant
+    # and cannot read the organization's texts, and a later edit never rewrites what was delivered.
+    title = models.CharField(max_length=150, blank=True, default="")
+    body = models.TextField(blank=True, default="")
+    # The people named by ``person`` fields (UUID strings): erasing one redacts this text (#191).
+    subject_people = models.JSONField(default=list)
     immutable_fields = ("user_id",)
     # Frozen as self_discovery_column: a person lists their own rows of every organization.
     self_discovery_field = "user"

@@ -361,7 +361,7 @@ NotificationService().notify(
 |---|---|---|
 | `notify(*, actor, type_code, recipients, payload=(), target_table_key=None, target_id=None, dedupe_key=None) -> NotificationReceipt` | a app chamadora é a dona do tipo (`owner_app`); o ator lê o alvo (de tabela derivada: pela âncora, #562); cada destinatário é reautorizado no fan-out; `actor=None` só em `system_context` (consumidores de eventos) | `Forbidden` (tipo de outra app), `NotFound` (alvo ilegível ou de outra organização), `InvalidInput` |
 | `unread_count(*, actor) -> int` | linhas do ator em organizações com vínculo ativo | — |
-| `inbox(*, actor, cursor=None, include_archived=False, page_size=25) -> Page[NotificationItem]` | linhas do ator: o tenant atual, ou todas as organizações ativas sem tenant | `InvalidInput` |
+| `inbox(*, actor, cursor=None, include_archived=False, page_size=25) -> Page[NotificationItem]` | linhas do ator: o tenant atual, ou todas as organizações ativas sem tenant; cada item traz `title` e `body`, o texto renderizado no idioma do ator no envio (#783; o rótulo nas linhas antigas) | `InvalidInput` |
 | `mark_read(*, actor, ids, read=True) -> int`, `archive(*, actor, ids) -> int` | linhas do ator no tenant atual; idempotentes | `NotFound` (linha de outra pessoa), `InvalidInput` |
 
 `Recipients(users, groups, roles, organization)` é o DTO público dos destinatários. Os tipos continuam registrados por cada app ([notificações](notifications.md)). O rollback do chamador não deixa notificação nem job. Canais e preferências ficam internos ao epic de notificações.

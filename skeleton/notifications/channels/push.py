@@ -258,8 +258,21 @@ def payload_for(notification: Any, user_id: Any) -> bytes:
         "title": str(kind.label) if kind else gettext("Notificação"),
         "url": open_url(notification, user_id),
     }
-    if kind is not None and kind.push_snapshot and notification.snapshot:
-        data["body"] = " · ".join(str(value) for value in notification.snapshot.values())[:240]
+    if kind is not None and kind.push_snapshot:
+        # The rendered title of the person's row (#783), or the snapshot for an older row.
+        from ..models import NotificationRecipient
+
+        row = NotificationRecipient.objects.filter(notification_id=notification.pk, user_id=user_id).first()
+        parts = []
+        if row is not None and row.title:
+            if row.title != data["title"]:
+                parts.append(row.title)  # A factory or edited text: the title says what happened.
+            parts.append(row.body)
+        else:
+            parts.append(" · ".join(str(value) for value in notification.snapshot.values()))
+        text = " · ".join(part for part in parts if part)
+        if text:
+            data["body"] = text[:240]
     return json.dumps(data, separators=(",", ":"), ensure_ascii=False).encode()
 
 

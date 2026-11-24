@@ -16,6 +16,10 @@ CONTEXT = {
     "label": "Você foi mencionado",
     "type_code": "notes.mention",
     "snapshot": {"title": "Plano"},
+    # What _notification_context passes since #783: the rendered text of the person's row.
+    "title": "Você foi mencionado",
+    "body": "Plano",
+    "body_html": "Plano",
     "payload": {},
     "created_at": datetime(2026, 11, 10, 12, 0, tzinfo=UTC),
     "open_url": "https://app.example.test/o/x/notifications/y/open/",

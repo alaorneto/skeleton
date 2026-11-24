@@ -1,6 +1,6 @@
 {% autoescape off %}{% load i18n %}{% translate "Notificações não lidas desde o último resumo:" %}
 {% for entry in entries %}
-- {{ entry.label }}{% if entry.count > 1 %} ({{ entry.count }}){% endif %}{% for key, value in entry.snapshot.items %} · {{ value }}{% endfor %}
+- {{ entry.title }}{% if entry.count > 1 %} ({{ entry.count }}){% endif %}{% if entry.body %} · {{ entry.body|truncatechars:200 }}{% endif %}
   {{ entry.open_url }}{% endfor %}
 
 {% translate "Caixa de notificações:" %} {{ inbox_url }}

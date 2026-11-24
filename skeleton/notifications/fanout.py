@@ -129,6 +129,35 @@ def _display(notification) -> dict:
     }
 
 
+def _text(rendered) -> dict:
+    if rendered is None:
+        return {}
+    return {"title": rendered.title, "body": rendered.body, "subject_people": list(rendered.subject_people)}
+
+
+def rendered_texts(notification, people: list[UUID]) -> dict:
+    """``{user_id: Rendered}`` for ``people``, in each one's language and time zone (#783)."""
+    from skeleton.accounts.models import User
+
+    from .registry import get_notification_type
+    from .rendering import organization_name, render_for_people
+
+    if not people:
+        return {}
+    try:
+        kind = get_notification_type(notification.type_code)
+    except KeyError:
+        return {}
+    users = User.objects.filter(pk__in=people).select_related("profile")
+    return render_for_people(
+        kind,
+        payload=notification.payload,
+        snapshot=notification.snapshot,
+        users=users,
+        organization_name=organization_name(),
+    )
+
+
 def fan_out(*, notification_id: str, offset: int) -> int:
     """Job handler (system context of the organization): one batch of at most BATCH_SIZE people."""
     from skeleton.jobs.services import enqueue
@@ -146,6 +175,7 @@ def fan_out(*, notification_id: str, offset: int) -> int:
         batch, channels = [], {"email": authorized}
     else:
         batch, channels = _channels(notification, authorized)
+    texts = rendered_texts(notification, batch)
     grouped = {}
     if notification.group_key:
         grouped = dict(
@@ -153,9 +183,13 @@ def fan_out(*, notification_id: str, offset: int) -> int:
                 user_id__in=batch, group_key=notification.group_key, read_at__isnull=True, archived_at__isnull=True
             ).values_list("user_id", "pk")
         )
-    if grouped:
-        NotificationRecipient.objects.filter(pk__in=grouped.values()).update(
-            count=F("count") + 1, notification=notification, **_display(notification)
+    # One UPDATE per distinct text (language and time zone), never one per person.
+    by_text: dict = {}
+    for user, row_id in grouped.items():
+        by_text.setdefault(texts.get(user), []).append(row_id)
+    for rendered, row_ids in by_text.items():
+        NotificationRecipient.objects.filter(pk__in=row_ids).update(
+            count=F("count") + 1, notification=notification, **_display(notification), **_text(rendered)
         )
     NotificationRecipient.objects.bulk_create(
         [
@@ -165,6 +199,7 @@ def fan_out(*, notification_id: str, offset: int) -> int:
                 user_id=user,
                 group_key=notification.group_key,
                 **_display(notification),
+                **_text(texts.get(user)),
             )
             for user in batch
             if user not in grouped

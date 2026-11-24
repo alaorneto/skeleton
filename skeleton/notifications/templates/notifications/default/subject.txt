@@ -1,1 +1,1 @@
-{% autoescape off %}{{ label }}{% endautoescape %}
+{% autoescape off %}{{ title|default:label }}{% endautoescape %}

@@ -126,6 +126,11 @@ def render_html(text: str, values: Mapping[str, Any] | None = None) -> SafeStrin
     return mark_safe(str(escaped).replace("\n", "<br>"))  # noqa: S308 - escaped above
 
 
+def plain_html(text: str) -> SafeString:
+    """Already rendered text as HTML: escaped, line breaks as ``<br>``; braces are never parsed again."""
+    return mark_safe(str(conditional_escape(text or "")).replace("\n", "<br>"))  # noqa: S308 - escaped
+
+
 def _date(raw: Any, *, with_time: bool) -> str:
     from django.utils import formats, timezone
 

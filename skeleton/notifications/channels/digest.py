@@ -153,6 +153,10 @@ def digest_message(delivery: Any, user: Any) -> Any | None:
         entries.append(
             {
                 "label": get_notification_type(row.type_code).label,
+                "title": row.title or str(get_notification_type(row.type_code).label),
+                "body": row.body
+                if row.title
+                else " · ".join(str(v) for v in row.snapshot.values() if v not in (None, "")),
                 "snapshot": dict(row.snapshot),
                 "count": row.count,
                 "updated_at": row.updated_at,

@@ -90,13 +90,26 @@ def purge_expired_notifications(*, now: Any = None) -> dict[str, int]:
 
 def forget_person(user_id: Any) -> dict[str, int]:
     """Erasure of one person (#191), in the system context of one organization: their deliveries
-    and inbox rows, the only notification rows that name them. Declared here, beside the retention,
-    as the other path that physically deletes notification rows; the notifications themselves stay
-    (other people may hold rows of them) and the retention removes them once unreferenced.
+    and inbox rows. Declared here, beside the retention, as the other path that physically deletes
+    notification rows; the notifications themselves stay (other people may hold rows of them) and
+    the retention removes them once unreferenced.
+
+    Since #783 another person's row may name them in its rendered text (a ``person`` field, such
+    as "Ana joined"): those rows keep only the type's label, so no notification row names them.
     """
     from .models import NotificationDelivery, NotificationRecipient
+    from .registry import get_notification_type
 
+    redacted = 0
+    named = NotificationRecipient.objects.filter(subject_people__contains=[str(user_id)]).exclude(user_id=user_id)
+    for type_code in sorted(set(named.values_list("type_code", flat=True))):
+        try:
+            label = str(get_notification_type(type_code).label)
+        except KeyError:
+            label = type_code
+        redacted += named.filter(type_code=type_code).update(title=label[:150], body="", subject_people=[])
     return {
         "deliveries": _delete(NotificationDelivery.objects.filter(user_id=user_id)),
         "rows": _delete(NotificationRecipient.objects.filter(user_id=user_id)),
+        "redacted": redacted,
     }

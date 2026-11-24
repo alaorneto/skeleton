@@ -1,7 +1,7 @@
-{% autoescape off %}{{ label }}
-{% for key, value in snapshot.items %}
-{{ value }}{% endfor %}
-
+{% autoescape off %}{{ title|default:label }}
+{% if body %}
+{{ body }}
+{% endif %}
 Open: {{ open_url }}
 Received on {{ created_at|date:"Y-m-d H:i" }}.
 

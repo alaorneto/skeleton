@@ -8,7 +8,7 @@
 </div>
 <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Notificação" %}</th><th scope="col" class="col-date">{% translate "Quando" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
 {% for row in rows %}<tr>
-  <td><a class="{% if row.read %}text-heading no-underline{% else %}cell-primary{% endif %}" href="{% url 'notifications:open' row.organization_id row.sysid %}">{{ row.label }}</a>{% if row.count > 1 %} <span class="badge badge-brand">{{ row.count }}</span>{% endif %}{% for key, value in row.snapshot.items %}<span class="cell-secondary">{{ value }}</span>{% endfor %}</td>
+  <td><a class="{% if row.read %}text-heading no-underline{% else %}cell-primary{% endif %}" href="{% url 'notifications:open' row.organization_id row.sysid %}">{{ row.title }}</a>{% if row.count > 1 %} <span class="badge badge-brand">{{ row.count }}</span>{% endif %}{% if row.body %}<span class="cell-secondary cell-truncate">{{ row.body }}</span>{% endif %}</td>
   <td class="col-date">{{ row.updated_at|moment }}</td>
   <td>{% if row.archived %}{{ "archived"|status_badge:_("Arquivada") }}{% elif row.read %}{{ "read"|status_badge }}{% else %}{{ "unread"|status_badge }}{% endif %}</td>
   <td class="col-actions"><div class="row-actions">

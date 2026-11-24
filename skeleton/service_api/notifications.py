@@ -49,6 +49,9 @@ class NotificationItem:
     archived: bool
     created_at: datetime
     updated_at: datetime
+    # The text rendered at fan-out in the person's language (#783); the label for older rows.
+    title: str = ""
+    body: str = ""
 
 
 def _values(mapping: dict[str, Any]) -> tuple[NotificationValue, ...]:
@@ -63,7 +66,7 @@ def _item(row: Any) -> NotificationItem:
         sysid=data["sysid"],
         organization_id=data["organization_id"],
         type_code=data["type_code"],
-        label=data["label"],
+        label=str(data["label"]),
         snapshot=_values(data["snapshot"]),
         payload=_values(data["payload"]),
         count=data["count"],
@@ -71,6 +74,8 @@ def _item(row: Any) -> NotificationItem:
         archived=data["archived"],
         created_at=as_utc(data["created_at"]),
         updated_at=as_utc(data["updated_at"]),
+        title=data["title"],
+        body=data["body"],
     )
 
 
