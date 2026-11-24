@@ -20,7 +20,9 @@ from . import limits
 from .errors import PackageError, _fail
 from .limits import (
     BUNDLED_KIND,
+    BUNDLED_KINDS,
     BUNDLED_LABEL_PREFIX,
+    BUNDLED_LIBRARY_KIND,
     BUNDLED_PACKAGE,
     CONFIGURATION_OWNERS,
     DOCUMENT_HEADINGS,
@@ -111,7 +113,7 @@ MANIFEST_REQUIRED = frozenset(
         "lifecycle",
     }
 )
-APPLICATION_KINDS = ("app", BUNDLED_KIND)
+APPLICATION_KINDS = ("app", BUNDLED_KIND, BUNDLED_LIBRARY_KIND)
 
 
 def _validate_header(value):
@@ -121,7 +123,7 @@ def _validate_header(value):
     if (
         type(m["manifest_version"]) is not int
         or m["manifest_version"] not in (1, 2)
-        or m["kind"] not in ("app", "core", BUNDLED_KIND)
+        or m["kind"] not in ("app", "core", *BUNDLED_KINDS)
     ):
         _fail("Unsupported manifest format.")
     _string(m["name"], 200)
@@ -134,7 +136,7 @@ def _validate_header(value):
 
 def _validate_application_identity(m):
     """Label, package and AppConfig namespace of an app; returns (label, prefix, bundled)."""
-    bundled = m["kind"] == BUNDLED_KIND
+    bundled = m["kind"] in BUNDLED_KINDS
     if set(("app_id", "app_label", "package_name", "app_config", "runtime")) - set(m) or "component_id" in m:
         _fail("Application identity/runtime is required.")
     _stable_id(m["app_id"])
@@ -273,6 +275,9 @@ def _validate_runtime(m, label, prefix, bundled):
     )
     if type(r["default_enabled"]) is not bool:
         _fail("default_enabled must be boolean.")
+    if m["kind"] == BUNDLED_LIBRARY_KIND and (r["default_enabled"] or r["configuration_fields"]):
+        # A library has no activation of its own, so nothing to switch on nor configure (#792).
+        _fail("A first-party library has no activation nor configuration of its own.")
     for key in ("urls", "api_urls", "user_urls", "portal_urls", "portal_api_urls"):
         if r.get(key) is not None and (not isinstance(r[key], str) or not _owned_module(r[key], prefix)):
             _fail("Runtime module must belong to the application.")

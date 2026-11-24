@@ -18,7 +18,7 @@ from skeleton.system.administration import (
     screen_sections,
     tenant_screen_url,
 )
-from skeleton.system.app_registry import get_app
+from skeleton.system.app_registry import get_app, is_library
 from skeleton.web.views import tenant_page
 
 
@@ -37,6 +37,8 @@ def _dependency_states(service, actor, manifest):
     visible = {state.app_label: state for state in service.applications(actor=actor)}
     result = []
     for label in manifest.dependencies:
+        if is_library(label):
+            continue  # A library follows this app (#792): nothing for the organization to switch on.
         state = visible.get(label)
         result.append((state.label, state.enabled) if state else (get_app(label).label, False))
     return result

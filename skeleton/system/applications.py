@@ -10,9 +10,11 @@ from skeleton.tenancy.context import current_context
 
 from .app_registry import (
     all_apps,
-    dependent_labels,
+    dependent_app_labels,
+    effective_map,
     get_app,
-    required_labels,
+    require_not_library,
+    required_app_labels,
     validate_configuration,
     validate_dependencies,
 )
@@ -45,7 +47,8 @@ def _load_states():
     from .models import AppInstallation
 
     manifests = all_apps()
-    labels = [manifest.app_label for manifest in manifests]
+    # A library has no availability nor activation of its own (#792): its state is derived below.
+    labels = [manifest.app_label for manifest in manifests if not manifest.library]
     offered = platform_availability_map(labels)
     entitled = entitled_apps(current_context().organization_id, [label for label in labels if offered[label]])
     # Effective availability (#395): offered by the platform and, with billing, paid for.
@@ -53,6 +56,9 @@ def _load_states():
     records = {record.app_label: record for record in AppInstallation.objects.filter(app_label__in=labels)}
     states = {}
     for manifest in manifests:
+        if manifest.library:
+            states[manifest.app_label] = _library_state(manifest)
+            continue
         record = records.get(manifest.app_label)
         stored = record.configuration if record else {}
         try:
@@ -76,17 +82,41 @@ def _load_states():
             "configuration_valid": configuration_valid,
             "revision": record.revision if record else 0,
             "sysid": str(record.pk) if record else None,
+            "library": False,
         }
+    effective = effective_map(
+        {
+            label: state["available"] and state["enabled"] and state["configuration_valid"]
+            for label, state in states.items()
+            if not state["library"]
+        }
+    )
     for label, state in states.items():
-        closure = [label, *required_labels(label)]
-        state["effective"] = all(
-            dependency in states
-            and states[dependency]["available"]
-            and states[dependency]["enabled"]
-            and states[dependency]["configuration_valid"]
-            for dependency in closure
-        )
+        state["effective"] = effective[label]
+        if state["library"]:
+            state["available"] = state["enabled"] = effective[label]
+            state["used_by"] = [dependent for dependent in dependent_app_labels(label) if effective.get(dependent)]
     return states
+
+
+def _library_state(manifest):
+    """The fixed part of a library's state; ``available``, ``enabled`` and ``effective`` are derived."""
+    return {
+        "app_label": manifest.app_label,
+        "available": False,
+        "contract_required": False,
+        "label": manifest.label,
+        "description": manifest.description,
+        "app_id": manifest.app_id,
+        "version": manifest.version,
+        "enabled": False,
+        "configuration": {},
+        "configuration_valid": True,
+        "revision": 0,
+        "sysid": None,
+        "library": True,
+        "used_by": [],
+    }
 
 
 def application_states():
@@ -120,8 +150,16 @@ def require_application_enabled(app_label):
     except KeyError:
         return  # The core has no optional tenant activation contract.
     states = application_states()
+    if manifest.library:
+        # A library is usable while an effective app depends on it (#792); otherwise it is closed
+        # exactly like an unavailable app.
+        state = states.get(manifest.app_label)
+        if state is None or not state["effective"]:
+            raise ApplicationUnavailable(gettext("O aplicativo não está disponível para esta organização."))
+        return
     # Transitive: a dependency's own disabled or unavailable dependency also closes this application.
-    for label in (manifest.app_label, *required_labels(manifest.app_label)):
+    # Libraries follow the app (#792), so only the apps it requires have a gate of their own.
+    for label in (manifest.app_label, *required_app_labels(manifest.app_label)):
         state = states.get(label)
         dependency = label != manifest.app_label
         if state is None or not state["available"]:
@@ -155,9 +193,10 @@ def require_activation_allowed(app_label, *, enabled):
 
     from .availability import available_with_dependencies, platform_availability_map
 
+    require_not_library(app_label, field="enabled")
     forget_application_states()
     if enabled:
-        closure = [app_label, *required_labels(app_label)]
+        closure = [app_label, *required_app_labels(app_label)]
         organization_id = current_context().organization_id
         offered = platform_availability_map(closure, organization_id=organization_id)
         if all(offered.values()):
@@ -183,14 +222,14 @@ def require_activation_allowed(app_label, *, enabled):
             }
         )
     if enabled:
-        pending = [label for label in required_labels(app_label) if not application_state(label)["enabled"]]
+        pending = [label for label in required_app_labels(app_label) if not application_state(label)["enabled"]]
         if pending:
             names = ", ".join(get_app(label).label for label in pending)
             raise ValidationError(
                 {"enabled": gettext("Ative antes os aplicativos exigidos: %(names)s.") % {"names": names}}
             )
     else:
-        blocking = [label for label in dependent_labels(app_label) if application_state(label)["enabled"]]
+        blocking = [label for label in dependent_app_labels(app_label) if application_state(label)["enabled"]]
         if blocking:
             names = ", ".join(get_app(label).label for label in blocking)
             raise ValidationError(
@@ -218,6 +257,7 @@ def _activate_by_infrastructure(app_label):
     from .models import AppInstallation
 
     manifest = get_app(app_label)
+    require_not_library(app_label)
     with organization_lock():
         record = AppInstallation.objects.filter(app_label=app_label).first()
         if record is not None and record.enabled:
@@ -248,6 +288,7 @@ def _deactivate_by_infrastructure(app_label):
     from .models import AppInstallation
 
     get_app(app_label)
+    require_not_library(app_label)
     with organization_lock():
         record = AppInstallation.objects.filter(app_label=app_label).first()
         if record is None or not record.enabled:
@@ -282,7 +323,9 @@ def assign_app(app_label, *, user, organization_id):
     from .models import AppAvailability
 
     require_platform_context(user)
-    labels = [*required_labels(app_label), app_label]  # Dependencies first.
+    require_not_library(app_label)
+    # Dependencies first; the libraries follow the app (#792) and have no availability to grant.
+    labels = [*required_app_labels(app_label), app_label]
     for label in labels:
         get_app(label)
         if not AppAvailability.objects.filter(app_label=label).exists():
@@ -321,6 +364,7 @@ def unassign_app(app_label, *, user, organization_id, revoke_grant=True):
 
     require_platform_context(user)
     get_app(app_label)
+    require_not_library(app_label)
     with system_context(reason=PLATFORM_APPS_REASON, organization_id=organization_id):
         _deactivate_by_infrastructure(app_label)
     mode = AppAvailability.objects.filter(app_label=app_label).values_list("mode", flat=True).first()
@@ -371,6 +415,7 @@ def configure_application_by_platform(app_label, *, user, organization_id, value
 
     require_platform_context(user)
     manifest = get_app(app_label)
+    require_not_library(app_label)
     allowed = {field.name for field in platform_fields(manifest)}
     if not isinstance(values, dict) or set(values) - allowed:
         raise ValidationError(
@@ -411,6 +456,7 @@ def configure_application(app_label, *, user, enabled, configuration, revision):
     # The app manager (#17) administers activation and parameters without full administration.
     require_capability(user, APPS_MANAGE)
     manifest = get_app(app_label)
+    require_not_library(app_label, field="enabled")
     validate_dependencies()
     if type(enabled) is not bool:
         raise ValidationError({"enabled": gettext("Use true or false.")})

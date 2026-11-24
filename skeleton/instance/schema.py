@@ -476,7 +476,11 @@ _SPECS = (
         "transfer_retention_days", "SKELETON_TRANSFER_RETENTION_DAYS", "int", "Retenção dos arquivos CSV", _int(1)
     ),
     SettingSpec(
-        "bundled_apps", "SKELETON_BUNDLED_APPS", "list", "Apps first-party do núcleo instaladas (nomes)", _list
+        "bundled_apps",
+        "SKELETON_BUNDLED_APPS",
+        "list",
+        "Apps first-party do núcleo instaladas (nomes); bibliotecas exigidas por uma app entram sozinhas",
+        _list,
     ),
     SettingSpec(
         "bundled_retained",

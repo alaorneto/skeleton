@@ -192,12 +192,28 @@ def test_inventory_app_may_depend_on_installed_first_party_app(tmp_path):
     assert state.installed_apps == (consumer["app_config"],)
 
 
-def test_inventory_app_depending_on_absent_first_party_app_is_refused(tmp_path):
+def test_inventory_app_depending_on_a_library_installs_it_without_opt_in(tmp_path):
+    """#793: the calendar is a first-party library, provided by the wheel to the app that needs it."""
     path = _inventory_with(tmp_path, [_entry(_calendar_consumer())])
-    with pytest.raises(ImproperlyConfigured, match="Invalid private deployment inventory"):
-        load_deployment_inventory(path)
+    state = load_deployment_inventory(path)
+    assert state.required_libraries == ("calendar",) and state.retained_libraries == ()
     with pytest.raises(ImproperlyConfigured, match="'inexistente'"):
         load_deployment_inventory(path, bundled_apps=("inexistente",))
+
+
+def test_inventory_retained_libraries_are_validated(tmp_path):
+    import json
+
+    for retained, valid in (([], True), (["ledger"], True), (["calendar"], False), (["unknown"], False)):
+        path = _inventory_with(tmp_path, [_entry(_calendar_consumer())])
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["retained_libraries"] = retained
+        path.write_text(json.dumps(data), encoding="utf-8")
+        if valid:
+            assert load_deployment_inventory(path).retained_libraries == tuple(retained)
+        else:  # A required library is never retained; only names of the fixed map.
+            with pytest.raises(ImproperlyConfigured, match="Invalid private deployment inventory"):
+                load_deployment_inventory(path)
 
 
 def test_worker_confirmation_checks_actual_loaded_core_bytes(monkeypatch):

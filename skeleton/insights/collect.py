@@ -73,7 +73,9 @@ def collect_organization(organization: Any, *, now: datetime | None = None) -> d
         "members_limit": limit_status(MEMBERS).limit,
         "external_people": ExternalAccess.objects.filter(is_active=True).count(),
         "service_accounts": memberships.filter(user__account_type=AccountType.SERVICE).count(),
-        "apps_effective": sorted(label for label, state in application_states().items() if state["effective"]),
+        "apps_effective": sorted(
+            label for label, state in application_states().items() if state["effective"] and not state["library"]
+        ),
         "storage_bytes_used": int(usage_for(organization.pk).bytes_used),
         "storage_quota_bytes": quota,
         "storage_location_code": _location_code(organization.pk),

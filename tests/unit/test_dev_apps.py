@@ -196,6 +196,33 @@ def test_the_host_project_runs_without_the_config_package(tmp_path):
     assert result.stdout.split()[-3:] == ["skeleton.testing.host.urls", "/accounts/login/", "False"]
 
 
+def test_a_dev_app_installs_the_library_it_depends_on(tmp_path):
+    """#793: the ledger enters INSTALLED_APPS for the dev app that depends on it, without the opt-in."""
+    root = checkout(tmp_path, label="acme_ledger_user")
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    manifest["dependencies"] = {"org.skeleton.ledger": ">=0.0.0"}
+    (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    script = (
+        "import django; django.setup()\n"
+        "from django.apps import apps\n"
+        "from django.conf import settings\n"
+        "print(apps.is_installed('skeleton.contrib.ledger'), apps.is_installed('skeleton.contrib.calendar'),"
+        " ','.join(settings.SKELETON_BUNDLED_INSTALLED))\n"
+    )
+    environment = {
+        **os.environ,
+        "DJANGO_SETTINGS_MODULE": "config.settings.test",
+        "SKELETON_DEV_APPS": str(root),
+        "SKELETON_BUNDLED_APPS": "",
+        "PYTHONPATH": str(ROOT),
+    }
+    result = subprocess.run(
+        [sys.executable, "-c", script], cwd=ROOT, env=environment, capture_output=True, text=True, timeout=120
+    )
+    assert result.returncode == 0, result.stderr[-3000:]
+    assert result.stdout.split()[-3:] == ["True", "False", "ledger"]
+
+
 def test_test_modules_of_a_checkout_map_to_the_managed_name(tmp_path):
     from skeleton.conf.dev_apps import managed_module_name, registered_checkouts
 

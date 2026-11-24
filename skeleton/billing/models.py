@@ -73,6 +73,10 @@ class Product(SystemRecord):
             raise ValidationError({"code": gettext("Use letras minúsculas, dígitos, _ ou -, começando por letra.")})
         if self.kind == self.Kind.APP and not _APP_LABEL.match(self.app_label or ""):
             raise ValidationError({"app_label": gettext("Informe o label da app vendida.")})
+        if self.kind == self.Kind.APP:
+            from skeleton.system.app_registry import require_not_library
+
+            require_not_library(self.app_label)  # A library is not sold: it comes with its apps (#792).
 
     def __str__(self):
         return self.code
@@ -152,6 +156,11 @@ class Price(SystemRecord):
             raise ValidationError({"included_apps": gettext("Use uma lista de labels de apps.")})
         if len(set(apps)) != len(apps):
             raise ValidationError({"included_apps": gettext("App repetida.")})
+        from skeleton.system.app_registry import is_library
+
+        if any(is_library(app) for app in apps):
+            message = gettext("Bibliotecas entram com as apps que dependem delas, não no plano.")
+            raise ValidationError({"included_apps": ValidationError(message, code="library")})
         limits = self.limits
         if not isinstance(limits, dict) or not all(
             isinstance(key, str) and _LIMIT_KEY.match(key) and type(value) is int and value >= 0

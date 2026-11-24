@@ -90,7 +90,7 @@ def package_kind(path):
     except (zipfile.BadZipFile, RuntimeError, OSError, KeyError) as exc:
         raise PackageError("Invalid package archive.") from exc
     kind = manifest.get("kind") if isinstance(manifest, dict) else None
-    if kind not in ("app", "core", limits.BUNDLED_KIND, limits.RELEASE_KIND):
+    if kind not in ("app", "core", *limits.BUNDLED_KINDS, limits.RELEASE_KIND):
         _fail("Unknown package kind.")
     return kind
 

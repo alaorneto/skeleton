@@ -24,8 +24,11 @@ def set_bundle_offer(*, actor: Any, bundle: Any, price: Any) -> Any:
     product = price.product
     if not price.is_active or price.deleted_at is not None:
         raise ValidationError({"price": gettext("Escolha um preço ativo.")})
-    covers = (product.kind == "base_plan" and set(bundle.apps) <= set(price.included_apps or ())) or (
-        product.kind == "app" and product.app_label in bundle.apps
+    from skeleton.system.bundles import bundle_apps
+
+    apps = bundle_apps(bundle)  # A library follows the apps of the bundle (#792).
+    covers = (product.kind == "base_plan" and set(apps) <= set(price.included_apps or ())) or (
+        product.kind == "app" and product.app_label in apps
     )
     if not covers:
         raise ValidationError(

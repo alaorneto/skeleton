@@ -81,6 +81,8 @@ APP = obj(
         "app_label": string(),
         "app_id": nullable(string()),
         "version": nullable(string()),
+        # "library" for a first-party library (#792): no availability nor limits of its own.
+        "kind": string(),
         "availability_mode": nullable(string()),
         "limits": OBJECT,
     }
@@ -119,12 +121,13 @@ class InstanceView(PlatformAPI):
         rows = {row.app_label: row for row in AppAvailability.objects.all()}
         apps = []
         for manifest in sorted(all_apps(), key=lambda item: item.app_label):
-            row = rows.get(manifest.app_label)
+            row = None if manifest.library else rows.get(manifest.app_label)
             apps.append(
                 {
                     "app_label": manifest.app_label,
                     "app_id": manifest.app_id,
                     "version": manifest.version,
+                    "kind": "library" if manifest.library else "app",
                     "availability_mode": row.mode if row is not None else None,
                     "limits": dict(getattr(row, "limits", None) or {}) if row is not None else {},
                 }

@@ -78,6 +78,9 @@ class AppManifest:
     # First-party app shipped inside the core wheel (#66) and its global user routes (/me/apps/<label>/).
     bundled: bool = False
     user_urls: str | None = None
+    # First-party library (#792): no availability nor activation of its own; effective in an
+    # organization while an effective app depends on it. Always bundled.
+    library: bool = False
     # The portal of external people (#533): /portal/<org>/apps/<label>/ and its API twin.
     portal_urls: str | None = None
     portal_api_urls: str | None = None
@@ -87,12 +90,18 @@ class AppManifest:
     @classmethod
     def from_json(cls, path, *, app_config):
         """Load one canonical contract, resolving runtime modules relative to AppConfig."""
-        from skeleton.system.packages import BUNDLED_KIND, BUNDLED_PACKAGE, PackageError, load_manifest
+        from skeleton.system.packages import (
+            BUNDLED_KINDS,
+            BUNDLED_LIBRARY_KIND,
+            BUNDLED_PACKAGE,
+            PackageError,
+            load_manifest,
+        )
 
         contract = load_manifest(path)
-        if contract["kind"] not in ("app", BUNDLED_KIND):
+        if contract["kind"] not in ("app", *BUNDLED_KINDS):
             raise PackageError("AppManifest requires an application contract.")
-        bundled = contract["kind"] == BUNDLED_KIND
+        bundled = contract["kind"] in BUNDLED_KINDS
         expected = contract["app_config"].rsplit(".", 1)[1]
         if app_config.label != contract["app_label"] or app_config.__class__.__name__ != expected:
             raise PackageError("AppConfig identity differs from its canonical manifest.")
@@ -168,6 +177,7 @@ class AppManifest:
             model_ui=model_ui,
             service_api=service_api,
             bundled=bundled,
+            library=contract["kind"] == BUNDLED_LIBRARY_KIND,
             user_urls=module(runtime.get("user_urls")),
             portal_urls=module(runtime.get("portal_urls")),
             portal_api_urls=module(runtime.get("portal_api_urls")),
@@ -338,12 +348,17 @@ def dependency_problems():
                 reported.add(frozenset(cycle))
                 problems.append("dependency_cycle: " + " -> ".join(cycle))
             return
-        for dependency in get_app(label).dependencies:
+        manifest = get_app(label)
+        for dependency in manifest.dependencies:
             if dependency not in _manifests:
                 if (label, dependency) not in reported:
                     reported.add((label, dependency))
                     problems.append(f"missing_dependency: {label} -> {dependency}")
                 continue
+            if manifest.library and not _manifests[dependency].library and (label, dependency) not in reported:
+                # A library follows the apps that use it; an app it required would need its own activation (#792).
+                reported.add((label, dependency))
+                problems.append(f"library_dependency: {label} -> {dependency}")
             visit(dependency, (*stack, label))
 
     for manifest in all_apps():
@@ -375,6 +390,59 @@ def required_labels(app_label):
 def dependent_labels(app_label):
     """Registered apps that transitively require app_label."""
     return [other for other in sorted(_manifests) if other != app_label and app_label in required_labels(other)]
+
+
+def is_library(app_label):
+    """Whether app_label is a registered first-party library (#792); an unknown label is not."""
+    manifest = _manifests.get(app_label)
+    return manifest is not None and manifest.library
+
+
+def library_labels():
+    """Labels of the registered first-party libraries, sorted."""
+    return tuple(sorted(label for label, manifest in _manifests.items() if manifest.library))
+
+
+def require_not_library(app_label, *, field="app_label"):
+    """Refuse a first-party library where only an app has a row of its own (#792).
+
+    Availability, grants, limits, activation, configuration and bundles; ``code="library"``.
+    """
+    if is_library(app_label):
+        message = gettext(
+            "Uma biblioteca segue as apps que dependem dela; não tem disponibilidade nem ativação próprias."
+        )
+        raise ValidationError({field: ValidationError(message, code="library")})
+
+
+def effective_map(open_gate):
+    """Effective state of every registered app and library from the open gate of the apps (#792).
+
+    ``open_gate`` maps each app label (libraries are ignored) to whether it is available,
+    enabled and configured in the organization. An app is effective when its gate and those of
+    the apps it requires are open; a library, while an effective app requires it.
+    """
+    result = {}
+    for manifest in all_apps():
+        if manifest.library:
+            continue
+        label = manifest.app_label
+        result[label] = bool(open_gate.get(label)) and all(
+            open_gate.get(dependency, False) for dependency in required_app_labels(label)
+        )
+    for label in library_labels():
+        result[label] = any(result.get(dependent, False) for dependent in dependent_app_labels(label))
+    return result
+
+
+def required_app_labels(app_label):
+    """required_labels without the libraries: the dependencies with an availability and an activation."""
+    return [label for label in required_labels(app_label) if not is_library(label)]
+
+
+def dependent_app_labels(app_label):
+    """dependent_labels without the libraries: the apps whose activation can make app_label effective."""
+    return [label for label in dependent_labels(app_label) if not is_library(label)]
 
 
 def validate_documentation(manifest):

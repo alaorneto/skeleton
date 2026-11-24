@@ -97,11 +97,12 @@ def test_reminder_job_is_not_scheduled_for_an_organization_without_the_app(agend
     from skeleton.jobs.models import Job
     from skeleton.jobs.periodic import schedule_due
     from skeleton.system.applications import application_state, configure_application
+    from skeleton.testing.applications import LIBRARY_CONSUMER
 
     with actor_tenant(agenda.bob, agenda.b):
-        state = application_state("skeleton_calendar")
+        state = application_state(LIBRARY_CONSUMER)
         configure_application(
-            "skeleton_calendar",
+            LIBRARY_CONSUMER,
             user=agenda.bob,
             enabled=False,
             configuration=state["configuration"],
@@ -182,12 +183,13 @@ def test_one_refused_notification_keeps_the_others(agenda, daily, monkeypatch):
 
 def test_disabled_app_sends_no_reminder_and_resumes(agenda, daily):
     from skeleton.system.applications import application_state, configure_application
+    from skeleton.testing.applications import LIBRARY_CONSUMER
 
     def configure(enabled):
         with actor_tenant(agenda.admin, agenda.a):
-            state = application_state("skeleton_calendar")
+            state = application_state(LIBRARY_CONSUMER)
             configure_application(
-                "skeleton_calendar",
+                LIBRARY_CONSUMER,
                 user=agenda.admin,
                 enabled=enabled,
                 configuration=state["configuration"],

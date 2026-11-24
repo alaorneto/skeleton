@@ -10,4 +10,15 @@
 <li><a class="link-card h-full" href="{% url 'platform:app' app.app_label %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="apps"|concept_icon %}</span><span class="min-w-0"><span class="link-card-title">{{ app.label }}</span><span class="link-card-text">{{ app.description }}</span><span class="mt-2 text-xs text-body-subtle">v{{ app.version }} · {{ app.origin|code_label:"app_origin" }}</span></span></a></li>
 {% empty %}<li class="card sm:col-span-2 xl:col-span-3">{% include "skeleton/web/components/empty-state.html" with message=_("Nenhum aplicativo instalado.") icon="apps"|concept_icon %}</li>{% endfor %}
 </ul>
+{% if libraries %}
+<section class="mt-8" aria-labelledby="platform-libraries">
+  <h2 id="platform-libraries" class="section-heading">{% translate "Bibliotecas" %}</h2>
+  <p class="mb-3 text-sm/6 text-body">{% translate "Recursos usados por outras apps. Não têm disponibilidade nem ativação próprias: ficam ativas numa organização enquanto uma app que depende delas está ativa." %}</p>
+  <ul class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+  {% for library in libraries %}
+  <li><a class="link-card h-full" href="{% url 'platform:app' library.app_label %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="apps"|concept_icon %}</span><span class="min-w-0"><span class="link-card-title">{{ library.label }}</span><span class="link-card-text">{{ library.description }}</span><span class="mt-2 flex flex-wrap items-center gap-1.5">{{ "library"|marker }}<span class="text-xs text-body-subtle">v{{ library.version }}</span></span><span class="link-card-text mt-2">{% if library.used_by %}{% translate "Usada por" %} {% for app in library.used_by %}{{ app.label }}{% if not forloop.last %}, {% endif %}{% endfor %}{% else %}{% translate "Nenhuma app instalada a usa." %}{% endif %}</span></span></a></li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
 {% endblock %}

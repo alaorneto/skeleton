@@ -227,6 +227,8 @@ MARKERS = {
     "nullable": (_("Aceita vazio"), "neutral"),
     "sensitive": (_("Sensível"), "warning"),
     "personal": (_("Pessoal"), "warning"),
+    # An app with no availability of its own: active while an app that depends on it is (#792).
+    "library": (_("Biblioteca"), "neutral"),
 }
 
 # Code -> translated text of a value or category shown as plain text (#767): never a pill.
