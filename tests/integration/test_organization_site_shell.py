@@ -51,11 +51,11 @@ def test_header_on_the_organization_host_and_on_the_main_domain(scenario):
     assert "Todas as organizações" not in site and "Suas organizações" not in site
     assert "/platform/" not in site and "Plataforma" not in site
     assert 'href="/notifications/"' in site and 'href="/flows/tasks/"' in site
-    assert 'aria-label="1 não lidas"' in site  # Only A's notification.
+    assert "data-notifications>1<" in site  # Only A's notification.
     platform = site_client(scenario.member, "testserver", FIXTURE_PASSWORD)
     main = platform.get(f"/o/{scenario.a.pk}/").content.decode()
     assert 'id="organization-menu-button"' in main and "/platform/" in main
-    assert 'aria-label="3 não lidas"' in main  # The main domain sums every organization, as before.
+    assert "data-notifications>3<" in main  # The main domain sums every organization, as before.
 
 
 def test_memberships_are_narrowed_only_for_presentation(scenario):

@@ -37,7 +37,7 @@ def test_other_people_and_inactive_memberships_see_nothing(scenario):
     in_a, in_b = both(scenario)
     other = support.login(scenario.denied, password=FIXTURE_PASSWORD, csrf=False)
     body = other.get(reverse("flows:global-tasks")).content.decode()
-    assert str(in_a.sysid) not in body and str(in_b.sysid) not in body and "data-flow-tasks" not in body
+    assert str(in_a.sysid) not in body and str(in_b.sysid) not in body and "data-flow-tasks>0<" in body
     with tenant_context(organization_id=scenario.b.pk, actor=scenario.admin_b, source="test:global-tasks"):
         membership = Membership.objects.get(user=scenario.member)
         membership.is_active = False

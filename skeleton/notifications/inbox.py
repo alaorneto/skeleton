@@ -16,7 +16,7 @@ from django.utils import timezone
 from skeleton.common.exceptions import MissingTenantContext
 from skeleton.tenancy.context import current_context, memberships_for_user, own_rows
 
-COUNTER_CAP = 99
+COUNTER_CAP = 9  # The header count fits "9+" (#843).
 
 
 def _active_organizations(user) -> list[UUID]:

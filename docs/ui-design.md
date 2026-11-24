@@ -161,7 +161,7 @@ Cada forma tem um significado só, igual em todas as telas ([#767](https://githu
 |---|---|---|---|
 | Pílula redonda **com ponto** | **Estado**: muda com o tempo (ciclo de vida, resultado) | só `{{ codigo|status_badge }}` | Ativa, Concluído, Falhou, Pendente, Publicada |
 | Etiqueta retangular **sem ponto** | **Marcador**: propriedade fixa que muda comportamento ou acesso | só `{{ "codigo"|marker }}` | Obrigatório, Somente leitura, Segredo, Administrador da plataforma, Padrão, Travada |
-| Número em pílula cheia (`counter`) | **Contagem** | `<span class="counter">` | não lidas, tarefas abertas |
+| Número em pílula cheia (`counter`) | **Contagem** | `<span class="counter">` (no cabeçalho, `activity-count`) | não lidas, tarefas abertas |
 | Ponto cheio sem número (`attention-dot`) | **Atenção**: há algo a ver, sem quantidade (#815) | `<span class="attention-dot" aria-hidden="true"></span>` e o motivo em `sr-only` no mesmo link | avisos da plataforma não lidos, atualização disponível |
 | `code` na segunda linha (`cell-secondary`) | **Identificador técnico** | `<code class="uuid">` | UUID, código, chave, variável de ambiente, slug, código HTTP |
 | Texto | **Valor ou categoria** | texto; código traduzido por `{{ codigo|code_label:"dominio" }}` | origem, tipo, fila, versão ("v0.6.0"), Sim/Não de um campo comum |
@@ -343,7 +343,7 @@ Todo texto visível passa pelo gettext ([#172](https://github.com/alaorneto/skel
 - Abas mantêm ARIA e teclado (ArrowLeft/ArrowRight/Home/End) em `site.js`.
 - Envio duplo: `site.js` ignora um segundo envio do mesmo formulário POST até a página mudar e marca os botões com `aria-disabled` (nunca `disabled`, que perderia o `name`/`value` do botão clicado); voltar pelo navegador (`pageshow`) reabilita. Um formulário que responde com arquivo na mesma página usa `data-allow-resubmit` (#474).
 - Processamento (#817): o botão (`button`) que enviou o formulário ganha `aria-busy="true"`, e o CSS troca o ícone dele por um anel girando; `data-busy-label` no botão troca também o texto (por exemplo, "Gerando o plano…"). Use o rótulo nas ações que levam segundos (as etapas de atualização). Um aviso de espera, numa página que se recarrega sozinha, usa `<span class="spinner" aria-hidden="true"></span>` no lugar do ícone de `message info`. Com `prefers-reduced-motion: reduce` o anel fica parado, e o texto continua dizendo que algo está em andamento.
-- Notificações e Tarefas ficam na pílula `activity-pill` do cabeçalho (#816): um grupo com rótulo "Atividade" e dois links, cada um com o seu `counter`; entre `md` e `lg` só os ícones, com o rótulo para leitor de tela.
+- Notificações e Tarefas ficam na pílula `activity-pill` do cabeçalho (#816, #843): um grupo com rótulo "Atividade" e dois links, o ícone de cada um numa ponta e, no centro, as duas contagens juntas (`activity-count`, largura fixa que cabe "9+"), sempre visíveis: `0` em cinza (`activity-count-empty`), o número na cor da marca e `9+` acima de 9 (`COUNTER_CAP`). O nome e a quantidade de cada link vão em `sr-only`; o número visível é `aria-hidden`.
 - Até 600 px o renderer usa uma coluna e não há rolagem horizontal da página; acima disso vale a grade de 12 colunas (`field-span-1..12`), gerada fora do scanner porque vem do manifesto.
 
 ## Páginas em blocos
