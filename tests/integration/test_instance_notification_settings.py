@@ -184,7 +184,7 @@ def test_pages(scenario, subtests):
     client = login(scenario.platform.email)
     detail = reverse("platform:notification-type", kwargs={"type_code": TYPE})
     with subtests.test("catalog and detail"):
-        page = client.get(reverse("platform:notifications"), follow=True).content.decode()
+        page = client.get(reverse("platform:notification-types")).content.decode()
         assert "Evento" in page and "Dos aplicativos" in page
         assert "Evento {title}" in client.get(detail).content.decode()
     with subtests.test("channels"):

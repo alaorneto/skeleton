@@ -91,3 +91,7 @@ def register_notification_jobs() -> None:
 
     register_platform_alerts()  # The notices the platform sends by itself (#788).
     register_platform_watch()
+    from .announcements import register_announcement_jobs, register_announcement_type
+
+    register_announcement_type()  # Announcements of the platform to the organizations (#789).
+    register_announcement_jobs()

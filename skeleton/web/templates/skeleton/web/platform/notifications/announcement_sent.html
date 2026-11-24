@@ -1,0 +1,21 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% load i18n skeleton_format %}{% block page_title %}{{ record.title }}{% endblock %}
+{% block content %}
+<div class="max-w-4xl">
+<div class="page-header">
+  <div class="min-w-0">
+    {% include "skeleton/web/components/breadcrumbs.html" %}
+    <h1>{{ record.title }}</h1>
+    <p class="page-description">{% translate "Comunicado enviado: não pode ser alterado nem cancelado." %}</p>
+  </div>
+</div>
+<dl class="meta-list mb-6">
+  <div><dt>{% translate "Estado" %}</dt><dd>{{ record.state|status_badge:"announcement" }}</dd></div>
+  <div><dt>{% translate "Enviado em" %}</dt><dd>{{ record.sent_at|moment }}</dd></div>
+  {% if sender %}<div><dt>{% translate "Enviado por" %}</dt><dd>{{ sender }}</dd></div>{% endif %}
+  <div><dt>{% translate "Quem recebe" %}</dt><dd>{{ record.get_audience_display }}</dd></div>
+  <div><dt>{% translate "Organizações" %}</dt><dd>{{ record.organization_count }}</dd></div>
+</dl>
+<div class="card"><p class="font-semibold text-heading">{{ record.title }}</p>{% if record.body %}<p class="mt-2 text-sm/6 text-body">{{ record.body|linebreaksbr }}</p>{% endif %}</div>
+</div>
+{% endblock %}

@@ -118,6 +118,8 @@ STATUS = {
     # Notification types turned on or off by the platform or the organization (#784, #785).
     "enabled": (_("Ligado"), "success"),
     "disabled": (_("Desligado"), "neutral"),
+    # Announcements of the platform (#789): masculine in Portuguese.
+    "announcement:sent": (_("Enviado"), "success"),
     # Notification and webhook deliveries.
     "deliveries:pending": (_("Na fila"), "brand"),
     "deliveries:succeeded": (_("Entregue"), "success"),

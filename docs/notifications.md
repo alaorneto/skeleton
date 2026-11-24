@@ -190,6 +190,15 @@ A plataforma avisa sozinha quem precisa agir ([#788](https://github.com/alaornet
 
 Os payloads só têm números, códigos e identificadores: nunca nome, email, segredo nem mensagem de erro; o aviso leva à tela da plataforma onde a pessoa vê o resto. Cada tipo pode ser desligado ou ter os canais trocados em [Avisos](#configuração-da-plataforma), e `SKELETON_PLATFORM_ALERTS_ENABLED=False` desliga o vigia e o aviso de eliminação. Sem worker vivo nenhum job roda: a falta de worker continua sendo vista pela sonda de saúde e por `check_jobs`.
 
+## Comunicados da plataforma
+
+O administrador da plataforma avisa as organizações em **Plataforma › Notificações › Comunicados** (`/platform/notifications/announcements/`, [#789](https://github.com/alaorneto/skeleton/issues/789)):
+
+1. **Rascunho:** título (até 150 caracteres), texto simples (até 2000, sem formatação nem links clicáveis; chaves são só caracteres), quem recebe (os administradores de cada organização ou todos os membros) e as organizações (todas as ativas ou uma lista de identificadores, um por linha; um desconhecido ou inativo é recusado pelo nome). O rascunho muda com revisão e pode ser excluído (exclusão lógica).
+2. **Revisar e enviar:** a página de confirmação diz quantas organizações recebem e quem; depois de enviado, o comunicado não muda nem é cancelado, e a página mostra quando, por quem e para quantas.
+
+O envio marca o comunicado `sent` e enfileira um job global (`notifications.announce_batch`) que percorre as organizações escolhidas de 500 em 500, cada uma com um job próprio (`notifications.announce`) no contexto de sistema dela, numa transação própria. Ali sai o aviso `platform.announcement`: do contexto `platform`, obrigatório na caixa (cada pessoa ainda escolhe o email) e com `fixed_text`, porque o texto é o próprio comunicado: nem a plataforma nem a organização o reescrevem, e a organização não o desliga. Rodar os jobs de novo não repete o aviso (`dedupe_key` por comunicado). Tudo fica em `PlatformAnnouncement`, tabela global auditada, escrita só pelo administrador da plataforma completo.
+
 ## Caixa de notificações
 
 | Rota | O que faz |

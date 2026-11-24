@@ -63,6 +63,9 @@ def tabs(request, current):
     ]
     if is_platform_admin(request.user):
         items.append({"label": gettext("Avisos"), "url": reverse("platform:notification-types"), "key": "types"})
+        items.append(
+            {"label": gettext("Comunicados"), "url": reverse("platform:announcements"), "key": "announcements"}
+        )
     return [{**item, "current": item["key"] == current} for item in items]
 
 
@@ -407,3 +410,240 @@ def notification_type_text_restore(request, type_code, language):
     )
     messages.success(request, gettext("Texto de fábrica restaurado."))
     return redirect("platform:notification-type", type_code=kind.code)
+
+
+# --------------------------------------------------------------------------- announcements (#789)
+
+
+def _announcement_or_404(sysid):
+    from skeleton.notifications.models import PlatformAnnouncement
+
+    record = PlatformAnnouncement.objects.filter(pk=sysid).first()
+    if record is None:
+        raise Http404
+    return record
+
+
+def _slugs(record):
+    """The chosen organizations as slugs, one per line, for the form."""
+    from skeleton.tenancy.models import Organization
+
+    if not record.organizations:
+        return ""
+    rows = Organization.objects.filter(pk__in=record.organizations).values_list("pk", "slug")
+    names = {str(pk): slug for pk, slug in rows}
+    return "\n".join(sorted(names.get(str(pk), str(pk)) for pk in record.organizations))
+
+
+def _posted(request):
+    scope = request.POST.get("scope", "all")
+    organizations = [line for line in request.POST.get("organizations", "").splitlines() if line.strip()]
+    return {
+        "title": request.POST.get("title", ""),
+        "body": request.POST.get("body", ""),
+        "audience": request.POST.get("audience", ""),
+        "scope": scope,
+        "organizations_text": request.POST.get("organizations", ""),
+        "organizations": organizations if scope == "list" else [],
+    }
+
+
+def _announcement_form(request, *, record=None, data=None, errors=None, status=200):
+    from skeleton.notifications.models import PlatformAnnouncement
+    from skeleton.notifications.texts import plain_html
+
+    if data is None:
+        data = {
+            "title": record.title if record else "",
+            "body": record.body if record else "",
+            "audience": record.audience if record else PlatformAnnouncement.Audience.ADMINS,
+            "scope": "list" if record and record.organizations else "all",
+            "organizations_text": _slugs(record) if record else "",
+        }
+    return render(
+        request,
+        "skeleton/web/platform/notifications/announcement_form.html",
+        {
+            "platform_section": SECTION,
+            "tabs": tabs(request, "announcements"),
+            "record": record,
+            "data": data,
+            "errors": errors or {},
+            "audiences": PlatformAnnouncement.Audience.choices,
+            "preview_body": plain_html(data.get("body", "")),
+            "breadcrumbs": [
+                {"label": gettext("Comunicados"), "url": reverse("platform:announcements")},
+                {"label": record.title if record else gettext("Novo comunicado"), "url": ""},
+            ],
+        },
+        status=status,
+    )
+
+
+@platform_page
+@require_safe
+def announcements(request):
+    from skeleton.notifications.models import PlatformAnnouncement
+    from skeleton.web.views import pagination
+
+    rows = pagination(request, PlatformAnnouncement.objects.order_by("-created_at", "sysid"))
+    return render(
+        request,
+        "skeleton/web/platform/notifications/announcements.html",
+        {"platform_section": SECTION, "tabs": tabs(request, "announcements"), "rows": rows},
+    )
+
+
+ANNOUNCEMENT_FIELDS = {"title", "body", "audience", "scope", "organizations", "revision", "action"}
+
+
+@platform_page
+@require_http_methods(["GET", "POST"])
+@recent_authentication_required(allow_get=True)
+def announcement_create(request):
+    from skeleton.notifications.announcements import create_announcement
+
+    if request.method != "POST":
+        return _announcement_form(request)
+    if _unknown(request, ANNOUNCEMENT_FIELDS):
+        return HttpResponseBadRequest(gettext("Campo não permitido."))
+    data = _posted(request)
+    try:
+        record = create_announcement(
+            actor=request.user,
+            title=data["title"],
+            body=data["body"],
+            audience=data["audience"],
+            organizations=data["organizations"],
+        )
+    except ValidationError as error:
+        return _announcement_form(request, data=data, errors=_messages(error), status=400)
+    if request.POST.get("action") == "review":
+        return redirect("platform:announcement-send", sysid=record.pk)
+    messages.success(request, gettext("Rascunho salvo."))
+    return redirect("platform:announcement", sysid=record.pk)
+
+
+@platform_page
+@require_http_methods(["GET", "POST"])
+@recent_authentication_required(allow_get=True)
+def announcement_detail(request, sysid):
+    from skeleton.notifications.announcements import update_announcement
+
+    record = _announcement_or_404(sysid)
+    if record.state == record.State.SENT:
+        if request.method == "POST":
+            return HttpResponseBadRequest(gettext("Um comunicado enviado não muda."))
+        return render(
+            request,
+            "skeleton/web/platform/notifications/announcement_sent.html",
+            {
+                "platform_section": SECTION,
+                "tabs": tabs(request, "announcements"),
+                "record": record,
+                "sender": _sender(record),
+                "breadcrumbs": [
+                    {"label": gettext("Comunicados"), "url": reverse("platform:announcements")},
+                    {"label": record.title, "url": ""},
+                ],
+            },
+        )
+    if request.method != "POST":
+        return _announcement_form(request, record=record)
+    if _unknown(request, ANNOUNCEMENT_FIELDS):
+        return HttpResponseBadRequest(gettext("Campo não permitido."))
+    data = _posted(request)
+    try:
+        update_announcement(
+            actor=request.user,
+            announcement_id=record.pk,
+            expected_revision=_revision(request),
+            title=data["title"],
+            body=data["body"],
+            audience=data["audience"],
+            organizations=data["organizations"],
+        )
+    except ValidationError as error:
+        return _announcement_form(request, record=record, data=data, errors=_messages(error), status=400)
+    if request.POST.get("action") == "review":
+        return redirect("platform:announcement-send", sysid=record.pk)
+    messages.success(request, gettext("Rascunho salvo."))
+    return redirect("platform:announcement", sysid=record.pk)
+
+
+def _sender(record):
+    from skeleton.accounts.models import User
+
+    user = User.objects.filter(pk=record.sent_by).select_related("profile").first() if record.sent_by else None
+    if user is None:
+        return ""
+    profile = getattr(user, "profile", None)
+    return (getattr(profile, "display_name", "") or "").strip() or user.email
+
+
+@platform_page
+@require_http_methods(["GET", "POST"])
+@recent_authentication_required(allow_get=True)
+def announcement_send(request, sysid):
+    from skeleton.notifications.announcements import send_announcement, targets
+
+    record = _announcement_or_404(sysid)
+    if record.state != record.State.DRAFT:
+        raise Http404
+    count = len(targets(record))
+    context = {
+        "platform_section": SECTION,
+        "eyebrow": gettext("Comunicados"),
+        "title": gettext("Enviar comunicado"),
+        "subject_label": record.title,
+        "message": gettext(
+            "Enviar a %(count)s organizações? Quem recebe: %(audience)s. Depois de enviado, o comunicado não pode "
+            "ser alterado nem cancelado."
+        )
+        % {"count": count, "audience": record.get_audience_display()},
+        "submit_label": gettext("Enviar"),
+        "submit_class": "btn-primary",
+        "cancel_url": reverse("platform:announcement", kwargs={"sysid": record.pk}),
+        "revision": record.revision,
+    }
+    if request.method != "POST":
+        return render(request, "skeleton/web/platform/notifications/confirm.html", context)
+    if _unknown(request, {"revision"}):
+        return HttpResponseBadRequest(gettext("Campo não permitido."))
+    try:
+        sent = send_announcement(actor=request.user, announcement_id=record.pk, expected_revision=_revision(request))
+    except ValidationError as error:
+        context["error"] = " ".join(message for items in _messages(error).values() for message in items)
+        return render(request, "skeleton/web/platform/notifications/confirm.html", context, status=400)
+    messages.success(
+        request, gettext("Comunicado enviado a %(count)s organizações.") % {"count": sent.organization_count}
+    )
+    return redirect("platform:announcement", sysid=record.pk)
+
+
+@platform_page
+@require_http_methods(["GET", "POST"])
+@recent_authentication_required(allow_get=True)
+def announcement_delete(request, sysid):
+    from skeleton.notifications.announcements import delete_announcement
+
+    record = _announcement_or_404(sysid)
+    if record.state != record.State.DRAFT:
+        raise Http404
+    context = {
+        "platform_section": SECTION,
+        "eyebrow": gettext("Comunicados"),
+        "title": gettext("Excluir rascunho"),
+        "subject_label": record.title,
+        "message": gettext("O rascunho sai da lista. A exclusão é lógica e fica na auditoria."),
+        "submit_label": gettext("Excluir rascunho"),
+        "cancel_url": reverse("platform:announcement", kwargs={"sysid": record.pk}),
+        "revision": record.revision,
+    }
+    if request.method != "POST":
+        return render(request, "skeleton/web/platform/notifications/confirm.html", context)
+    if _unknown(request, {"revision"}):
+        return HttpResponseBadRequest(gettext("Campo não permitido."))
+    delete_announcement(actor=request.user, announcement_id=record.pk, expected_revision=_revision(request))
+    messages.success(request, gettext("Rascunho excluído."))
+    return redirect("platform:announcements")

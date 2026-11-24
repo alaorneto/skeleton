@@ -403,3 +403,32 @@ class PlatformNotificationRecipient(OperationalRecord):
 
     def __str__(self):
         return f"{self.user_id} {self.notification_id}"
+
+
+class PlatformAnnouncement(SystemRecord):
+    """A notice the platform administrator sends to the organizations (#789).
+
+    A draft is edited with CAS; once sent it never changes. ``organizations`` are the UUIDs chosen
+    (empty: every active organization at the time of sending); ``audience`` says who receives it in
+    each organization: its administrators or every member.
+    """
+
+    class Audience(models.TextChoices):
+        ADMINS = "admins", gettext_lazy("Administradores das organizações")
+        MEMBERS = "members", gettext_lazy("Todos os membros")
+
+    class State(models.TextChoices):
+        DRAFT = "draft", gettext_lazy("Rascunho")
+        SENT = "sent", gettext_lazy("Enviado")
+
+    title = models.CharField(max_length=150)
+    body = models.TextField(blank=True, default="")
+    audience = models.CharField(max_length=16, choices=Audience.choices, default=Audience.ADMINS)
+    organizations = models.JSONField(default=list, blank=True)
+    state = models.CharField(max_length=16, choices=State.choices, default=State.DRAFT)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    sent_by = models.UUIDField(null=True, blank=True)
+    organization_count = models.PositiveIntegerField(default=0)
+
+    def __str__(self):
+        return self.title
