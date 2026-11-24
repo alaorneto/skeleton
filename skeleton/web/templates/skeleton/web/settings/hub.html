@@ -5,7 +5,7 @@
   <div class="min-w-0">
     <p class="page-eyebrow">{{ current_organization.organization_name|default:_("Organização") }}</p>
     <h1>{{ title }}</h1>
-    <p class="page-description">{% translate "Pessoas, acesso, admissão, aplicativos, dados e as demais configurações que você pode administrar nesta organização." %}</p>
+    <p class="page-description">{% translate "Tudo o que você pode administrar nesta organização." %}</p>
   </div>
 </div>
 <div class="space-y-8">
@@ -13,7 +13,7 @@
   <section aria-labelledby="settings-{{ group.id }}">
     <h2 id="settings-{{ group.id }}" class="section-heading">{{ group.label }}</h2>
     <ul class="cards grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-      {% for item in group.items %}<li><a class="link-card" href="{{ item.url }}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name=item.icon|concept_icon %}</span><span class="min-w-0"><span class="link-card-title">{{ item.label }}</span></span></a></li>{% endfor %}
+      {% for item in group.items %}<li><a class="link-card" href="{{ item.url }}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name=item.icon|concept_icon %}</span><span class="min-w-0"><span class="link-card-title">{{ item.label }}</span>{% if item.description %}<span class="link-card-text">{{ item.description }}</span>{% endif %}</span></a></li>{% endfor %}
     </ul>
   </section>
   {% endfor %}

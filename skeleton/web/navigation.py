@@ -4,7 +4,7 @@ Only presentation data is produced here. Every target view keeps enforcing its o
 authorization; a link shown here never grants access.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from django.conf import settings
@@ -76,6 +76,8 @@ class SettingsItem:
     icon: str
     gate: str
     routes: tuple[str, ...] = ()
+    # One line on the card of the settings hub (#780): what the person does there.
+    description: Any = ""
 
 
 # The settings area of an organization, grouped by what a person is trying to do (#621). Only the
@@ -240,6 +242,42 @@ SETTINGS_GROUPS: tuple[tuple[str, Any, tuple[SettingsItem, ...]], ...] = (
         ),
     ),
 )
+
+
+# What each entry of the settings hub is for, by the concept of its icon (#780).
+_SETTINGS_DESCRIPTIONS = {
+    "organization": gettext_lazy("Nome, idioma, fuso horário, marca e expediente."),
+    "site_domains": gettext_lazy("Endereços próprios da organização, comprovados por DNS."),
+    "public_page": gettext_lazy("O que quem não entrou vê no endereço da organização."),
+    "home": gettext_lazy("O que os membros veem ao abrir a organização."),
+    "people": gettext_lazy("Membros, convites e os papéis de cada pessoa."),
+    "groups": gettext_lazy("Grupos de pessoas e os papéis de cada grupo."),
+    "roles": gettext_lazy("Papéis, permissões nas tabelas e concessões de registros."),
+    "security": gettext_lazy("Quem precisa usar a autenticação em dois fatores."),
+    "external_people": gettext_lazy("Quem acessa o portal sem ser membro."),
+    "join_requests": gettext_lazy("Pedidos de entrada à espera de decisão."),
+    "join_links": gettext_lazy("Links que deixam alguém entrar com um papel."),
+    "admission": gettext_lazy("Como novas pessoas podem entrar na organização."),
+    "email_domains": gettext_lazy("Domínios de email cujas pessoas podem entrar direto."),
+    "identity": gettext_lazy("Provedores de login da organização."),
+    "apps": gettext_lazy("Apps ativas e a configuração de cada uma."),
+    "webhooks": gettext_lazy("Endereços que recebem os eventos da organização."),
+    "service_accounts": gettext_lazy("Contas usadas por integrações, com tokens de API."),
+    "flows": gettext_lazy("Processos que a organização define sem código."),
+    "tables": gettext_lazy("As tabelas que você pode consultar."),
+    "audit": gettext_lazy("O que mudou nos registros, por quem e quando."),
+    "billing": gettext_lazy("Plano, apps contratadas e faturas."),
+}
+SETTINGS_GROUPS = tuple(
+    (
+        group,
+        label,
+        tuple(
+            replace(item, description=item.description or _SETTINGS_DESCRIPTIONS.get(item.icon, "")) for item in items
+        ),
+    )
+    for group, label, items in SETTINGS_GROUPS
+)
 # Routes whose screens show the settings menu in the sidebar: the items above, their sub-routes
 # and the hub. Record screens (web:records, web:record...) keep the functional menu: apps link there.
 SETTINGS_ROUTE_NAMES: frozenset[str] = frozenset(
@@ -314,6 +352,7 @@ def settings_navigation(
                 {
                     "label": item.label,
                     "icon": item.icon,
+                    "description": item.description,
                     "url": url,
                     "current": current,
                     "every_member": item.gate in EVERY_MEMBER,

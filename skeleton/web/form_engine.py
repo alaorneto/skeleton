@@ -73,7 +73,7 @@ def _default_sections(form, visible):
             entry["change_bound"] = form[control]
         fields.append(entry)
     return (
-        [{"id": "fields", "label": gettext("Dados do registro"), "tab_id": None, "columns": 1, "fields": fields}]
+        [{"id": "fields", "label": gettext("Informações gerais"), "tab_id": None, "columns": 1, "fields": fields}]
         if fields
         else []
     )

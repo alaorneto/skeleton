@@ -1,7 +1,7 @@
 {% extends "skeleton/web/platform/base.html" %}
 {% load i18n skeleton_format %}{% block page_title %}{% translate "Clientes nativos" %}{% endblock %}
 {% block content %}
-<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Operação" %}</p><h1>{% translate "Clientes nativos" %}</h1><p class="page-description">{% translate "Atualizações assinadas dos aplicativos nativos, servidas por este servidor depois de verificadas. A origem, os tokens e as chaves ficam no arquivo do operador; aqui se define a versão mínima de cada canal e se retira uma versão." %}</p></div></div>
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Operação" %}</p><h1>{% translate "Clientes nativos" %}</h1><p class="page-description">{% translate "Versões dos aplicativos nativos servidas por esta instância. Defina a versão mínima de cada canal ou retire uma versão." %}</p></div></div>
 {% if problem %}<div class="message error mb-5" role="alert">{{ problem }}</div>{% endif %}
 {% for client in clients %}
 <section class="mt-6" aria-labelledby="client-{{ client.client_id }}">

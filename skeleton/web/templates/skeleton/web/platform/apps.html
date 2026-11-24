@@ -2,7 +2,7 @@
 {% load i18n skeleton_format %}{% block page_title %}{% translate "Aplicativos instalados" %}{% endblock %}
 {% block content %}
 <div class="page-header">
-  <div class="min-w-0"><p class="page-eyebrow">{% translate "Aplicativos" %}</p><h1>{% translate "Aplicativos instalados" %}</h1><p class="page-description">{% translate "Código ativo na plataforma. Cada organização ativa e configura as apps na sua própria área; instalar e atualizar é feito em Versões e atualizações." %}</p></div>
+  <div class="min-w-0"><p class="page-eyebrow">{% translate "Aplicativos" %}</p><h1>{% translate "Aplicativos instalados" %}</h1><p class="page-description">{% translate "Aplicativos instalados nesta instância. Cada organização ativa os que usa; instalar e atualizar fica em Versões e atualizações." %}</p></div>
   <nav class="toolbar" aria-label="{% translate "Ações" %}"><a class="btn btn-secondary" href="{% url 'platform:updates' %}">{% include "skeleton/web/components/icon.html" with name="updates"|concept_icon %}{% translate "Versões e atualizações" %}</a></nav>
 </div>
 <ul class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">

@@ -1,6 +1,6 @@
 {% load i18n skeleton_format %}<section class="card" aria-labelledby="home-block-{{ forloop.counter }}">
   <h2 id="home-block-{{ forloop.counter }}" class="section-heading">{% firstof block.heading _("Notificações") %}</h2>
   {% if block.rows %}<ul class="space-y-2 text-sm/6">{% for row in block.rows %}<li class="flex flex-wrap items-baseline justify-between gap-x-4"><span class="min-w-0"><a href="{% url 'notifications:open' row.organization_id row.sysid %}">{{ row.label }}</a>{% for key, value in row.snapshot.items %} <span class="text-body-subtle">· {{ value }}</span>{% endfor %}</span><span class="text-xs text-body-subtle">{{ row.updated_at|moment }}</span></li>{% endfor %}</ul>
-  {% else %}<p class="text-sm/6 text-body-subtle">{% translate "Nenhuma notificação não lida." %}</p>{% endif %}
   <p class="mt-4"><a class="btn btn-secondary btn-sm" href="{{ block.url }}">{% translate "Ver todas as notificações" %}{% include "skeleton/web/components/icon.html" with name="arrow-right" %}</a></p>
+  {% else %}<p class="flex flex-wrap items-center justify-between gap-3 text-sm/6 text-body-subtle">{% translate "Nenhuma notificação não lida." %}<a class="font-medium" href="{{ block.url }}">{% translate "Ver todas as notificações" %}</a></p>{% endif %}
 </section>

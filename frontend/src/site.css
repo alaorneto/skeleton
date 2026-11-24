@@ -881,6 +881,13 @@
   .danger-zone > .btn {
     @apply shrink-0 self-start sm:self-center;
   }
+  /* Formulário de criação recolhido abaixo da lista (#780): a lista vem primeiro. */
+  .create-panel > summary {
+    @apply w-fit list-none;
+    &::-webkit-details-marker {
+      display: none;
+    }
+  }
   /* Configuração da instância (#779): seções do catálogo, uma linha por chave, editor sob a linha. */
   .setting-index ul {
     @apply flex flex-wrap gap-x-4 gap-y-1 text-sm;

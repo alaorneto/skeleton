@@ -2,7 +2,7 @@
 {% load i18n skeleton_format %}{% block page_title %}{% translate "Catálogo de tabelas" %}{% endblock %}
 {% block content %}
 <div class="page-header">
-  <div class="min-w-0"><p class="page-eyebrow">{% translate "Dados" %}</p><h1>{% translate "Catálogo de tabelas" %}</h1><p class="page-description">{% translate "Tabelas físicas catalogadas, com origem, escopo e modo de auditoria. Rótulos e descrições são editáveis; a estrutura vem do código." %}</p></div>
+  <div class="min-w-0"><p class="page-eyebrow">{% translate "Dados" %}</p><h1>{% translate "Catálogo de tabelas" %}</h1><p class="page-description">{% translate "As tabelas da instância e a origem de cada uma. Você pode ajustar o rótulo e a descrição de cada tabela." %}</p></div>
 </div>
 {% include "skeleton/web/platform/search.html" with placeholder=_("Buscar por tabela, rótulo ou modelo") %}
 <div class="table-scroll table-stack"><table><thead><tr><th scope="col">{% translate "Tabela" %}</th><th scope="col">{% translate "Modelo" %}</th><th scope="col">{% translate "Origem / escopo" %}</th><th scope="col">{% translate "Auditoria" %}</th><th scope="col">{% translate "Disponível" %}</th></tr></thead><tbody>

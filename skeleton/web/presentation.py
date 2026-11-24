@@ -161,7 +161,9 @@ def grouped_specs(specs):
 def _layout(spec):
     layout = get_model_ui(spec.model._meta.label_lower).form
     sections = layout.sections or (
-        FormSectionSpec("fields", gettext("Dados do registro"), tuple(FieldUISpec(name) for name in spec.write_fields)),
+        FormSectionSpec(
+            "fields", gettext("Informações gerais"), tuple(FieldUISpec(name) for name in spec.write_fields)
+        ),
     )
     return layout, sections
 

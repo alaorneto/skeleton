@@ -1,7 +1,7 @@
 {% extends "skeleton/web/platform/base.html" %}
 {% load i18n skeleton_format %}{% block page_title %}{% translate "Jobs" %}{% endblock %}
 {% block content %}
-<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Operação" %}</p><h1>{% translate "Jobs" %}</h1><p class="page-description">{% translate "Fila de trabalho em segundo plano de todas as organizações. A tela mostra tipo, fila, organização, estado e código de erro, nunca o payload. Um job esgotado pode ser reenviado ou descartado." %}</p></div></div>
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Operação" %}</p><h1>{% translate "Jobs" %}</h1><p class="page-description">{% translate "Tarefas em segundo plano de todas as organizações. Um job esgotado pode ser reenviado ou descartado." %}</p></div></div>
 <dl class="stat-grid">
   {% include "skeleton/web/components/stat.html" with label=_("Na fila") value=counts.queued key="queued" %}
   {% blocktranslate asvar lag with seconds=health.oldest_due_lag_s|floatformat:0 %}{{ seconds }} s{% endblocktranslate %}{% include "skeleton/web/components/stat.html" with label=_("Atraso do mais antigo") value=lag key="lag" %}

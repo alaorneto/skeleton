@@ -2,7 +2,7 @@
 {% load i18n skeleton_format %}{% block title %}{% translate "Operação dos processos" %} · {{ site_name }}{% endblock %}
 {% block content %}
 <div>
-  <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Fluxos de processo" %}</p><h1>{% translate "Operação dos processos" %}</h1><p class="page-description">{% translate "O que precisa de ação: instâncias com falha e tarefas abertas sem responsável, atrasadas ou a vencer em 24 horas. Nenhum valor de formulário aparece aqui." %}</p></div></div>
+  <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Fluxos de processo" %}</p><h1>{% translate "Operação dos processos" %}</h1><p class="page-description">{% translate "O que precisa de ação: processos com falha e tarefas sem responsável, atrasadas ou a vencer em 24 horas." %}</p></div></div>
   {% include "skeleton/flows/_nav.html" %}
   <form method="get" class="filter-bar" aria-label="{% translate "Filtros" %}">
     <div class="field"><label for="ops-flow">{% translate "Fluxo" %}</label><select id="ops-flow" name="flow_key"><option value="">{% translate "Todos" %}</option>{% for key in panel.flow_keys %}<option value="{{ key }}"{% if key == flow_key %} selected{% endif %}>{{ key }}</option>{% endfor %}</select></div>

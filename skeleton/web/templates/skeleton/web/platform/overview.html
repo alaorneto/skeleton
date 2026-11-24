@@ -5,7 +5,7 @@
   <div class="min-w-0">
     <p class="page-eyebrow">{% translate "Plataforma" %}</p>
     <h1>{% translate "Administração da plataforma" %}</h1>
-    <p class="page-description">{% translate "Identidades, organizações, aplicativos instalados e catálogo global. Administrar a plataforma não concede acesso aos dados das organizações." %}</p>
+    <p class="page-description">{% translate "A instância de relance. Administrar a plataforma não dá acesso aos dados das organizações." %}</p>
   </div>
 </div>
 <ul class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -19,7 +19,7 @@
       <div><dt>{% translate "Origem" %}</dt><dd>{{ core.origin_label|default:"—" }}</dd></div>
     </dl>
     <a class="btn btn-secondary btn-sm mt-4" href="{% url 'platform:updates' %}">{% include "skeleton/web/components/icon.html" with name="updates"|concept_icon %}{% translate "Versões e atualizações" %}</a>
-    {% if platform_update_notice is not None %}<div class="mt-4" aria-labelledby="overview-updates"><h3 id="overview-updates" class="mb-1">{% translate "Atualizações" %}</h3><p class="text-sm/6 text-body">{% if platform_update_notice.mode %}{% include "skeleton/web/platform/update-notice.html" %}{% else %}{% translate "Tudo atualizado." %}{% endif %}</p></div>{% endif %}
+    {% if platform_update_notice is not None and not platform_update_notice.mode %}<p class="mt-4 text-sm/6 text-body">{{ "succeeded"|status_badge:_("Tudo atualizado.") }}</p>{% endif %}
   </section>
   <section class="card lg:col-span-2" aria-labelledby="overview-operations">
     <h2 id="overview-operations" class="mb-3">{% translate "Operações recentes" %}</h2>

@@ -2,7 +2,7 @@
 {% load i18n skeleton_format %}{% block page_title %}{% translate "Organizações" %}{% endblock %}
 {% block content %}
 <div class="page-header">
-  <div class="min-w-0"><p class="page-eyebrow">{% translate "Identidade" %}</p><h1>{% translate "Organizações" %}</h1><p class="page-description">{% translate "Criação e situação das organizações. Membros, papéis e dados são administrados dentro de cada organização, por quem tem vínculo nela." %}</p></div>
+  <div class="min-w-0"><p class="page-eyebrow">{% translate "Identidade" %}</p><h1>{% translate "Organizações" %}</h1><p class="page-description">{% translate "Crie organizações e acompanhe a situação de cada uma. Pessoas e dados são administrados dentro de cada organização." %}</p></div>
   <nav class="toolbar" aria-label="{% translate "Ações" %}"><a class="btn btn-secondary" href="{% url 'platform:organization-policy' %}">{% translate "Política das novas" %}</a><a class="btn btn-primary" href="{% url 'platform:organization-create' %}">{% include "skeleton/web/components/icon.html" with name="plus" %}{% translate "Nova organização" %}</a></nav>
 </div>
 {% if signup_blocked %}<p class="message warning mb-4" role="status">{% translate "O cadastro de organizações está ligado, mas uma regra da política das organizações novas exige um valor que só a plataforma informa: as pessoas não conseguem criar organizações." %} <a href="{% url 'platform:organization-policy' %}">{% translate "Ver a política" %}</a></p>{% endif %}

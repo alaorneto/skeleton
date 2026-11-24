@@ -1,6 +1,6 @@
 {% extends 'skeleton/web/base.html' %}{% load i18n skeleton_format %}{% block title %}{% translate "Tarefas" %} · {{ site_name }}{% endblock %}
 {% block content %}
-<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Fluxos de processo" %}</p><h1>{% translate "Tarefas" %}</h1><p class="page-description">{% translate "Tarefas e aprovações dos processos desta organização. Cada ação é revalidada no servidor." %}</p></div>
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Fluxos de processo" %}</p><h1>{% translate "Tarefas" %}</h1><p class="page-description">{% translate "Tarefas e aprovações dos processos desta organização." %}</p></div>
   <div class="toolbar">{% include "skeleton/web/components/segmented.html" with options=scope_options label=_("Quais tarefas mostrar") %}</div>
 </div>
 {% include "skeleton/flows/_nav.html" %}
