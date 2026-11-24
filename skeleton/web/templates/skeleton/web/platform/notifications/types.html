@@ -1,0 +1,33 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% load i18n skeleton_format %}{% block page_title %}{% translate "Avisos" %}{% endblock %}
+{% block content %}
+<div class="max-w-5xl">
+<div class="page-header">
+  <div class="min-w-0">
+    <p class="page-eyebrow">{% translate "Notificações" %}</p>
+    <h1>{% translate "Avisos" %}</h1>
+    <p class="page-description">{% translate "Escolha quais avisos a plataforma envia, por quais canais e com que texto." %}</p>
+  </div>
+</div>
+{% include "skeleton/web/platform/notifications/_tabs.html" %}
+<form method="get" class="filter-bar" aria-label="{% translate "Filtros" %}">
+  <div class="field"><label for="q">{% translate "Buscar aviso" %}</label><input id="q" type="search" name="q" value="{{ query }}" maxlength="100"></div>
+  <div class="filter-actions"><button type="submit" class="btn btn-secondary">{% translate "Filtrar" %}</button>{% if query %}<a class="btn btn-ghost" href="?">{% translate "Limpar" %}</a>{% endif %}</div>
+</form>
+{% for group in groups %}
+<section class="mt-8" aria-labelledby="notification-group-{{ forloop.counter }}">
+  <h2 id="notification-group-{{ forloop.counter }}" class="section-heading">{{ group.label }}</h2>
+  <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Aviso" %}</th><th scope="col">{% translate "Quem recebe" %}</th><th scope="col">{% translate "Canais padrão" %}</th><th scope="col">{% translate "Estado" %}</th></tr></thead><tbody>
+  {% for row in group.items %}<tr>
+    <td><a class="cell-primary" href="{% url 'platform:notification-type' row.kind.code %}">{{ row.kind.label }}</a>{% if row.kind.description %}<span class="cell-secondary">{{ row.kind.description }}</span>{% endif %}<span class="cell-secondary"><code>{{ row.kind.code }}</code></span></td>
+    <td>{{ row.audience }}</td>
+    <td>{{ row.channels }}</td>
+    <td>{% if row.enabled %}{{ "enabled"|status_badge }}{% else %}{{ "disabled"|status_badge }}{% endif %}{% if row.kind.mandatory %} <span class="badge">{% translate "Obrigatório" %}</span>{% endif %}</td>
+  </tr>{% endfor %}
+  </tbody></table></div>
+</section>
+{% empty %}
+<div class="table-scroll mt-6"><table><tbody>{% include "skeleton/web/components/empty-row.html" with colspan=1 message=_("Nenhum aviso encontrado.") icon="envelope" %}</tbody></table></div>
+{% endfor %}
+</div>
+{% endblock %}

@@ -121,10 +121,11 @@ def notification_text(notification: Any, user_id: Any, *, label: Any) -> tuple[s
 
 
 def _still_wanted(user: Any, type_code: str) -> bool:
+    from ..fanout import delivery_enabled
     from ..preferences import effective, known_type
     from .delivery import _external_type
 
-    if known_type(type_code) is None:
+    if known_type(type_code) is None or not delivery_enabled(type_code):
         return False
     if _external_type(type_code):
         return True  # An external person has no preference page: the type sends by email (#535).

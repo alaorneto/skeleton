@@ -115,6 +115,9 @@ STATUS = {
     "hard_delete": (_("Exclusão física"), "danger"),
     # Jobs.
     "jobs:running": (_("Executando"), "brand"),
+    # Notification types turned on or off by the platform or the organization (#784, #785).
+    "enabled": (_("Ligado"), "success"),
+    "disabled": (_("Desligado"), "neutral"),
     # Notification and webhook deliveries.
     "deliveries:pending": (_("Na fila"), "brand"),
     "deliveries:succeeded": (_("Entregue"), "success"),

@@ -82,7 +82,9 @@ class TextResolver:
 
 def resolver_for(kind: Any, *, organization_texts: bool = True) -> TextResolver:
     """The texts of ``kind`` from the instance and, inside a tenant, from the current organization."""
-    return TextResolver(kind)
+    from .instance_settings import instance_texts
+
+    return TextResolver(kind, instance=instance_texts(kind.code))
 
 
 def person_codes(kind: Any, payload: Mapping[str, Any]) -> tuple[str, ...]:

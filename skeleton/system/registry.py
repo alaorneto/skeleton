@@ -482,6 +482,18 @@ def register_core_specs():
             "global",
             (),
         ),
+        "sk_notifications.instancenotificationsetting": (
+            gettext_lazy("Avisos da instância"),
+            gettext_lazy("Escolha da plataforma para cada tipo de notificação: ligado e canais padrão."),
+            "global",
+            (),
+        ),
+        "sk_notifications.instancenotificationtext": (
+            gettext_lazy("Textos dos avisos da instância"),
+            gettext_lazy("Título e corpo de um tipo de notificação num idioma, escritos pela plataforma."),
+            "global",
+            (),
+        ),
         "sk_notifications.notificationdelivery": (
             gettext_lazy("Entregas de notificação"),
             gettext_lazy("Email, resumo ou push de uma notificação a uma pessoa, com tentativas e último resultado."),

@@ -1,0 +1,1 @@
+{% load i18n %}{% if tabs|length > 1 %}<nav class="link-tabs mb-6" aria-label="{% translate "Notificações da plataforma" %}">{% for tab in tabs %}<a href="{{ tab.url }}"{% if tab.current %} aria-current="page"{% endif %}>{{ tab.label }}{% if tab.count %} <span class="badge badge-brand">{{ tab.count }}</span>{% endif %}</a>{% endfor %}</nav>{% endif %}

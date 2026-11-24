@@ -277,9 +277,14 @@ def payload_for(notification: Any, user_id: Any) -> bytes:
 
 
 def _still_wanted(user: Any, type_code: str) -> bool:
+    from ..fanout import delivery_enabled
     from ..preferences import effective, known_type
 
-    return known_type(type_code) is not None and effective(user, type_code, "push").mode == "immediate"
+    return (
+        known_type(type_code) is not None
+        and delivery_enabled(type_code)
+        and effective(user, type_code, "push").mode == "immediate"
+    )
 
 
 def send_push(*, delivery_id: str) -> None:

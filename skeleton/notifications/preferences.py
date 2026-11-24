@@ -54,8 +54,17 @@ def type_default(kind: NotificationType, channel: str) -> str:
     return "immediate" if channel in kind.default_channels else "off"
 
 
-def resolve(kind: NotificationType, channel: str, rows: dict[tuple[str, str], Any]) -> Effective:
-    """``rows`` maps ``(type_code, channel)`` to the person's live rows."""
+def resolve(
+    kind: NotificationType,
+    channel: str,
+    rows: dict[tuple[str, str], Any],
+    instance_channels: tuple[str, ...] | None = None,
+) -> Effective:
+    """``rows`` maps ``(type_code, channel)`` to the person's live rows.
+
+    ``instance_channels`` are the default channels the platform chose for the type (#784); they
+    come after the person's own rows and before the type's defaults.
+    """
     if channel == "in_app" and kind.mandatory:
         return Effective("immediate", DEFAULT_DIGEST_HOUR, "mandatory")
     own = rows.get((kind.code, channel))
@@ -64,6 +73,8 @@ def resolve(kind: NotificationType, channel: str, rows: dict[tuple[str, str], An
     default = rows.get((DEFAULT_TYPE, channel))
     if default is not None:
         return Effective(default.mode, default.digest_hour, "default")
+    if instance_channels is not None:
+        return Effective("immediate" if channel in instance_channels else "off", DEFAULT_DIGEST_HOUR, "instance")
     return Effective(type_default(kind, channel), DEFAULT_DIGEST_HOUR, "type")
 
 
@@ -83,12 +94,20 @@ def own_rows(user: Any) -> dict[tuple[str, str], Any]:
 
 
 def effective(user: Any, type_code: str, channel: str) -> Effective:
-    return resolve(get_notification_type(type_code), channel, own_rows(user))
+    from .instance_settings import instance_channels
+
+    return resolve(get_notification_type(type_code), channel, own_rows(user), instance_channels(type_code))
 
 
-def wants(user_id: UUID, kind: NotificationType, channel: str, rows: dict[UUID, dict[tuple[str, str], Any]]) -> str:
+def wants(
+    user_id: UUID,
+    kind: NotificationType,
+    channel: str,
+    rows: dict[UUID, dict[tuple[str, str], Any]],
+    instance_channels: tuple[str, ...] | None = None,
+) -> str:
     """The resolved mode of ``channel`` for one person, from preloaded rows."""
-    return resolve(kind, channel, rows.get(user_id, {})).mode
+    return resolve(kind, channel, rows.get(user_id, {}), instance_channels).mode
 
 
 @dataclass(frozen=True)
@@ -102,7 +121,10 @@ class PreferenceLine:
 
 
 def preference_lines(user: Any) -> list[PreferenceLine]:
+    from .instance_settings import instance_state
+
     rows = own_rows(user)
+    instance = instance_state()
     defaults = NotificationType(DEFAULT_TYPE, gettext("Padrão para todos os tipos"), default_channels=("in_app",))
     lines = []
     for kind in (defaults, *all_notification_types()):
@@ -116,7 +138,8 @@ def preference_lines(user: Any) -> list[PreferenceLine]:
                     else Effective(type_default(kind, channel), DEFAULT_DIGEST_HOUR, "type")
                 )
             else:
-                state = resolve(kind, channel, rows)
+                chosen = instance.get(kind.code)
+                state = resolve(kind, channel, rows, chosen.default_channels if chosen else None)
             channels[channel] = (state, row)
         lines.append(PreferenceLine(kind.code, kind.label, kind.mandatory, channels))
     return lines

@@ -76,6 +76,15 @@ Um tipo **sem tabela-alvo** pode declarar `open_url=função(user, row)`: ao abr
 
 Um tipo sem tabela-alvo também pode declarar `authorize=função(user, notification) -> bool`: o fan-out a chama para cada pessoa e só cria a linha de quem ela aprova, de modo que um acesso revogado entre a notificação e o fan-out impede a entrega. O tipo `comments.mention` ([menções](comments.md#menções), [#188](https://github.com/alaorneto/skeleton/issues/188)) usa os dois ganchos: `authorize` confere que o comentário segue vivo e que a pessoa ainda lê o registro, e `open_url` leva à página do registro só nessa condição. O payload tem só os identificadores do comentário, da tabela e do registro; o texto do comentário nunca vai na notificação.
 
+## Configuração da plataforma
+
+O administrador da plataforma configura cada aviso da instância em **Plataforma › Notificações › Avisos** (`/platform/notifications/types/`, [#784](https://github.com/alaorneto/skeleton/issues/784)). O catálogo mostra todos os tipos registrados, agrupados por [contexto](#contextos) (e, nos de app, por app), com quem recebe, os canais padrão e o estado. A página de um aviso tem duas partes:
+
+- **Envio.** Desligar o aviso (página de confirmação) faz com que nenhuma organização o entregue enquanto estiver desligado: o fan-out não cria linha nem entrega, e o email e o push já agendados são pulados. Um aviso obrigatório não pode ser desligado. Os **canais padrão** escolhidos aqui substituem os do código para quem não escolheu outra coisa nas preferências; o canal que a audiência não permite (`push` para pessoas externas e para a plataforma) é recusado.
+- **Texto.** Um título e um corpo por idioma de `LANGUAGES`, com a lista dos marcadores do aviso e uma prévia com valores de exemplo. "Restaurar texto de fábrica" (com confirmação) volta ao texto do código. O texto de um aviso `fixed_text` não é editável.
+
+As escolhas ficam em duas tabelas globais auditadas, com revisão: `InstanceNotificationSetting` (ligado e canais padrão, uma linha viva por tipo) e `InstanceNotificationText` (título e corpo, uma linha viva por tipo e idioma). O serviço é `skeleton.notifications.instance_settings`: toda escrita exige o administrador da plataforma completo (papéis limitados não escrevem) e a revisão da linha (409 com revisão antiga).
+
 ## `notify()`
 
 Apps usam `NotificationService` de `skeleton.service_api.notifications` ([API de serviços](service-api.md#notificationservice)), que exige que a app chamadora seja a dona do tipo e que o ator leia o alvo. Um tipo registrado sem `owner_app` não pertence a ninguém: o serviço o recusa (`Forbidden`) para qualquer chamador (#272). A função interna do núcleo é `skeleton.notifications.services.notify(type_code, *, recipients, target=None, payload=None, …)`; apps não a importam.
@@ -150,11 +159,11 @@ Cada pessoa escolhe, por tipo e canal, como recebe as notificações em todas as
 | `email` | `off`, `immediate`, `daily`, `weekly` (com `digest_hour`, de 0 a 23, no fuso da pessoa; o semanal sai às segundas-feiras) |
 | `push` | `off`, `immediate` |
 
-A resolução vai do mais específico ao mais geral: a linha da pessoa para o tipo, a linha `*` (padrão dela para todos os tipos) e, sem linha, o `default_channels` do tipo (canal listado é `immediate`, os demais `off`). Um tipo `mandatory=True` sempre chega à caixa in-app: desligá-lo responde 400, e a linha `*` não o desliga.
+A resolução vai do mais específico ao mais geral: a linha da pessoa para o tipo, a linha `*` (padrão dela para todos os tipos), os canais padrão que a plataforma escolheu para o tipo ([configuração da plataforma](#configuração-da-plataforma)) e, sem nada disso, o `default_channels` do tipo (canal listado é `immediate`, os demais `off`). Um tipo `mandatory=True` sempre chega à caixa in-app: desligá-lo responde 400, e a linha `*` não o desliga.
 
 | Rota | O que faz |
 |---|---|
-| `GET /api/v1/me/notification-preferences/` | Todos os tipos registrados e o `*`, com `mode`, `digest_hour`, `source` (`own`, `default`, `type`, `mandatory`), `sysid` e `revision` da linha, quando existe |
+| `GET /api/v1/me/notification-preferences/` | Todos os tipos registrados e o `*`, com `mode`, `digest_hour`, `source` (`own`, `default`, `instance`, `type`, `mandatory`), `sysid` e `revision` da linha, quando existe |
 | `GET`/`PUT /api/v1/me/notification-preferences/<tipo>/<canal>/` | `PUT {"mode": ..., "digest_hour": ...}`. Sem linha, cria (sem `If-Match`); com linha, exige `If-Match` com a revisão (428 sem ela, 412 desatualizada) |
 | `DELETE /api/v1/me/notification-preferences/<tipo>/<canal>/` | Exclusão lógica com `If-Match`: volta a valer o nível seguinte da resolução |
 

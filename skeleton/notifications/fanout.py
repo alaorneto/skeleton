@@ -129,6 +129,27 @@ def _display(notification) -> dict:
     }
 
 
+def delivery_enabled(type_code: str) -> bool:
+    """Whether ``type_code`` may still be delivered: a mandatory type always; another unless turned off."""
+    from .instance_settings import enabled_in_instance
+    from .registry import get_notification_type
+
+    try:
+        kind = get_notification_type(type_code)
+    except KeyError:
+        return False
+    return enabled_in_instance(kind)
+
+
+def _log_skipped(notification, reason: str) -> None:
+    import logging
+
+    logging.getLogger("skeleton.notifications").info(
+        "notification.skipped",
+        extra={"event": "notification.skipped", "reason_code": reason, "type_code": notification.type_code},
+    )
+
+
 def _text(rendered) -> dict:
     if rendered is None:
         return {}
@@ -166,6 +187,12 @@ def fan_out(*, notification_id: str, offset: int) -> int:
 
     notification = Notification.objects.filter(pk=notification_id).first()
     if notification is None or notification.fanned_out_at is not None:
+        return 0
+    if not delivery_enabled(notification.type_code):
+        # Turned off by the platform (or by the organization, #785) since notify(): nobody receives it.
+        _log_skipped(notification, "disabled")
+        notification.fanned_out_at = timezone.now()
+        notification.save(update_fields={"fanned_out_at"})
         return 0
     people = resolve_people(notification)
     authorized = _authorized(people[offset : offset + BATCH_SIZE], _target(notification))
@@ -229,13 +256,17 @@ def _channels(notification, people: list[UUID]) -> tuple[list[UUID], dict[str, l
         kind = get_notification_type(notification.type_code)
     except KeyError:
         return people, {}
+    from .instance_settings import state_of
+
     rows = rows_by_user(people)
-    inbox = [user for user in people if wants(user, kind, "in_app", rows) != "off"]
+    chosen = state_of(kind.code).default_channels
+    inbox = [user for user in people if wants(user, kind, "in_app", rows, chosen) != "off"]
     from .channels.push import push_configured
 
     names = ("email", "push") if push_configured() else ("email",)
     channels = {
-        channel: [user for user in people if wants(user, kind, channel, rows) == "immediate"] for channel in names
+        channel: [user for user in people if wants(user, kind, channel, rows, chosen) == "immediate"]
+        for channel in names
     }
     return inbox, channels
 

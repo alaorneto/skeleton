@@ -239,3 +239,52 @@ class WebPushSubscription(SystemRecord):
 
     def __str__(self):
         return f"{self.user_id} push"
+
+
+class InstanceNotificationSetting(SystemRecord):
+    """The platform's choice for one notification type in the whole instance (#784).
+
+    ``enabled=False`` stops every delivery of a type that is not mandatory, in every organization;
+    ``default_channels`` replaces the type's own default for whoever has not chosen otherwise.
+    """
+
+    type_code = models.CharField(max_length=100)
+    enabled = models.BooleanField(default=True)
+    default_channels = models.JSONField(default=list)
+    immutable_fields = ("type_code",)
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("type_code",),
+                condition=Q(deleted_at__isnull=True),
+                name="sk_notif_instance_setting_live",
+                violation_error_code="unique",
+            ),
+        ]
+
+    def __str__(self):
+        return self.type_code
+
+
+class InstanceNotificationText(SystemRecord):
+    """The platform's text of one notification type in one language (#784)."""
+
+    type_code = models.CharField(max_length=100)
+    language = models.CharField(max_length=16)
+    title = models.CharField(max_length=150)
+    body = models.TextField(blank=True, default="")
+    immutable_fields = ("type_code", "language")
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("type_code", "language"),
+                condition=Q(deleted_at__isnull=True),
+                name="sk_notif_instance_text_live",
+                violation_error_code="unique",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.type_code} {self.language}"
