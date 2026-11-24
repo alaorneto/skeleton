@@ -173,6 +173,26 @@ def _external_type(type_code: str) -> bool:
         return False
 
 
+def item_url(notification: Any) -> str:
+    """The ``{link}`` of a notification (#806): the same address for every recipient.
+
+    The route finds the person's own row (or delivery) of this notification and re-authorizes
+    them before leading to the item; an external person goes to the portal.
+    """
+    if _external_type(notification.type_code):
+        return absolute(
+            reverse("web:portal-organization", kwargs={"organization_id": notification.organization_id}),
+            organization_id=notification.organization_id,
+        )
+    return absolute(
+        reverse(
+            "notifications:item",
+            kwargs={"organization_id": notification.organization_id, "notification_id": notification.pk},
+        ),
+        organization_id=notification.organization_id,
+    )
+
+
 def open_url(notification: Any, user_id: Any) -> str:
     from ..models import NotificationRecipient
 

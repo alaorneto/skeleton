@@ -133,6 +133,23 @@ def notification_read_all(request):
 
 @platform_page(any_role=True)
 @require_safe
+def notification_item(request, notification_id):
+    """The ``{link}`` of a notice's text (#806): the person's own row of it, then as opening it."""
+    from skeleton.notifications.platform import own_row_of_notification
+
+    row = own_row_of_notification(request.user, notification_id)
+    if row is None:
+        raise Http404
+    if row.in_app:
+        return redirect("platform:notification-open", sysid=row.pk)
+    from skeleton.notifications.platform import destination
+
+    target = destination(request.user, row)
+    return redirect(target or "platform:notifications")
+
+
+@platform_page(any_role=True)
+@require_safe
 def notification_open(request, sysid):
     """Mark the notice read and go where its type leads, re-authorized; else show the notice."""
     from skeleton.notifications.platform import change, destination, own_row

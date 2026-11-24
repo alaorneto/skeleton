@@ -28,6 +28,7 @@ urlpatterns = [
     path(f"{ORG}notifications/", views.organization_inbox, name="organization"),
     path(f"{ORG}notifications/read-all/", views.read_all, name="read-all"),
     path(f"{ORG}notifications/<uuid:sysid>/open/", views.open_notification, name="open"),
+    path(f"{ORG}notifications/n/<uuid:notification_id>/", views.open_item, name="item"),
     path(
         f"{ORG}notifications/<uuid:sysid>/<str:action>/",
         views.change,

@@ -167,3 +167,9 @@ def test_the_invitation_carries_the_start_as_a_marker_of_the_text(agenda, meetin
         )
     assert rendered.title == "Convite para Planejamento"
     assert rendered.body == "Começa em 02/12/2026 12:00."  # 15:00 UTC in the recipient's time zone.
+    from skeleton.contrib.calendar.attendees import event_url
+
+    with actor_tenant(agenda.bob, agenda.a), timezone.override("America/Sao_Paulo"):
+        assert event_url(agenda.bob, notification).endswith("?view=day&date=2026-12-02")
+    with actor_tenant(agenda.bob, agenda.b):
+        assert event_url(agenda.bob, notification) is None  # Inside B, an event of A does not exist.

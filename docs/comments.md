@@ -57,6 +57,6 @@ Um comentário menciona uma pessoa com o marcador `@[nome](sysid)` ([#188](https
 - O servidor só confia no `sysid`: o nome é o rótulo que o seletor escreveu, nunca resolvido no texto. Na apresentação o rótulo aparece escapado, como `@nome`.
 - Ao gravar ou editar, cada pessoa mencionada precisa ser membro ativo da organização e ler o registro. Senão o comentário é recusado com 400 (`InvalidInput` no serviço), com a mesma mensagem para qualquer motivo, e nada é gravado. Até 20 pessoas por comentário.
 - Cada pessoa recebe uma notificação `comments.mention` por comentário (dedupe por comentário e pessoa): editar o comentário não repete a notificação e só avisa quem foi mencionado pela primeira vez. Mencionar a si mesmo não notifica ninguém.
-- O fan-out reautoriza cada destinatário (`NotificationType.authorize`): se a pessoa perdeu a leitura do registro, ou o comentário foi excluído, entre a menção e o fan-out, ela não recebe nada. Abrir a notificação leva à página do registro só enquanto ela o lê.
+- O fan-out reautoriza cada destinatário (`NotificationType.authorize`): se a pessoa perdeu a leitura do registro, ou o comentário foi excluído, entre a menção e o fan-out, ela não recebe nada. Abrir a notificação, ou o `{link}` do texto dela ([#806](https://github.com/alaorneto/skeleton/issues/806)), leva ao comentário (`#comment-<id>` na página do registro) só enquanto ela o lê.
 
 Reações, respostas em thread e menções a grupos estão fora do escopo.

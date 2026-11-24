@@ -49,6 +49,19 @@ def scenario(settings):
         register_notification_type(NotificationType("notes.plain", "Aviso simples", owner_app="example_notes"))
         register_notification_type(
             NotificationType(
+                "notes.linked",
+                gettext_lazy("Com link"),
+                payload_fields=("title",),
+                fields=(NotificationField("title", "Título"),),
+                title="Novo: {title}",
+                body="Abra em {link}",
+                default_channels=("in_app", "email"),
+                open_url=lambda user, row: f"/item/{row.payload['title']}/",
+                owner_app="example_notes",
+            )
+        )
+        register_notification_type(
+            NotificationType(
                 "notes.personal",
                 gettext_lazy("Pessoal"),
                 payload_fields=("due",),
@@ -190,3 +203,33 @@ def test_a_text_without_the_recipient_is_rendered_once_per_language_and_zone(sce
     send(scenario, users=(scenario.member, scenario.denied), **PAYLOAD)
     assert len(calls) == 1
     assert row_of(scenario, scenario.member).body == row_of(scenario, scenario.denied).body
+
+
+def test_the_link_of_the_text_opens_the_item_for_who_received_it(scenario):
+    """#806: one address per notification; the route re-authorizes each click."""
+    from skeleton.notifications.models import Notification
+    from skeleton.notifications.preferences import set_preference
+
+    with scenario.acting(scenario.denied, scenario.a):
+        set_preference(scenario.denied, type_code="notes.linked", channel="in_app", mode="off", expected_revision=None)
+    mail.outbox.clear()
+    send(scenario, "notes.linked", users=(scenario.member, scenario.denied), title="x1")
+    with system_context(reason="test:texts-link", organization_id=scenario.a.pk):
+        notification = Notification.objects.get(type_code="notes.linked")
+    path = reverse("notifications:item", kwargs={"organization_id": scenario.a.pk, "notification_id": notification.pk})
+    row = row_of(scenario, scenario.member)
+    assert row.body.startswith("Abra em ") and row.body.endswith(path)
+    link = row.body.removeprefix("Abra em ")
+    message = next(item for item in mail.outbox if scenario.denied.email in item.to)
+    assert f'<a href="{link}">{link}</a>' in message.alternatives[0][0]
+    member = support.login(scenario.member, password=FIXTURE_PASSWORD)
+    opened = member.get(path)
+    assert opened.status_code == 302 and opened["Location"] == "/item/x1/"
+    assert row_of(scenario, scenario.member).read_at is not None
+    only_email = support.login(scenario.denied, password=FIXTURE_PASSWORD)
+    assert only_email.get(path)["Location"] == "/item/x1/"  # No inbox row: the email delivery counts.
+    stranger = support.login(scenario.admin_a, password=FIXTURE_PASSWORD)
+    page = stranger.get(path)
+    assert page.status_code == 200 and "indisponível" in page.content.decode()
+    outsider = support.login(scenario.admin_b, password=FIXTURE_PASSWORD)
+    assert outsider.get(path).status_code in (403, 404)  # Not a member of A.

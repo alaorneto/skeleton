@@ -183,12 +183,15 @@ def register_reminders() -> None:
     from skeleton.jobs.registry import JobType, register_job_type
     from skeleton.notifications.registry import NotificationField, NotificationType, register_notification_type
 
+    from .attendees import event_url
+
     register_notification_type(
         NotificationType(
             NOTIFICATION,
             gettext_lazy("Lembrete de evento"),
             payload_fields=("title", "starts_at", "event"),
             default_channels=("in_app", "email"),
+            open_url=event_url,
             owner_app="skeleton_calendar",
             context="app",
             description=gettext_lazy("Lembrete antes do início de um evento"),

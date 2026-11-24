@@ -146,6 +146,7 @@ def render_notification(
     recipient_name: str = "",
     sent_at: datetime | None = None,
     template: TextTemplate | None = None,
+    link: str = "",
 ) -> Rendered:
     """Title and body for one language; call it inside the person's language and time zone."""
     template = template or resolver.template(language)
@@ -158,7 +159,7 @@ def render_notification(
     values: dict[str, Any] = {
         item.name: format_value(item, raw.get(item.name), values=raw, people=people) for item in kind.fields
     }
-    values.update(fixed_values(kind, organization_name=organization_name, sent_at=sent_at))
+    values.update(fixed_values(kind, organization_name=organization_name, sent_at=sent_at, link=link))
     values["destinatario"] = recipient_name
     values["destinatario_primeiro_nome"] = first_name(recipient_name)
     title = " ".join(render(template.title, values).split())
@@ -166,7 +167,9 @@ def render_notification(
     return Rendered(title[:TITLE_MAX] or str(kind.label)[:TITLE_MAX], body[:BODY_MAX], subjects)
 
 
-def fixed_values(kind: Any, *, organization_name: str, sent_at: datetime | None = None) -> dict[str, str]:
+def fixed_values(
+    kind: Any, *, organization_name: str, sent_at: datetime | None = None, link: str = ""
+) -> dict[str, str]:
     """The fixed placeholders but the recipient's; call it inside the person's language and time zone."""
     from django.utils import timezone
 
@@ -177,6 +180,7 @@ def fixed_values(kind: Any, *, organization_name: str, sent_at: datetime | None 
         "aviso": str(kind.label),
         "plataforma": product_name(),
         "data_atual": date_text(sent_at or timezone.now()),
+        "link": link,
     }
 
 
@@ -212,11 +216,13 @@ def render_for_people(
     organization_name: str,
     resolver: TextResolver | None = None,
     sent_at: datetime | None = None,
+    link: str = "",
 ) -> dict[Any, Rendered]:
     """One rendering per distinct (language, time zone), shared by everyone with that pair.
 
     A text that names the person who receives it is rendered for each person instead (#806).
-    ``sent_at`` (the creation of the notification) is the ``{data_atual}`` of every batch.
+    ``sent_at`` (the creation of the notification) is the ``{data_atual}`` of every batch, and
+    ``link`` the ``{link}`` address, the same for every recipient (the route re-authorizes each one).
     """
     from django.utils import timezone, translation
 
@@ -248,6 +254,7 @@ def render_for_people(
                     recipient_name=name,
                     sent_at=sent_at,
                     template=template,
+                    link=link,
                 )
         result[user_id] = cache[key]
     return result

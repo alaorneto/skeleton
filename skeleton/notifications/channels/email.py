@@ -17,7 +17,16 @@ from django.template.loader import render_to_string
 from django.utils import timezone, translation
 
 from ..texts import plain_html
-from .delivery import OPEN_STATES, active_recipient, failed_attempt, finish, open_url, preferences_url, target_readable
+from .delivery import (
+    OPEN_STATES,
+    active_recipient,
+    failed_attempt,
+    finish,
+    item_url,
+    open_url,
+    preferences_url,
+    target_readable,
+)
 
 
 def _candidates(type_code: str, stem: str, extension: str, language: str) -> list[str]:
@@ -93,7 +102,7 @@ def _notification_context(delivery: Any, notification: Any) -> dict[str, Any]:
         "label": label,
         "title": title,
         "body": body,
-        "body_html": plain_html(body),
+        "body_html": plain_html(body, link=item_url(notification)),
         "type_code": notification.type_code,
         "snapshot": dict(notification.snapshot),
         "payload": dict(notification.payload),

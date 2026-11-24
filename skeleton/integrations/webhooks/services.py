@@ -159,7 +159,7 @@ def disable_endpoint(endpoint: Any, *, reason: str, now: Any = None, failures: i
     endpoint.disabled_reason = reason
     endpoint.save(update_fields={"is_enabled", "disabled_at", "disabled_reason"})
     admins = tuple(Role.objects.filter(code="organization_admin", is_builtin=True).values_list("pk", flat=True))
-    payload = {"endpoint": endpoint.name, "reason": reason}
+    payload = {"endpoint": endpoint.name, "endpoint_id": str(endpoint.pk), "reason": reason}
     if failures is not None:
         payload["failures"] = str(failures)
     notify(

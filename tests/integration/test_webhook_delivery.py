@@ -228,6 +228,12 @@ def test_fifteen_consecutive_failures_disable_the_endpoint_and_notify(pipeline, 
         assert not endpoint.is_enabled and endpoint.disabled_reason == "consecutive_failures"
         assert WebhookEndpointHealth.objects.get(endpoint=endpoint).consecutive_failures == 15
         assert Notification.objects.filter(type_code="webhooks.endpoint_disabled").count() == 1
+        from skeleton.integrations.webhooks.delivery import endpoint_url
+
+        notice = Notification.objects.get(type_code="webhooks.endpoint_disabled")
+        assert str(endpoint.pk) in endpoint_url(fixture.admin, notice)  # Where its {link} leads (#806).
+    with actor_tenant(fixture.alice, fixture.a):
+        assert endpoint_url(fixture.alice, notice) is None  # Without integrations.manage.
     publish(fixture, notes[15])
     drain()
     assert len(receiver.received) == 15

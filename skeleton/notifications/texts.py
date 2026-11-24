@@ -5,7 +5,9 @@ placeholder, ``{{`` and ``}}`` are literal braces, and any other brace is an err
 attribute access, index, format spec or conversion (``str.format`` would allow ``{x.__class__}``),
 no Django template and no HTML or Markdown: rendering only replaces placeholders by the values
 the caller formatted, and the HTML form escapes every piece. Links (open, preferences,
-unsubscribe) never come from the text: the core layout adds them.
+unsubscribe) never come from the text: the core layout adds them. The only address a text may
+carry is the value of ``{link}`` (#806), built by the core; in HTML only that exact address
+becomes a link, never another one written in the text.
 """
 
 from __future__ import annotations
@@ -28,10 +30,12 @@ TOKEN = re.compile(r"\{\{|\}\}|\{([^{}]*)\}|[{}]")
 # ``organizacao``: the public name of the organization (empty for the platform's own notices);
 # ``aviso``: the label of the type; ``plataforma``: the product name of the instance;
 # ``data_atual``: the date the notification was created, in the recipient's time zone;
+# ``link``: the address that opens the item of the notification, re-authorizing each click;
 # ``destinatario`` and ``destinatario_primeiro_nome``: the display name and the first name of
 # the person who receives it (only on that person's own row).
 RECIPIENT = ("destinatario", "destinatario_primeiro_nome")
-FIXED = ("organizacao", "aviso", "plataforma", "data_atual", *RECIPIENT)
+FIXED = ("organizacao", "aviso", "plataforma", "data_atual", "link", *RECIPIENT)
+SAMPLE_LINK = "https://exemplo.test/notificacao"
 TITLE_MAX = 150
 BODY_MAX = 2000
 BODY_LINES = 30
@@ -131,9 +135,17 @@ def render_html(text: str, values: Mapping[str, Any] | None = None) -> SafeStrin
     return mark_safe(str(escaped).replace("\n", "<br>"))  # noqa: S308 - escaped above
 
 
-def plain_html(text: str) -> SafeString:
-    """Already rendered text as HTML: escaped, line breaks as ``<br>``; braces are never parsed again."""
-    return mark_safe(str(conditional_escape(text or "")).replace("\n", "<br>"))  # noqa: S308 - escaped
+def plain_html(text: str, *, link: str = "") -> SafeString:
+    """Already rendered text as HTML: escaped, line breaks as ``<br>``; braces are never parsed again.
+
+    ``link`` is the core's ``{link}`` address of this notification: each exact occurrence becomes
+    an anchor; any other address in the text stays plain text.
+    """
+    escaped = str(conditional_escape(text or ""))
+    if link and link.startswith(("https://", "http://", "/")):
+        url = str(conditional_escape(link))
+        escaped = escaped.replace(url, f'<a href="{url}">{url}</a>')
+    return mark_safe(escaped.replace("\n", "<br>"))  # noqa: S308 - escaped above
 
 
 def _date(raw: Any, *, with_time: bool) -> str:
@@ -212,6 +224,7 @@ def fixed_samples(*, organization: str) -> dict[str, str]:
         "organizacao": organization,
         "plataforma": product_name(),
         "data_atual": date_text(timezone.localdate()),
+        "link": SAMPLE_LINK,
         "destinatario": person,
         "destinatario_primeiro_nome": first_name(person),
     }
@@ -226,6 +239,7 @@ def fixed_descriptions() -> tuple[tuple[str, str], ...]:
         ("{plataforma}", gettext("nome da plataforma")),
         ("{aviso}", gettext("nome do aviso")),
         ("{data_atual}", gettext("data do envio")),
+        ("{link}", gettext("endereço que abre o item do aviso")),
     )
 
 

@@ -90,6 +90,20 @@ def open_notification(request, organization_id, sysid):
     )
 
 
+@tenant_page()
+@transaction.atomic
+def open_item(request, organization_id, notification_id):
+    """The ``{link}`` of a notification's text (#806): re-authorizes the person on every click."""
+    url = inbox.open_item(request.user, notification_id)
+    if url is not None:
+        return redirect(url)
+    return render(
+        request,
+        "skeleton/notifications/unavailable.html",
+        {"title": gettext("Conteúdo indisponível"), "organization_id": organization_id},
+    )
+
+
 def _inbox_row():
     from skeleton.api.openapi import model_fields
 

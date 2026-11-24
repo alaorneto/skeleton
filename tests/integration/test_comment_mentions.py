@@ -83,6 +83,9 @@ def test_mentioned_reader_is_notified_once(scenario, subtests):
         client.post("/accounts/login/", {"login": scenario.member.email, "password": FIXTURE_PASSWORD})
         opened = client.get(f"/o/{scenario.a.pk}/notifications/{row.pk}/open/")
         assert opened.status_code == 302 and str(scenario.note.pk) in opened["Location"]
+        assert opened["Location"].endswith(f"#comment-{comment.sysid}")  # Straight to the comment (#806).
+        linked = client.get(f"/o/{scenario.a.pk}/notifications/n/{row.notification_id}/")
+        assert linked.status_code == 302 and linked["Location"] == opened["Location"]
 
 
 def test_mentioning_non_readers_or_non_members_is_refused(scenario, subtests):

@@ -16,6 +16,7 @@ from skeleton.notifications.texts import (
     parse,
     placeholder_list,
     placeholders,
+    plain_html,
     render,
     render_html,
     sample_values,
@@ -114,6 +115,7 @@ def test_fixed_placeholders_of_the_recipient_and_of_general_use():
         "aviso",
         "plataforma",
         "data_atual",
+        "link",
         "destinatario",
         "destinatario_primeiro_nome",
     }
@@ -137,3 +139,13 @@ def test_the_marker_list_shows_the_fields_then_the_fixed_placeholders():
     names = [item["placeholder"] for item in placeholder_list(kind)]
     assert names[0] == "{due}"
     assert {name.strip("{}") for name in names[1:]} == set(FIXED)
+
+
+def test_only_the_core_link_becomes_an_anchor_in_html():
+    link = "https://app.example.test/o/x/notifications/n/1/"
+    html = plain_html(f"Veja {link}\nou https://evil.example/phish e <b>", link=link)
+    assert f'<a href="{link}">{link}</a>' in html
+    assert "https://evil.example/phish" in html and 'href="https://evil.example' not in html
+    assert "&lt;b&gt;" in html and "<br>" in html
+    assert "<a " not in plain_html(f"Veja {link}")  # Without the link argument, nothing is anchored.
+    assert "<a " not in plain_html("javascript:alert(1)", link="javascript:alert(1)")  # Only http(s) or a path.

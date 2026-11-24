@@ -168,6 +168,37 @@ def notify_attendees(event: Any, type_code: str, *, users: tuple[UUID, ...] | No
     )
 
 
+def event_url(user: Any, row: Any) -> str | None:
+    """Where an event notification leads (#806): the day of the event, while the person reads it."""
+    from datetime import date, datetime
+
+    from django.urls import NoReverseMatch, reverse
+    from django.utils import timezone
+
+    from .policies import readable_events
+
+    payload = row.payload
+    try:
+        event_id = UUID(str(payload.get("event")))
+    except (TypeError, ValueError):
+        return None
+    if not readable_events(user).filter(pk=event_id).exists():
+        return None
+    day = ""
+    try:
+        if payload.get("start_date"):
+            day = date.fromisoformat(str(payload["start_date"])).isoformat()
+        elif payload.get("starts_at"):
+            day = timezone.localtime(datetime.fromisoformat(str(payload["starts_at"]))).date().isoformat()
+    except (TypeError, ValueError):
+        day = ""
+    try:
+        home = reverse("skeleton_calendar:home", kwargs={"organization_id": row.organization_id})
+    except NoReverseMatch:
+        return None
+    return f"{home}?view=day&date={day}" if day else home
+
+
 def register_attendee_notifications() -> None:
     from skeleton.notifications.registry import NotificationField, NotificationType, register_notification_type
 
@@ -200,6 +231,7 @@ def register_attendee_notifications() -> None:
                 code,
                 label,
                 payload_fields=("title", "event", "starts_at", "start_date"),
+                open_url=event_url,
                 owner_app="skeleton_calendar",
                 context="app",
                 description=description,
