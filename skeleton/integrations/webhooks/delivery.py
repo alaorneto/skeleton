@@ -255,7 +255,7 @@ def deliver(*, delivery_id: str, actor: Any) -> None:
     _finish(delivery, WebhookDelivery.State.FAILED, now=now, error_code=error or f"http_{status}", **common)
 
 
-def endpoint_url(user, row):
+def endpoint_url(user: Any, row: Any) -> str | None:
     """Where a disabled webhook leads (#806): its page, for who still manages integrations."""
     from uuid import UUID
 

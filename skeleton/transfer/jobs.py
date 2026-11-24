@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
 
-def transfer_url(user, row):
+
+def transfer_url(user: Any, row: Any) -> str | None:
     """Where a finished transfer leads (#806): the person's transfers, only for their own transfer."""
     from django.core.exceptions import ValidationError
     from django.urls import NoReverseMatch, reverse
