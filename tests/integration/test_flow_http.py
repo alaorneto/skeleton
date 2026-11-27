@@ -373,3 +373,49 @@ def test_task_scope_is_one_segmented_selector_and_flow_screens_share_tabs(world,
             assert nav.count('aria-current="page"') == 1 and f'href="{target}" aria-current="page"' in nav
     member = alice.get(tabs["instances"]).content.decode().split('<nav class="link-tabs"', 1)[1].split("</nav>", 1)[0]
     assert tabs["operations"] not in member and tabs["drafts"] not in member
+
+
+@pytest.mark.needs_example_app
+def test_task_page_escapes_field_help_text_and_password_change_keeps_formatted_help(world, subtests):
+    """Plain help_text on flow fields is escaped, while Django SafeString password help stays formatted (#909)."""
+    payload = "<a href='https://evil.test'>Clique para validar</a>"
+    flows.register_flow(
+        flows.FlowSpec(
+            key="example_notes.helptext",
+            version=1,
+            label="Fluxo Ajuda",
+            owner_app="example_notes",
+            subject_table="example_notes.note",
+            steps=(
+                flows.start("start"),
+                flows.task(
+                    "fill",
+                    label="Preencher",
+                    assignees=(flows.Assignment.starter(),),
+                    form=flows.Form(flows.Field("summary", "str", label="Resumo", help_text=payload)),
+                ),
+                flows.end("done", outcome="approved"),
+            ),
+            transitions=(
+                flows.Transition("start", "fill"),
+                flows.Transition("fill", "done", key="submit", label="Enviar"),
+            ),
+        )
+    )
+    with actor_tenant(world.alice, world.a):
+        instance, _ = services.start_instance("example_notes.helptext", subject_id=world.private.pk, actor=world.alice)
+        task_id = FlowTask.objects.get(instance=instance).pk
+
+    alice = login(world.alice)
+    with subtests.test("flow task help_text escaped"):
+        page = alice.get(url("task", world, sysid=task_id))
+        assert page.status_code == 200
+        html = page.content.decode()
+        assert "<a href='https://evil.test'>" not in html
+        assert "&lt;a href=&#x27;https://evil.test&#x27;&gt;Clique para validar&lt;/a&gt;" in html
+
+    with subtests.test("django password change help_text stays formatted"):
+        change = alice.get(reverse("account_change_password"))
+        assert change.status_code == 200
+        html = change.content.decode()
+        assert "<ul>" in html and "<li>" in html

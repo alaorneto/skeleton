@@ -144,7 +144,7 @@ Handlers, condições e regras recebem um `FlowContext` somente leitura (organiz
 
 `Form(Field(...), ...)` declara os campos aceitos. Tipos: `str`, `text`, `int`, `decimal`, `bool`, `date`, `datetime`, `choice` (com `choices`) e `user` (o UUID de uma pessoa com vínculo ativo na organização). Na tela da tarefa, `datetime` é um seletor `datetime-local` no fuso da pessoa (o serviço recebe ISO 8601 com o deslocamento), `user` é uma lista das pessoas ativas da organização (`OrganizationService.members`, até 200; acima disso, ou se a consulta for recusada, volta a ser um campo de texto para o identificador) e o campo obrigatório leva o `*` da página, não do rótulo. A lista é só apresentação: o serviço continua validando a pessoa (#474).
 
-- **Allowlist:** um campo não declarado no formulário da etapa ou da transição é recusado, não ignorado.
+- **Allowlist:** um campo não declarado no formulário da etapa ou da transição é recusado, não ignorado. O `help_text` de um campo é texto simples, sempre escapado no HTML (#909).
 - **Validação no servidor:** obrigatório, tipo, tamanho, mínimo e máximo, escolha válida, pessoa da mesma organização.
 - **Sensíveis:** um campo `sensitive=True` é guardado numa coluna à parte (`sensitive_data` na instância, `sensitive_values` no envio), que a auditoria redige por inteiro. Ele não entra em eventos nem em notificações, e só é devolvido a quem pode agir numa tarefa da instância.
 - **Histórico:** cada envio é uma linha `FlowSubmission`, imutável salvo pelos valores, que só a retenção e a eliminação da pessoa alteram. A instância guarda os valores mais recentes de cada campo (`data`), que as condições leem.
