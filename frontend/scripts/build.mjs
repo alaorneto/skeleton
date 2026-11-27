@@ -183,7 +183,7 @@ async function buildInto(outRoot) {
     },
     files: Object.fromEntries(
       [...files.entries()]
-        .filter(([name]) => name.startsWith("vendor/") || name.startsWith("markdown_editor."))
+        .filter(([name]) => name.startsWith("vendor/") || name.startsWith("markdown_editor"))
         .map(([name, data]) => [name, sha256(data)]),
     ),
   };
