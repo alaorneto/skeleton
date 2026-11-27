@@ -88,7 +88,11 @@ def test_api_and_service_list_only_the_site(scenario):
 
 def test_personal_data_export_is_complete_on_any_host(scenario):
     client = site_client(scenario.member, host_of(scenario.a), FIXTURE_PASSWORD)
-    response = client.get("/profile/privacy/export/")
+    assert client.get("/profile/privacy/export/").status_code == 405
+    response = client.post(
+        "/profile/privacy/export/",
+        {"csrfmiddlewaretoken": client.cookies["csrftoken"].value},
+    )
     assert response.status_code == 200
     content = b"".join(response.streaming_content) if response.streaming else response.content
     with zipfile.ZipFile(BytesIO(content)) as archive:

@@ -119,7 +119,8 @@ def _extra_scopes(scopes: Any) -> list[str]:
     try:
         return validate_scopes(list(scopes), feed=False)
     except ValidationError as exc:
-        raise ValidationError({"scope": exc.message_dict.get("scopes", exc.messages)}) from None
+        detail = exc.message_dict.get("scopes", exc.messages) if hasattr(exc, "error_dict") else exc.messages
+        raise ValidationError({"scope": detail}) from None
 
 
 def register_client(

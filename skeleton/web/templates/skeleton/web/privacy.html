@@ -6,7 +6,7 @@
 <section class="card">
   <h2>{% translate "Exportar meus dados" %}</h2>
   <p class="mt-2 text-sm/6 text-body">{% if site_mode %}{% translate "O arquivo é um ZIP com JSON. Ele não inclui os registros de negócio." %}{% else %}{% translate "O arquivo é um ZIP com JSON. Ele não inclui os registros de negócio das organizações, que pertencem a cada uma delas." %}{% endif %}</p>
-  <a class="btn btn-primary mt-4" href="{% url 'web:privacy-export' %}">{% translate "Baixar meus dados" %}</a>
+  <form method="post" action="{% url 'web:privacy-export' %}" class="mt-4">{% csrf_token %}<button type="submit" class="btn btn-primary">{% translate "Baixar meus dados" %}</button></form>
 </section>
 <section class="card mt-5 border-danger-subtle" aria-labelledby="erasure-title">
   <h2 id="erasure-title">{% translate "Eliminar minha identidade" %}</h2>

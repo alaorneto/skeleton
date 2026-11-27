@@ -28,12 +28,12 @@ def scenario(monkeypatch):
         yield build_service_scenario(Note, slug="privacy")
 
 
-def login(user):
-    return support.login(user, password=FIXTURE_PASSWORD, csrf=False)
+def login(user, *, csrf=False):
+    return support.login(user, password=FIXTURE_PASSWORD, csrf=csrf)
 
 
 def exported(client):
-    response = client.get(reverse("web:privacy-export"))
+    response = client.post(reverse("web:privacy-export"))
     assert response.status_code == 200, response.status_code
     assert response["Content-Disposition"].startswith("attachment;")
     assert "no-store" in response["Cache-Control"]
@@ -60,7 +60,58 @@ def test_the_export_covers_every_organization_of_the_person_and_nothing_of_other
 
 def test_the_page_needs_a_login_and_shows_the_download(scenario):
     assert Client().get(reverse("web:privacy")).status_code == 302
-    page = login(scenario.outsider).get(reverse("web:privacy")).content.decode()
+    client = login(scenario.outsider, csrf=True)
+    page = client.get(reverse("web:privacy")).content.decode()
     assert reverse("web:privacy-export") in page
-    data = exported(login(scenario.outsider))
+    assert client.get(reverse("web:privacy-export")).status_code == 405
+    assert client.post(reverse("web:privacy-export")).status_code == 403  # CSRF required (#910).
+    response = client.post(reverse("web:privacy-export"), {"csrfmiddlewaretoken": client.cookies["csrftoken"].value})
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        data = json.loads(archive.read("dados.json"))
     assert data["organizations"] == []  # No membership: only the identity.
+
+
+def test_representative_views_handle_list_validation_error_without_500(scenario, monkeypatch, subtests):
+    """Views that forward service ValidationErrors handle list-form errors as 400, never 500 (#910)."""
+    from django.core.exceptions import ValidationError
+
+    from skeleton.integrations.tokens import services as token_services
+    from skeleton.tenancy import admission
+
+    def boom(*_args, **_kwargs):
+        raise ValidationError("Erro simples sem dicionário.")
+
+    client = login(scenario.admin_a, csrf=True)
+    with subtests.test("admission policy view"):
+        monkeypatch.setattr(admission, "configure_policy", boom)
+        page = client.get(reverse("web:admission", kwargs={"organization_id": scenario.a.pk}))
+        assert page.status_code == 200
+        response = client.post(
+            reverse("web:admission", kwargs={"organization_id": scenario.a.pk}),
+            {
+                "csrfmiddlewaretoken": client.cookies["csrftoken"].value,
+                "join_requests_enabled": "",
+                "domain_join_enabled": "",
+                "revision": "1",
+            },
+        )
+        assert response.status_code == 400
+        assert "Erro simples sem dicionário." in response.content.decode()
+
+    with subtests.test("tokens create view"):
+        monkeypatch.setattr(token_services, "issue_personal_token", boom)
+        list_url = reverse("integrations:personal-tokens")
+        page = client.get(list_url)
+        assert page.status_code == 200
+        response = client.post(
+            list_url,
+            {
+                "csrfmiddlewaretoken": client.cookies["csrftoken"].value,
+                "name": "Token teste",
+                "days": "30",
+                "scopes": ["example_notes.note:read"],
+            },
+        )
+        assert response.status_code == 400
+        assert "Erro simples sem dicionário." in response.content.decode()

@@ -32,7 +32,7 @@ Em `/profile/privacy/`, a pessoa baixa um ZIP com `dados.json` ([#190](https://g
 
 - os acessos externos ao [portal](portal.md) (#536): organização, app que admitiu a pessoa, situação, criação e último acesso; nada sobre terceiros (os dados que uma app guarda sobre a pessoa são responsabilidade da app).
 
-A exportação é montada na própria requisição. Ela é uma rota agregada que lê cada organização num contexto só de leitura, com o vínculo revalidado. O ZIP sai como anexo e com `no-store`, então não há arquivo guardado para proteger ou expirar. O download exige autenticação recente e grava o evento de segurança `privacy.export`. Nunca aparecem dados de outra pessoa, segredos ou registros de negócio.
+A exportação é montada na própria requisição, disparada por POST com CSRF para evitar geração por prefetch (#910). Ela é uma rota agregada que lê cada organização num contexto só de leitura, com o vínculo revalidado. O ZIP sai como anexo e com `no-store`, então não há arquivo guardado para proteger ou expirar. O download exige autenticação recente e grava o evento de segurança `privacy.export`. Nunca aparecem dados de outra pessoa, segredos ou registros de negócio.
 
 ## Eliminação da identidade
 

@@ -172,11 +172,14 @@ def _locked():
 
 
 def _apply_error(form: OrganizationSettingsForm, error: ValidationError, site_form=None) -> None:
-    for field, problems in error.message_dict.items():
-        if site_form is not None and field in site_form.fields:
-            site_form.add_error(field, problems)
-        else:
-            form.add_error(field if field in form.fields else None, problems)
+    if hasattr(error, "error_dict"):
+        for field, problems in error.message_dict.items():
+            if site_form is not None and field in site_form.fields:
+                site_form.add_error(field, problems)
+            else:
+                form.add_error(field if field in form.fields else None, problems)
+    else:
+        form.add_error(None, error.messages)
 
 
 def _page(
@@ -362,7 +365,9 @@ def organization_logo_update(request, organization_id):
             logo_errors=[gettext("As configurações mudaram. Atualize a página.")],
         )
     except ValidationError as exc:
-        errors = [message for messages_ in exc.message_dict.values() for message in messages_]
+        from skeleton.web.forms import validation_messages
+
+        errors = validation_messages(exc)
         return _page(request, organization_id, form, status=400, logo_errors=errors)
     messages.success(request, gettext("Logo removido.") if action == "remove" else gettext("Logo atualizado."))
     return redirect("web:organization-settings", organization_id=organization_id)
@@ -531,7 +536,9 @@ def organization_icon_update(request, organization_id):
             icon_errors=[gettext("As configurações mudaram. Atualize a página.")],
         )
     except ValidationError as exc:
-        errors = [message for messages_ in exc.message_dict.values() for message in messages_]
+        from skeleton.web.forms import validation_messages
+
+        errors = validation_messages(exc)
         return _page(request, organization_id, form, status=400, icon_errors=errors)
     messages.success(request, gettext("Ícone removido.") if action == "remove" else gettext("Ícone atualizado."))
     return redirect("web:organization-settings", organization_id=organization_id)

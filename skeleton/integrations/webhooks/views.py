@@ -85,8 +85,9 @@ def _apply_error(form, error):
     if isinstance(error, ConcurrentUpdate):
         form.add_error(None, gettext("O webhook mudou. Atualize a página antes de tentar novamente."))
         return 409
-    for field, problems in error.message_dict.items():
-        form.add_error(field if field in form.fields else None, problems)
+    from skeleton.web.forms import form_error
+
+    form_error(form, error)
     return 400
 
 

@@ -77,11 +77,9 @@ def organization_signup(request):
                 form.add_error(None, str(exc))
                 status = 403
             except ValidationError as exc:
-                if hasattr(exc, "error_dict"):
-                    for field, problems in exc.message_dict.items():
-                        form.add_error(field if field in form.fields else None, problems)
-                else:
-                    form.add_error(None, exc.messages)
+                from skeleton.web.forms import form_error
+
+                form_error(form, exc)
                 status = 400
             else:
                 home = reverse("web:dashboard", kwargs={"organization_id": result.organization.pk})

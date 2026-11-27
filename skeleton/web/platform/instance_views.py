@@ -221,8 +221,9 @@ def instance_identity_update(request):
         form.add_error(None, gettext("A identidade mudou. Atualize a página."))
         return _page(request, identity_form=form, status=409)
     except ValidationError as exc:
-        for field, problems in exc.message_dict.items():
-            form.add_error(field if field in form.fields else None, problems)
+        from skeleton.web.forms import form_error
+
+        form_error(form, exc)
         return _page(request, identity_form=form, status=400)
     messages.success(request, gettext("Identidade da instância atualizada."))
     return redirect("platform:instance")

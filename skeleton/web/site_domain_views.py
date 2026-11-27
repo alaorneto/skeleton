@@ -74,8 +74,9 @@ def site_domain_list(request, organization_id):
         with transaction.atomic():
             site_domains.add_site_domain(actor=request.user, domain=form.cleaned_data["domain"])
     except ValidationError as exc:
-        for field, problems in exc.message_dict.items():
-            form.add_error(field if field in form.fields else None, problems)
+        from skeleton.web.forms import form_error
+
+        form_error(form, exc)
         return _page(request, organization_id, form, status=400)
     messages.success(request, gettext("Domínio cadastrado. Publique o registro TXT e verifique."))
     return redirect("web:site-domains", organization_id=organization_id)

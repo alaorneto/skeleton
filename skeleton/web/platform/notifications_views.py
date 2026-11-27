@@ -148,6 +148,13 @@ def notification_item(request, notification_id):
     return redirect(target or "platform:notifications")
 
 
+def _is_prefetch(request):
+    return (
+        request.headers.get("Sec-Purpose", "").lower() == "prefetch"
+        or request.headers.get("Purpose", "").lower() == "prefetch"
+    )
+
+
 @platform_page(any_role=True)
 @require_safe
 def notification_open(request, sysid):
@@ -157,7 +164,8 @@ def notification_open(request, sysid):
     row = own_row(request.user, sysid)
     if row is None:
         raise Http404
-    change(request.user, sysid, "read")
+    if request.method == "GET" and not _is_prefetch(request):
+        change(request.user, sysid, "read")
     target = destination(request.user, row)
     if target:
         return redirect(target)

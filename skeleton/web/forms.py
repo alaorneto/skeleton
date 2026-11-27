@@ -244,3 +244,21 @@ def wire_values(cleaned):
         for name, value in cleaned.items()
         if name != "revision" and not name.startswith(CHANGE_PREFIX)
     }
+
+
+def form_error(form, exc, *, field_map=None):
+    """Attach a Django ``ValidationError`` (dict or list form) to a form (#910)."""
+    if hasattr(exc, "error_dict"):
+        mapping = field_map or {}
+        for field, problems in exc.message_dict.items():
+            target = mapping.get(field, field)
+            form.add_error(target if target in form.fields else None, problems)
+    else:
+        form.add_error(None, exc.messages)
+
+
+def validation_messages(exc):
+    """Flatten a Django ``ValidationError`` (dict or list form) to user-facing messages (#910)."""
+    if hasattr(exc, "error_dict"):
+        return [message for items in exc.message_dict.values() for message in items]
+    return list(exc.messages)

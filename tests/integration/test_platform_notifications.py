@@ -171,6 +171,12 @@ def test_inbox_pages(people, subtests):
         for link in (platform_link, inbox_link):
             assert link and 'class="attention-dot' in link[1] and "há avisos não lidos" in link[1]
             assert "counter" not in link[1] and "2" not in re.sub(r"<[^>]+>", "", link[1])
+    with subtests.test("HEAD and prefetch do not mark the notice read (#910)"):
+        open_url = reverse("platform:notification-open", kwargs={"sysid": admin_row.pk})
+        assert client.head(open_url).status_code == 302
+        assert unread_count(admin) == 2
+        assert client.get(open_url, HTTP_SEC_PURPOSE="prefetch").status_code == 302
+        assert unread_count(admin) == 2
     with subtests.test("open leads to the type's page and marks read"):
         response = client.get(reverse("platform:notification-open", kwargs={"sysid": admin_row.pk}))
         assert response.status_code == 302 and response["Location"] == reverse("platform:jobs")

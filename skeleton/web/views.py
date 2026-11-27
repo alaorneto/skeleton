@@ -261,11 +261,9 @@ def form_error(form, error):
         form.add_error(None, gettext("A plataforma precisa manter ao menos um administrador ativo."))
         return 409
     if isinstance(error, ValidationError):
-        if hasattr(error, "message_dict"):
-            for field, errors in error.message_dict.items():
-                form.add_error(field if field in form.fields else None, errors)
-        else:
-            form.add_error(None, error.messages)
+        from skeleton.web.forms import form_error
+
+        form_error(form, error)
         limited = code == "quota_exceeded" or any(
             item.code == "quota_exceeded"
             for items in (error.error_dict.values() if hasattr(error, "error_dict") else [error.error_list])

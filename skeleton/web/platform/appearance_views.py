@@ -265,7 +265,9 @@ def appearance_image(request, kind):
         else:
             raise ValidationError({kind: gettext("Escolha um arquivo de imagem.")})
     except ValidationError as error:
-        errors = [message for items in error.message_dict.values() for message in items]
+        from skeleton.web.forms import validation_messages
+
+        errors = validation_messages(error)
         return _page(request, image_errors={kind: errors}, status=400)
     _log("appearance.image_changed", request, f"{kind}:{action}")
     messages.success(request, gettext("Imagem removida.") if action == "remove" else gettext("Imagem atualizada."))
@@ -292,7 +294,9 @@ def appearance_activate(request):
             actor=request.user, builtin=builtin, theme_id=theme, app_theme=app_theme, expected_revision=revision
         )
     except ValidationError as error:
-        detail = " ".join(message for items in error.message_dict.values() for message in items)
+        from skeleton.web.forms import validation_messages
+
+        detail = " ".join(validation_messages(error))
         return _page(request, activate_error=detail, status=400)
     kind = "builtin" if builtin else ("theme" if theme else ("app" if app_theme else "core"))
     _log("appearance.theme_activated", request, kind)
@@ -471,7 +475,9 @@ def appearance_theme_delete(request, sysid):
     try:
         delete_theme(actor=request.user, theme_id=theme.pk, expected_revision=revision)
     except ValidationError as error:
-        context["error"] = " ".join(message for items in error.message_dict.values() for message in items)
+        from skeleton.web.forms import validation_messages
+
+        context["error"] = " ".join(validation_messages(error))
         return render(request, "skeleton/web/platform/confirm.html", context, status=400)
     if package:
         _log("appearance.package_removed", request, "package")

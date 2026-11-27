@@ -238,8 +238,9 @@ def admission_policy(request, organization_id):
                 form.add_error(None, "A política mudou desde que a página foi aberta. Atualize e tente de novo.")
                 status = 409
             except ValidationError as exc:
-                for field, problems in exc.message_dict.items():
-                    form.add_error(field if field in form.fields else None, problems)
+                from skeleton.web.forms import form_error
+
+                form_error(form, exc)
                 status = 400
             else:
                 messages.success(request, "Política de admissão salva.")
@@ -447,8 +448,9 @@ def join_links(request, organization_id):
         form.add_error("role", "Só o administrador cria links com papel que tem capacidades administrativas.")
         return _links_page(request, organization_id, form, status=403)
     except ValidationError as exc:
-        for field, problems in exc.message_dict.items():
-            form.add_error(field if field in form.fields else None, problems)
+        from skeleton.web.forms import form_error
+
+        form_error(form, exc)
         return _links_page(request, organization_id, form, status=400)
     url = shareable_url(
         request, organization_id, reverse("web:join-link", kwargs={"organization_id": organization_id, "token": token})
@@ -540,8 +542,9 @@ def verified_domains(request, organization_id):
                 actor=request.user, domain=data["domain"], admission=data["admission"], role=data["role"]
             )
     except ValidationError as exc:
-        for field, problems in exc.message_dict.items():
-            form.add_error(field if field in form.fields else None, problems)
+        from skeleton.web.forms import form_error
+
+        form_error(form, exc)
         return _domains_page(request, organization_id, form, status=400)
     messages.success(request, "Domínio cadastrado. Publique o registro TXT e verifique.")
     return redirect("web:verified-domains", organization_id=organization_id)

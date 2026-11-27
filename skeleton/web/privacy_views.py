@@ -84,7 +84,7 @@ def privacy_erasure(request):
 @aggregate_route
 @login_required
 @never_cache
-@require_safe
+@require_POST
 @recent_authentication_required
 def privacy_export(request):
     from skeleton.accounts.privacy import export_my_data

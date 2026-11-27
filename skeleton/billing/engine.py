@@ -769,7 +769,6 @@ def activate_apps(labels: list[str]) -> None:
                 with transaction.atomic():
                     activate_for_entitlement(target)
             except ValidationError as error:
-                logger.info(
-                    "billing.app_not_activated", extra={"app_label": target, "codes": sorted(error.message_dict)}
-                )
+                codes = sorted(error.message_dict) if hasattr(error, "error_dict") else ["__all__"]
+                logger.info("billing.app_not_activated", extra={"app_label": target, "codes": codes})
                 break

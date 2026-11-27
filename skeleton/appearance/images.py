@@ -52,9 +52,12 @@ def _checked(kind: str, upload: Any) -> int:
         checked_logo(upload)
         return LOGO_MAX_BYTES
     except ValidationError as error:
-        raise ValidationError(
-            {kind: [message for messages in error.message_dict.values() for message in messages]}
-        ) from None
+        flat = (
+            [message for messages in error.message_dict.values() for message in messages]
+            if hasattr(error, "error_dict")
+            else list(error.messages)
+        )
+        raise ValidationError({kind: flat}) from None
 
 
 def _delete_after_commit(key: str) -> None:
