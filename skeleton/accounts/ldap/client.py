@@ -14,7 +14,9 @@ import re
 import ssl
 import uuid
 from collections.abc import Callable, Iterator
+from contextlib import suppress
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
@@ -23,6 +25,7 @@ from skeleton.accounts.emails import normalize_email
 DEFAULT_TIMEOUT_S = 5
 ID_ATTRIBUTES = ("entryUUID", "objectGUID")
 PAGE_SIZE = 500
+MAX_CA_BUNDLE_BYTES = 1024 * 1024
 
 
 class DirectoryError(Exception):
@@ -139,6 +142,37 @@ def _tls(options: DirectoryOptions) -> Any:
     )
 
 
+def validate_ca_bundle(path: str) -> str:
+    """Validate an operator-supplied CA bundle path: regular readable X.509 PEM file < 1 MiB (#861)."""
+    cleaned = str(path or "").strip()
+    if not cleaned:
+        return ""
+    candidate = Path(cleaned)
+    try:
+        if not candidate.is_file():
+            raise ValueError("Informe o caminho de um arquivo PEM de certificado CA legível no servidor.")
+        size = candidate.stat().st_size
+        if size == 0 or size > MAX_CA_BUNDLE_BYTES:
+            raise ValueError("O arquivo da CA deve ter entre 1 byte e 1 MiB.")
+        raw = candidate.read_bytes()
+    except OSError:
+        raise ValueError("Informe o caminho de um arquivo PEM de certificado CA legível no servidor.") from None
+    from cryptography import x509
+
+    try:
+        certs = x509.load_pem_x509_certificates(raw)
+    except ValueError:
+        raise ValueError("O arquivo da CA precisa conter certificados X.509 em formato PEM válido.") from None
+    if not certs:
+        raise ValueError("O arquivo da CA precisa conter ao menos um certificado X.509 em PEM.")
+    return cleaned
+
+
+def _safe_unbind(connection: Any) -> None:
+    with suppress(Exception):
+        connection.unbind()
+
+
 def default_connect(options: DirectoryOptions, user: str, password: str) -> Any:
     """An open, TLS-protected, not yet bound connection (``ldap3``)."""
     from ldap3 import Connection, Server
@@ -151,20 +185,24 @@ def default_connect(options: DirectoryOptions, user: str, password: str) -> Any:
         connect_timeout=options.timeout_s,
         get_info=None,
     )
+    connection = Connection(
+        server,
+        user=user,
+        password=password,
+        receive_timeout=options.timeout_s,
+        raise_exceptions=False,
+        read_only=True,
+    )
     try:
-        connection = Connection(
-            server,
-            user=user,
-            password=password,
-            receive_timeout=options.timeout_s,
-            raise_exceptions=False,
-            read_only=True,
-        )
         connection.open()
         if options.url.startswith("ldap://") and not connection.start_tls():
             raise DirectoryError("start_tls_failed")
     except LDAPException as exc:
+        _safe_unbind(connection)
         raise DirectoryError("unreachable") from exc
+    except BaseException:
+        _safe_unbind(connection)
+        raise
     return connection
 
 
@@ -180,8 +218,12 @@ def set_connection_factory(factory: Connect | None) -> None:
 
 def _service(options: DirectoryOptions, bind_password: str) -> Any:
     connection = _connect(options, options.bind_dn, bind_password)
-    if not connection.bind():
-        raise DirectoryError("service_bind_failed")
+    try:
+        if not connection.bind():
+            raise DirectoryError("service_bind_failed")
+    except BaseException:
+        _safe_unbind(connection)
+        raise
     return connection
 
 
