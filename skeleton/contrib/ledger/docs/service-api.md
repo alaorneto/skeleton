@@ -39,19 +39,19 @@ O livro padrão da organização, criado na primeira chamada.
 #### Lançamentos (#544)
 | Método | Autorização | Erros |
 |---|---|---|
-| `post_manual(*, actor, lines, date, description, idempotency_key, book_id=None) -> EntryInfo` | gestão do livro | `NotFound`; `Forbidden`; `Conflict("period_locked")`; `InvalidInput` (partidas que não fecham, uma só, conta-grupo, inativa ou de outro livro, data ou chave inválidas) |
-| `reverse(*, actor, entry_id, date, reason="", idempotency_key="") -> EntryInfo` | gestão do livro do lançamento | `NotFound`; `Forbidden`; `Conflict("already_reversed")`; `Conflict("period_locked")`; `InvalidInput` (estorno de estorno) |
+| `post_manual(*, actor, lines, date, description, idempotency_key, book_id=None) -> EntryInfo` | gestão do livro | `NotFound`; `Forbidden`; `Conflict("period_locked")`; `Conflict("idempotency_conflict")`; `InvalidInput` (partidas que não fecham, uma só, conta-grupo, inativa ou de outro livro, data ou chave inválidas) |
+| `reverse(*, actor, entry_id, date, reason="", idempotency_key="") -> EntryInfo` | gestão do livro do lançamento | `NotFound`; `Forbidden`; `Conflict("already_reversed")`; `Conflict("period_locked")`; `Conflict("idempotency_conflict")`; `InvalidInput` (estorno de estorno) |
 | `entry(*, actor, entry_id) -> EntryInfo` | leitura do livro | `NotFound` |
 | `entries(*, actor, start, end, book_id=None, cursor=None, page_size=25) -> Page[EntryInfo]` | leitura do livro; até cinco anos | `NotFound`; `InvalidInput` |
 | `set_lock(*, actor, locked_until, expected_revision, book_id=None) -> BookInfo` | gestão do livro | `NotFound`; `Forbidden`; `Conflict("stale_revision")`; `InvalidInput` |
 
-| `post(*, actor, rule, amounts, date, description, source_id, idempotency_key, accounts=None, book_id=None, cost_center_id=None, party_ref="", party_kind="") -> EntryInfo` | a ação da regra no registro de origem (sem leitura do livro); `system_context` aceito | `NotFound` (origem ilegível ou de outra organização, sem livro); `Forbidden` (sem a ação na origem); `Unavailable` (app da origem desativada); `Conflict("account_not_bound")` com a chave; `Conflict("period_locked")`; `InvalidInput` (regra, valores, `Param` ausente ou de outro livro, resultado desbalanceado) |
+| `post(*, actor, rule, amounts, date, description, source_id, idempotency_key, accounts=None, book_id=None, cost_center_id=None, party_ref="", party_kind="") -> EntryInfo` | a ação da regra no registro de origem (sem leitura do livro); `system_context` aceito | `NotFound` (origem ilegível ou de outra organização, sem livro); `Forbidden` (sem a ação na origem); `Unavailable` (app da origem desativada); `Conflict("account_not_bound")` com a chave; `Conflict("period_locked")`; `Conflict("idempotency_conflict")`; `InvalidInput` (regra, valores, `Param` ausente ou de outro livro, resultado desbalanceado) |
 | `entries_for_source(*, actor, table_key, record_id) -> tuple[EntryInfo, ...]` | leitura do registro de origem | `NotFound`; `InvalidInput` |
 
 #### Títulos e baixas (#546)
 | Método | Autorização | Erros |
 |---|---|---|
-| `create_title(*, actor, direction, amount, due_date, description, category_key, idempotency_key, issue_date=None, counterparty_name="", party_ref="", party_kind="", source_table=None, source_id=None, cost_center_id=None, book_id=None) -> TitleInfo` | com origem, `update` no registro de origem; sem origem, gestão do livro; `system_context` aceito | `NotFound`; `Forbidden`; `Unavailable`; `Conflict("account_not_bound")`; `InvalidInput` |
+| `create_title(*, actor, direction, amount, due_date, description, category_key, idempotency_key, issue_date=None, counterparty_name="", party_ref="", party_kind="", source_table=None, source_id=None, cost_center_id=None, book_id=None) -> TitleInfo` | com origem, `update` no registro de origem; sem origem, gestão do livro; `system_context` aceito | `NotFound`; `Forbidden`; `Unavailable`; `Conflict("account_not_bound")`; `Conflict("idempotency_conflict")`; `InvalidInput` |
 | `create_installments(*, actor, direction, amount, count, first_due_date, description, category_key, idempotency_key, ...) -> tuple[TitleInfo, ...]` | a de `create_title` | os de `create_title`; `InvalidInput` (`count` fora de 2 a 120) |
 | `settle_title(*, actor, title_id, amount, date, payment_account_id, method, expected_revision, idempotency_key, discount=0, interest=0, fee=0) -> SettlementInfo` | a do título | `NotFound`; `Forbidden`; `Conflict("stale_revision")`; `Conflict("title_settled")`; `Conflict("period_locked")`; `Conflict("account_not_bound")`; `InvalidInput` |
 | `reverse_settlement(*, actor, settlement_id, date, expected_revision, reason="") -> TitleInfo` | a do título | `NotFound`; `Forbidden`; `Conflict("stale_revision")`; `Conflict("already_reversed")`; `Conflict("period_locked")` |
@@ -67,13 +67,15 @@ O livro padrão da organização, criado na primeira chamada.
 #### Títulos recorrentes (#547)
 | Método | Autorização | Erros |
 |---|---|---|
-| `create_recurrence(*, actor, direction, amount, description, category_key, frequency, start_date, idempotency_key, interval=1, day_of_month=None, end_date=None, max_occurrences=None, days_ahead=30, counterparty_name="", party_ref="", party_kind="", cost_center_id=None, book_id=None) -> RecurrenceInfo` | gestão do livro | `NotFound`; `Forbidden`; `Conflict("account_not_bound")`; `InvalidInput` |
+| `create_recurrence(*, actor, direction, amount, description, category_key, frequency, start_date, idempotency_key, interval=1, day_of_month=None, end_date=None, max_occurrences=None, days_ahead=30, counterparty_name="", party_ref="", party_kind="", cost_center_id=None, book_id=None) -> RecurrenceInfo` | gestão do livro | `NotFound`; `Forbidden`; `Conflict("account_not_bound")`; `Conflict("idempotency_conflict")`; `InvalidInput` |
 | `update_recurrence(*, actor, recurrence_id, data, expected_revision) -> RecurrenceInfo` | gestão do livro | `NotFound`; `Forbidden`; `Conflict("stale_revision")`; `InvalidInput` (campo fora de `amount`, `description`, `counterparty_name`, `party_ref`, `party_kind`, `cost_center_id`, `end_date`, `max_occurrences`, `days_ahead`) |
 | `pause(*, actor, recurrence_id, expected_revision) -> RecurrenceInfo` | gestão do livro | `NotFound`; `Forbidden`; `Conflict("stale_revision")` |
 | `resume(*, actor, recurrence_id, expected_revision) -> RecurrenceInfo` | gestão do livro | `NotFound`; `Forbidden`; `Conflict("stale_revision")` |
 | `recurrences(*, actor, book_id=None) -> tuple[RecurrenceInfo, ...]` | leitura do livro | `NotFound` |
 
 Os títulos são gerados pelo job diário `ledger.recurrences`, não pelos métodos.
+
+**Idempotência (#888).** A replay por `idempotency_key` devolve o objeto existente apenas quando a tupla completa `(organização, source_app, book_id, source_table, source_id, kind/reverses_id, idempotency_key)` coincide e o ator continua autorizado a ler o objeto. Reaproveitar uma chave em outro livro, outra origem, outro tipo ou sem leitura do registro responde `Conflict("idempotency_conflict")` opaco, sem dados do registro existente e sem criar nova linha.
 
 #### Saldos e relatórios (#548)
 Todos com leitura do livro, só leitura, só lançamentos selados; `NotFound` para livro ou conta ilegível; `InvalidInput` para janela (até cinco anos), data, cursor ou página inválidos.

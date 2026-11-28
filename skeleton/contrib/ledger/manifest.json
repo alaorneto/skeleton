@@ -13,7 +13,7 @@
   "dependencies": {},
   "conflicts": {},
   "runtime": {"urls": "skeleton.contrib.ledger.urls", "default_enabled": false, "configuration_fields": [], "navigation": [{"label": "Livro contábil", "url_name": "skeleton_ledger:home", "table_key": "skeleton_ledger.book", "action": "read"}], "documentation_root": "docs", "service_api": {"module": "skeleton.contrib.ledger.service_api", "classes": ["LedgerService"]}},
-  "migrations": {"leaves": ["0005_recurrences"], "from_versions": ">=0.0.0", "labels": ["skeleton_ledger"]},
+  "migrations": {"leaves": ["0006_idempotency_scope"], "from_versions": ">=0.0.0", "labels": ["skeleton_ledger"]},
   "files": [],
   "python_dependencies": [],
   "lifecycle": {"data_retention": "retain", "maintenance": true, "backup": true},

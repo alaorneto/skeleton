@@ -102,7 +102,7 @@ def generate(rule: Any, *, today: dt.date, budget: int) -> int:
     due = rule.next_due
     while rule.is_active and not ended(rule, due) and due <= horizon and created < budget:
         key = f"recurrence:{rule.pk}:{due.isoformat()}"
-        if not Title.objects.filter(source_app="skeleton_ledger", idempotency_key=key).exists():
+        if not Title.objects.filter(book=rule.book, source_app="skeleton_ledger", idempotency_key=key).exists():
             try:
                 with transaction.atomic(using=current_context().using):
                     titles.create_title(book=rule.book, actor_id=None, values=title_values(rule, due))

@@ -730,6 +730,7 @@ class LedgerService(ServiceAPI):
                 kind=Entry.Kind.MANUAL,
                 actor=actor,
                 idempotency_key=_key(idempotency_key),
+                authorize_replay=_book_replay_authorizer(actor),
             )
         )
 
@@ -749,8 +750,8 @@ class LedgerService(ServiceAPI):
         Autorização: gestão do livro do lançamento; um lançamento com origem (#545) também pela ação
         da regra no registro de origem, sem ler o livro; ``actor=None`` só em ``system_context``.
         Erros: NotFound; Forbidden; Conflict("already_reversed"); Conflict("period_locked");
-        Conflict("stale_revision") com ``expected_revision`` divergente; InvalidInput para estornar
-        um estorno.
+        Conflict("idempotency_conflict"); Conflict("stale_revision") com ``expected_revision`` divergente;
+        InvalidInput para estornar um estorno.
         Efeitos: grava o estorno selado na transação do chamador.
         """
         from skeleton.service_api import Conflict
@@ -767,6 +768,9 @@ class LedgerService(ServiceAPI):
                 reason=reason,
                 actor_id=getattr(actor, "pk", None),
                 idempotency_key=_key(idempotency_key, required=False),
+                authorize_replay=_source_or_book_replay_authorizer(
+                    actor, source_table=entry.source_table, source_id=entry.source_id
+                ),
             )
         )
 
@@ -796,18 +800,33 @@ class LedgerService(ServiceAPI):
         Erros: NotFound para origem inexistente, ilegível ou de outra organização, ou sem livro
         padrão; Forbidden sem a ação na origem; Unavailable com a app da origem desativada;
         Conflict("account_not_bound") com a chave sem vínculo no livro; Conflict("period_locked");
-        InvalidInput para regra desconhecida, valores inválidos, ``Param`` ausente ou de outro livro e
-        resultado desbalanceado.
+        Conflict("idempotency_conflict"); InvalidInput para regra desconhecida, valores inválidos,
+        ``Param`` ausente ou de outro livro e resultado desbalanceado.
         Efeitos: cria, parte e sela o lançamento na transação do chamador; a mesma chave da mesma
-        app de origem devolve o lançamento já criado.
+        origem, livro e tipo devolve o lançamento já criado.
         """
-        from . import posting
+        from . import idempotency, posting
 
         definition = _rule(rule)
         _authorize_source(actor, definition.source_table_key, source_id, definition.source_action)
         book = _posting_book(book_id)
         key = _key(idempotency_key)
-        found = posting.existing_entry(definition.app_label, key)
+        source_uuid = _uuid(source_id, "source_id")
+        authorize = _source_or_book_replay_authorizer(
+            actor, source_table=definition.source_table_key, source_id=source_uuid
+        )
+        found = idempotency.find_replay(
+            Entry,
+            source_app=definition.app_label,
+            key=key,
+            scope=posting.entry_scope(
+                book_id=book.pk,
+                source_table=definition.source_table_key,
+                source_id=source_uuid,
+                kind=Entry.Kind.RULE,
+            ),
+            authorize=authorize,
+        )
         if found is not None:
             return entry_info(found)
         lines = _rule_lines(book, definition, amounts, accounts or {}, cost_center_id, party_ref, party_kind)
@@ -822,8 +841,9 @@ class LedgerService(ServiceAPI):
                 rule=definition.code,
                 source_app=definition.app_label,
                 source_table=definition.source_table_key,
-                source_id=_uuid(source_id, "source_id"),
+                source_id=source_uuid,
                 idempotency_key=key,
+                authorize_replay=authorize,
             )
         )
 
@@ -887,13 +907,33 @@ class LedgerService(ServiceAPI):
             source_id=source_id,
             cost_center_id=cost_center_id,
         )
+        from skeleton.service_api import Conflict
+
+        from . import idempotency
+
         book = _title_book(actor, source_table, source_id, book_id)
         key = _key(idempotency_key)
-        existing = Title.objects.filter(source_app=values["source_app"], idempotency_key=key).first()
-        if existing is not None:
-            return title_info(existing)
-        values["category_account"] = _category(book, category_key)
-        return _title_call(lambda: _create_titles(actor, book, [{**values, "idempotency_key": key}])[0])
+        scope = {"book_id": book.pk, "source_table": values["source_table"], "source_id": values["source_id"]}
+        authorize = _source_or_book_replay_authorizer(
+            actor, source_table=values["source_table"], source_id=values["source_id"]
+        )
+        if Title.objects.filter(source_app=values["source_app"], idempotency_key__startswith=f"{key}#").exists():
+            raise Conflict("idempotency_conflict")
+
+        def _make() -> Title:
+            values["category_account"] = _category(book, category_key)
+            return _title_call(lambda: _create_title_rows(actor, book, [{**values, "idempotency_key": key}])[0])
+
+        return title_info(
+            idempotency.create_or_replay(
+                Title,
+                source_app=values["source_app"],
+                key=key,
+                scope=scope,
+                create=_make,
+                authorize=authorize,
+            )
+        )
 
     @service_method(read_only=False, since="0.1.0", allow_system=True)
     def create_installments(
@@ -946,26 +986,42 @@ class LedgerService(ServiceAPI):
         )
         if amount < count:
             raise InvalidInput({"amount": ["Valor menor que o número de parcelas."]})
+        from . import idempotency
+
         book = _title_book(actor, source_table, source_id, book_id)
         key = _key(idempotency_key)
-        existing = Title.objects.filter(source_app=values["source_app"], idempotency_key__startswith=f"{key}#")
-        if existing.exists():
-            return tuple(title_info(row) for row in existing.order_by("installment_number"))
-        values["category_account"] = _category(book, category_key)
-        rows = []
-        for number, part in enumerate(titles.split(amount, count), start=1):
-            rows.append(
-                {
-                    **values,
-                    "amount": part,
-                    "due_date": titles.add_months(first_due_date, number - 1),
-                    "installment_number": number,
-                    "installment_count": count,
-                    "idempotency_key": f"{key}#{number}",
-                    "description": f"{values['description']} ({number}/{count})"[:300],
-                }
-            )
-        return tuple(_title_call(lambda: _create_titles(actor, book, rows)))
+        scope = {"book_id": book.pk, "source_table": values["source_table"], "source_id": values["source_id"]}
+        authorize = _source_or_book_replay_authorizer(
+            actor, source_table=values["source_table"], source_id=values["source_id"]
+        )
+
+        def _make() -> tuple[Title, ...]:
+            values["category_account"] = _category(book, category_key)
+            rows = []
+            for number, part in enumerate(titles.split(amount, count), start=1):
+                rows.append(
+                    {
+                        **values,
+                        "amount": part,
+                        "due_date": titles.add_months(first_due_date, number - 1),
+                        "installment_number": number,
+                        "installment_count": count,
+                        "idempotency_key": f"{key}#{number}",
+                        "description": f"{values['description']} ({number}/{count})"[:300],
+                    }
+                )
+            return tuple(_title_call(lambda: _create_title_rows(actor, book, rows)))
+
+        created = idempotency.create_or_replay_installments(
+            Title,
+            source_app=values["source_app"],
+            key=key,
+            count=count,
+            scope=scope,
+            create=_make,
+            authorize=authorize,
+        )
+        return tuple(title_info(row) for row in created)
 
     @service_method(read_only=False, since="0.1.0", allow_system=True)
     def settle_title(
@@ -1244,37 +1300,53 @@ class LedgerService(ServiceAPI):
             source_id=None,
             cost_center_id=cost_center_id,
         )
+        from . import idempotency
+
         book = _managed_book(actor, book_id)
         key = _key(idempotency_key)
-        existing = RecurringTitle.objects.filter(idempotency_key=key).first()
-        if existing is not None:
-            return recurrence_info(existing)
-        schedule = _schedule(
-            frequency=frequency,
-            interval=interval,
-            day_of_month=day_of_month,
-            start_date=start_date,
-            end_date=end_date,
-            max_occurrences=max_occurrences,
-            days_ahead=days_ahead,
+        source_app = values["source_app"]
+        scope = {"book_id": book.pk}
+        authorize = _book_replay_authorizer(actor)
+
+        def _make() -> RecurringTitle:
+            schedule = _schedule(
+                frequency=frequency,
+                interval=interval,
+                day_of_month=day_of_month,
+                start_date=start_date,
+                end_date=end_date,
+                max_occurrences=max_occurrences,
+                days_ahead=days_ahead,
+            )
+            rule = RecurringTitle(
+                organization_id=book.organization_id,
+                book=book,
+                direction=values["direction"],
+                description=values["description"],
+                counterparty_name=values["counterparty_name"],
+                party_ref=values["party_ref"],
+                party_kind=values["party_kind"],
+                category_account=_category(book, category_key),
+                cost_center_id=_book_cost_center(book, values["cost_center_id"]),
+                amount=values["amount"],
+                source_app=source_app,
+                idempotency_key=key,
+                **schedule,
+            )
+            rule.next_due = first_due(rule)
+            rule.save()
+            return rule
+
+        return recurrence_info(
+            idempotency.create_or_replay(
+                RecurringTitle,
+                source_app=source_app,
+                key=key,
+                scope=scope,
+                create=_make,
+                authorize=authorize,
+            )
         )
-        rule = RecurringTitle(
-            organization_id=book.organization_id,
-            book=book,
-            direction=values["direction"],
-            description=values["description"],
-            counterparty_name=values["counterparty_name"],
-            party_ref=values["party_ref"],
-            party_kind=values["party_kind"],
-            category_account=_category(book, category_key),
-            cost_center_id=_book_cost_center(book, values["cost_center_id"]),
-            amount=values["amount"],
-            idempotency_key=key,
-            **schedule,
-        )
-        rule.next_due = first_due(rule)
-        rule.save()
-        return recurrence_info(rule)
 
     @service_method(read_only=False, since="0.1.0")
     def update_recurrence(
@@ -1948,19 +2020,39 @@ def _category(book: Book, key: Any) -> Account:
     return account
 
 
-def _create_titles(actor: Any, book: Book, rows: list[dict[str, Any]]) -> list[TitleInfo]:
+def _book_replay_authorizer(actor: Any) -> Any:
+    """Re-authorize a replayed object by read access on its book via ``authorized_queryset`` (#888)."""
+    from .policies import readable_books
+
+    def _allowed(row: Any) -> bool:
+        if actor is None:
+            return True
+        try:
+            return readable_books(actor).filter(pk=row.book_id).exists()
+        except PermissionDenied:
+            return False
+
+    return _allowed
+
+
+def _source_or_book_replay_authorizer(actor: Any, *, source_table: str, source_id: Any) -> Any:
+    """Re-authorize a replayed object by its already-authorized source or by book read access (#888)."""
+    if source_table and source_id is not None:
+        return lambda row: row.source_table == source_table and row.source_id == source_id
+    return _book_replay_authorizer(actor)
+
+
+def _create_title_rows(actor: Any, book: Book, rows: list[dict[str, Any]]) -> list[Title]:
     from django.db import transaction
 
     from skeleton.tenancy.context import current_context
 
     from . import titles
 
-    created = []
+    created: list[Title] = []
     with transaction.atomic(using=current_context().using):
         for values in rows:
-            created.append(
-                title_info(titles.create_title(book=book, actor_id=getattr(actor, "pk", None), values=values))
-            )
+            created.append(titles.create_title(book=book, actor_id=getattr(actor, "pk", None), values=values))
     return created
 
 

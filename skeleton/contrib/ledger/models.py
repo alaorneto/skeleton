@@ -237,7 +237,7 @@ class Entry(SealableMixin, OrganizationRecord):
                 violation_error_code="unique",
             ),
             models.UniqueConstraint(
-                fields=("organization", "source_app", "idempotency_key"),
+                fields=("organization", "book", "source_app", "idempotency_key"),
                 condition=Q(deleted_at__isnull=True) & ~Q(idempotency_key=""),
                 name="skeleton_ledger_entry_live_key",
                 violation_error_code="unique",
@@ -340,6 +340,7 @@ class RecurringTitle(OrganizationRecord):
     generated_count = models.PositiveIntegerField(default=0)
     days_ahead = models.PositiveSmallIntegerField(default=30)
     is_active = models.BooleanField(default=True)
+    source_app = models.CharField(max_length=100, blank=True, default="skeleton_ledger")
     idempotency_key = models.CharField(max_length=200, blank=True, default="")
     immutable_fields = (
         "book_id",
@@ -348,6 +349,7 @@ class RecurringTitle(OrganizationRecord):
         "frequency",
         "interval",
         "day_of_month",
+        "source_app",
         "idempotency_key",
     )
 
@@ -377,7 +379,7 @@ class RecurringTitle(OrganizationRecord):
                 name="skeleton_ledger_recurrence_max_positive",
             ),
             models.UniqueConstraint(
-                fields=("organization", "idempotency_key"),
+                fields=("organization", "book", "source_app", "idempotency_key"),
                 condition=Q(deleted_at__isnull=True) & ~Q(idempotency_key=""),
                 name="skeleton_ledger_recurrence_live_key",
                 violation_error_code="unique",
@@ -460,7 +462,7 @@ class Title(OrganizationRecord):
                 condition=Q(direction__in=("receivable", "payable")), name="skeleton_ledger_title_direction"
             ),
             models.UniqueConstraint(
-                fields=("organization", "source_app", "idempotency_key"),
+                fields=("organization", "book", "source_app", "idempotency_key"),
                 condition=Q(deleted_at__isnull=True) & ~Q(idempotency_key=""),
                 name="skeleton_ledger_title_live_key",
                 violation_error_code="unique",
