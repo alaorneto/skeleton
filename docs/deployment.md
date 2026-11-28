@@ -515,7 +515,7 @@ O manifesto core identifica o artefato e limita como instalá-lo:
 - Declare o wheel principal em `python_dependencies`: `name="django-skeleton"`, versão, `wheel="wheels/<nome>.whl"` e `sha256`. O builder recalcula o hash e gera o inventário completo antes de assinar; a versão do wheel deve equivaler à do manifesto.
 - `release_notes` e `build` registram instruções/notas e procedência. Declare wheels adicionais e forneça-os por `--dependency-wheel`; nunca use sdist (distribuição de fontes que exige build na instalação).
 
-A assinatura segue o mesmo contrato e trust store dos pacotes de apps. O pacote não pode trazer uma segunda chave para autorizar a si mesmo.
+A assinatura segue o mesmo contrato e trust store dos pacotes de apps. O pacote não pode trazer uma segunda chave para autorizar a si mesmo. Todos os membros do arquivo ZIP (inclusive `manifest.json` e `manifest.sig`, antes da verificação da assinatura) são lidos em streaming em blocos de até 64 KiB com teto real por membro, teto total acumulado e taxa de expansão calculada sobre os bytes efetivamente descomprimidos, aceitando apenas `ZIP_STORED` e `ZIP_DEFLATED` (#891).
 
 #### Pacote de release
 

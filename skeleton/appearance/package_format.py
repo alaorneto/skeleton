@@ -247,7 +247,18 @@ def archive_files(data: bytes) -> dict[str, bytes]:
             _fail("too_large")
         try:
             members = _zip_members(archive, maximum=MAX_MEMBERS)
-            files = {name: _read_member(archive, info, maximum=MAX_UNPACKED_BYTES) for name, info in members.items()}
+            files: dict[str, bytes] = {}
+            real_total = 0
+            for name, info in members.items():
+                remaining = MAX_UNPACKED_BYTES - real_total
+                content = _read_member(
+                    archive,
+                    info,
+                    maximum=remaining,
+                    max_expansion_ratio=MAX_EXPANSION_RATIO,
+                )
+                real_total += len(content)
+                files[name] = content
         except PackageError as error:
             raise ThemePackageError("archive", detail=str(error)) from error
     return files

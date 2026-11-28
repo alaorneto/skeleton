@@ -128,10 +128,16 @@ def _validate_archive(path, trust_store=None):
                 _fail("Archive files differ from the complete signed inventory.")
             docs = {}
             wheel_ownership, wheel_namespaces = {}, {}
-            expanded_total = sum(info.file_size for info in files.values())
+            real_total = len(raw) + len(signature)
+            expanded_total = real_total
             member_total = len(files)
             for name, item in inventory.items():
-                data = _read_member(archive, files[name])
+                remaining = limits.MAX_TOTAL_BYTES - real_total
+                data = _read_member(archive, files[name], min(limits.MAX_FILE_BYTES, remaining))
+                real_total += len(data)
+                expanded_total += len(data)
+                if expanded_total > limits.MAX_TOTAL_BYTES:
+                    _fail("Archive uncompressed size limit exceeded.")
                 if len(data) != item["size"] or hashlib.sha256(data).hexdigest() != item["sha256"]:
                     _fail("Payload hash or size mismatch.")
                 if name.startswith("wheels/"):

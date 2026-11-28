@@ -10,6 +10,8 @@ from . import limits
 from .errors import PackageError, _fail
 from .primitives import _path
 
+READ_CHUNK_BYTES = 65536
+
 
 def _zip_members(archive, maximum=None):
     members = archive.infolist()
@@ -60,18 +62,47 @@ def _zip_members(archive, maximum=None):
     return files
 
 
-def _read_member(archive, info, maximum=None):
-    """One member, read once, within its limit; a corrupt member is a PackageError (#255)."""
-    maximum = limits.MAX_FILE_BYTES if maximum is None else maximum  # Read at call time.
-    if info.file_size > maximum:
+def read_bounded(archive, info, limit, *, max_expansion_ratio=None):
+    """Stream a zip member in bounded chunks, never trusting ``info.file_size`` (#891)."""
+    if info.flag_bits & 1 or info.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+        _fail("Links, special files, encryption and unsupported compression are forbidden.")
+    if limit < 0 or info.file_size > limit:
         _fail("Release metadata/member size limit exceeded.")
+    ratio = limits.MAX_EXPANSION_RATIO if max_expansion_ratio is None else max_expansion_ratio
+    ratio_cap = max(1, info.compress_size) * ratio
+    effective_cap = min(limit, ratio_cap)
+    out = bytearray()
     try:
-        data = archive.read(info)
-    except (zlib.error, EOFError, zipfile.BadZipFile, NotImplementedError) as exc:
+        with archive.open(info) as handle:
+            while True:
+                remaining = effective_cap + 1 - len(out)
+                if remaining <= 0:
+                    break
+                chunk = handle.read(min(READ_CHUNK_BYTES, remaining))
+                if not chunk:
+                    break
+                out += chunk
+                if len(out) > limit:
+                    _fail("Release metadata/member size limit exceeded.")
+                if len(out) > ratio_cap:
+                    _fail("Archive expansion limit exceeded.")
+    except PackageError:
+        raise
+    except (zlib.error, EOFError, zipfile.BadZipFile, NotImplementedError, RuntimeError) as exc:
         raise PackageError("Corrupt archive member.") from exc
-    if len(data) != info.file_size:
+    if len(out) > limit:
+        _fail("Release metadata/member size limit exceeded.")
+    if len(out) > ratio_cap:
+        _fail("Archive expansion limit exceeded.")
+    if len(out) != info.file_size:
         _fail("Archive member size mismatch.")
-    return data
+    return bytes(out)
+
+
+def _read_member(archive, info, maximum=None, *, max_expansion_ratio=None):
+    """One member, streamed once within its real byte and expansion limits (#255, #891)."""
+    maximum = limits.MAX_FILE_BYTES if maximum is None else maximum  # Read at call time.
+    return read_bounded(archive, info, maximum, max_expansion_ratio=max_expansion_ratio)
 
 
 def _protected_snapshot(path, maximum=None):
