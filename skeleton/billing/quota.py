@@ -39,7 +39,7 @@ from skeleton.common.limits import (
     registered_limit_metrics,
 )
 
-from .engine import LineDraft, live_items, register_line_source
+from .engine import LineDraft, live_items, period_items, register_line_source
 
 OVERAGE_ORDER = 500
 # The plan adds to the core limit after the apps (#696, order 100) and before the platform (#697, 300).
@@ -163,25 +163,37 @@ def peak_usage(start: datetime, end: datetime) -> int:
     return int(peak["peak"] or 0)
 
 
+def storage_overage_charge(subscription: Any, period_start: datetime, period_end: datetime) -> tuple[int, int, int]:
+    """Return ``(blocks, unit_amount, total_amount)`` of storage overage for ``[period_start, period_end)`` (#882).
+
+    Uses ``period_items`` so packs removed at the end of the closing period, packs added mid-period
+    (full allowance, matching usage packs) and the outgoing plan of a scheduled downgrade all count.
+    """
+    items = period_items(subscription, start=period_start, end=period_end)
+    allowance, policy, unit_bytes, unit_amount, _ = storage_terms(items)
+    if policy != "bill" or not unit_bytes or not unit_amount:
+        return 0, 0, 0
+    excess = peak_usage(period_start, period_end) - allowance
+    if excess <= 0:
+        return 0, unit_amount, 0
+    blocks = math.ceil(excess / unit_bytes)
+    return blocks, unit_amount, blocks * unit_amount
+
+
 def overage_lines(
     subscription: Any, period_start: datetime, period_end: datetime, lines: list[LineDraft], now: datetime
 ) -> list[LineDraft]:
     """The excess storage of the closing period, on its renewal invoice (registered as a line source)."""
     from django.utils.translation import gettext
 
-    items = live_items(subscription, now=period_start)
-    allowance, policy, unit_bytes, unit_amount, _ = storage_terms(items)
-    if policy != "bill" or not unit_bytes or not unit_amount:
+    blocks, unit_amount, amount = storage_overage_charge(subscription, period_start, period_end)
+    if blocks <= 0:
         return []
-    excess = peak_usage(period_start, period_end) - allowance
-    if excess <= 0:
-        return []
-    blocks = math.ceil(excess / unit_bytes)
     return [
         LineDraft(
             kind="overage",
             description=gettext("Armazenamento excedente"),
-            amount=blocks * unit_amount,
+            amount=amount,
             unit_amount=unit_amount,
             quantity=blocks,
             period_start=period_start,

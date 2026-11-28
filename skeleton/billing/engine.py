@@ -223,6 +223,54 @@ def live_items(subscription: Any, *, now: datetime, statuses: tuple[str, ...] = 
     )
 
 
+def period_items(subscription: Any, *, start: datetime, end: datetime) -> list[Any]:
+    """Items that held rights during ``[start, end)`` regardless of current status (#882).
+
+    Includes items ended at the close of ``[start, end)`` (scheduled removals, scheduled
+    downgrades) and items added mid-period. Excludes unpaid ``pending`` items, items whose
+    invoices were voided before payment (without trial), and items superseded mid-period by a
+    replacement item in the same closing period.
+    """
+    from django.db.models import Q
+
+    from .models import Invoice, SubscriptionItem
+
+    candidates = list(
+        subscription.items.filter(
+            status__in=(SubscriptionItem.Status.ACTIVE, SubscriptionItem.Status.ENDED),
+            starts_at__lt=end,
+        )
+        .filter(Q(ends_at__isnull=True) | Q(ends_at__gt=start))
+        .select_related("price", "price__product")
+        .order_by("created_at", "sysid")
+    )
+    if not candidates:
+        return []
+    ended_no_trial = [
+        item.pk for item in candidates if item.status == SubscriptionItem.Status.ENDED and item.trial_end is None
+    ]
+    void_only: set[Any] = set()
+    if ended_no_trial:
+        from .models import InvoiceLine
+
+        paid_ids = set(
+            InvoiceLine.objects.filter(
+                subscription_item_id__in=ended_no_trial,
+                invoice__status=Invoice.Status.PAID,
+            ).values_list("subscription_item_id", flat=True)
+        )
+        void_ids = set(
+            InvoiceLine.objects.filter(
+                subscription_item_id__in=ended_no_trial,
+                invoice__status=Invoice.Status.VOID,
+            ).values_list("subscription_item_id", flat=True)
+        )
+        void_only = void_ids - paid_ids
+    kept = [item for item in candidates if item.pk not in void_only]
+    replaced_ids = {item.replaces_id for item in kept if item.replaces_id}
+    return [item for item in kept if item.pk not in replaced_ids]
+
+
 # Invoices -----------------------------------------------------------------------------------
 
 
