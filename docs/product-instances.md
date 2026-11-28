@@ -1,52 +1,73 @@
 # Montar uma instância de produto
 
-Uma **instância de produto** é uma instalação do Skeleton que vende um produto: cada cliente é uma organização, os **níveis** do produto (por exemplo básico, intermediário e completo) são **pacotes de apps**, e uma **instância central**, do mesmo dono, acompanha as demais. Este guia é o roteiro, na ordem em que se monta; cada passo aponta a referência. É o [epic #693](https://github.com/alaorneto/skeleton/issues/693).
+Uma **instância de produto** é uma instalação do Skeleton operada para vender um serviço: cada cliente corresponde a uma organização, os **níveis** comerciais do produto (por exemplo, básico, intermediário e completo) são modelados como **pacotes de apps**, e uma **instância central** — do mesmo operador — acompanha a operação das demais.
 
-Os exemplos usam níveis genéricos: um pacote "básico" com a app A e um "completo" com as apps A e B.
+Este guia apresenta o roteiro na ordem de configuração, com links para a referência de cada etapa. Corresponde ao [epic #693](https://github.com/alaorneto/skeleton/issues/693). Os exemplos usam níveis genéricos: um pacote "básico" com a app A e um "completo" com as apps A e B.
 
 ## 1. Identidade da instância
 
-Em `/platform/instance/`, seção "Identidade", dê um nome e uma finalidade à instância. O identificador (`instance_id`) foi gerado no `migrate` e nunca muda: é por ele que a central reconhece esta instância ([API de gestão](platform-api.md#identidade-da-instância)).
+Em `/platform/instance/`, na seção "Identidade", defina o nome e a finalidade da instância. O identificador (`instance_id`) é gerado automaticamente no `migrate` e nunca muda — é por ele que a instância central reconhece esta instalação ([API de gestão](platform-api.md#identidade-da-instância)).
 
 ## 2. Limite padrão de membros
 
-Defina `SKELETON_ORGANIZATION_MEMBER_LIMIT` no catálogo da instância (`/platform/instance/` ou `manage.py instance set organization_member_limit 1`): é a base de toda organização, antes do que as apps acrescentam. Vazio mantém as organizações sem limite ([limites da organização](organization-limits.md#configuração)).
+Configure `SKELETON_ORGANIZATION_MEMBER_LIMIT` no catálogo da instância (em `/platform/instance/` ou via `manage.py instance set organization_member_limit 1`). Esse valor define a cota base de toda organização antes dos acréscimos vindos de apps ou assinaturas. Deixá-lo vazio mantém as organizações sem limite ([limites da organização](organization-limits.md#configuração)).
 
 ## 3. Apps dos níveis: disponibilidade e acréscimos
 
-Instale as apps dos níveis ([extensão](extending.md)) e, em `/platform/apps/<app>/availability/`, para cada app (as bibliotecas first-party, como a agenda e o livro contábil, entram com as apps que as usam e não têm disponibilidade, acréscimos, lugar nos pacotes nem preço próprios, #792):
+Instale as apps que compõem os níveis ([extensão](extending.md)). Bibliotecas first-party, como a agenda e o livro contábil, acompanham automaticamente as apps que dependem delas e não possuem disponibilidade, acréscimos, presença em pacotes nem preço próprios.
 
-- defina a disponibilidade (`selected` deixa a plataforma decidir quem recebe a app);
-- em "Acréscimos por organização", quanto cada app soma a cada limite (por exemplo A: +2 membros, B: +7).
+Para cada app instalada, acesse `/platform/apps/<app>/availability/` e configure:
 
-Com base 1, o básico (A) dá 3 membros e o completo (A e B) dá 10 ([acréscimo por app](organization-limits.md#acréscimo-por-app)).
+- a disponibilidade (`selected` permite que a plataforma decida quais organizações recebem a app);
+- na seção "Acréscimos por organização", quanto a app acrescenta a cada limite (por exemplo, A: `+2` membros; B: `+7` membros).
+
+Com base `1`, o nível básico (A) oferece 3 membros e o completo (A e B) oferece 10 ([acréscimo por app](organization-limits.md#acréscimo-por-app)).
 
 ## 4. Pacotes de apps e, com cobrança, preços e ofertas
 
-Em `/platform/bundles/`, crie um pacote por nível, com as apps, a ordem, um pacote padrão e quais aparecem no cadastro. Na página da organização, o seletor "Pacote de apps" pré-visualiza a troca (apps que entram e saem, limite de membros antes e depois) e a aplica numa ação; com "Travar as apps do pacote", a organização não consegue desativá-las.
+Em `/platform/bundles/`, crie um pacote para cada nível definindo suas apps, a ordem de exibição, o pacote padrão e quais opções aparecem no cadastro de clientes. Na página da organização, o seletor "Pacote de apps" mostra a prévia da troca — apps que entram e saem e o limite de membros antes e depois — e aplica a mudança em uma única ação. Marcar "Travar as apps do pacote" impede que a organização as desative.
 
-Com a [cobrança](billing.md) ligada, cada pacote pode ter uma oferta por moeda (`BundleOffer`, `skeleton.billing.bundle_offers.set_bundle_offer`): um preço de plano base cujas `included_apps` cubram as apps do pacote, ou o preço de uma app dele. Um pacote com app paga sem direito é recusado (`app_not_entitled`): contrate-o pela cobrança da organização.
+Com a [cobrança](billing.md) ativada, cada pacote pode receber uma oferta por moeda (`BundleOffer`, via `skeleton.billing.bundle_offers.set_bundle_offer`): um preço de plano base cujas `included_apps` cubram todas as apps do pacote, ou o preço de uma app dele. Tentar atribuir um pacote contendo uma app paga sem direito na cobrança é recusado (`app_not_entitled`), exigindo contratação pela cobrança da organização.
 
 ## 5. Política das organizações novas e travas
 
-Em `/platform/organizations/policy/`, defina o que toda organização nova recebe: um valor inicial (que pode ser travado) ou um valor que a plataforma informa ao criar. Em `/platform/organizations/<id>/settings/`, trave uma configuração de uma organização existente; a organização vê o campo desabilitado e não o muda por tela, API nem serviço ([configurações geridas pela plataforma](managed-settings.md)). Campos de app que só a plataforma define usam `"managed_by": "platform"` no manifesto e são gravados em `/platform/organizations/<id>/apps/<app>/configuration/`.
+Em `/platform/organizations/policy/`, configure o que toda organização nova recebe ao nascer: valores iniciais (opcionais ou travados) ou campos obrigatórios preenchidos pela plataforma na criação.
+
+Para organizações já existentes, trave configurações individualmente em `/platform/organizations/<id>/settings/`. Campos travados ficam desabilitados na interface e têm qualquer tentativa de alteração recusada na tela, na API REST e na API de serviços ([configurações geridas pela plataforma](managed-settings.md)). Campos de app exclusivos da plataforma declaram `"managed_by": "platform"` no manifesto e são definidos em `/platform/organizations/<id>/apps/<app>/configuration/`.
 
 ## 6. Armazenamento por cliente e GB adicional
 
-Configure `FILES_STORAGE_ENCRYPTION_KEYS` e cadastre os buckets em `/platform/storage/`, marcando um como padrão. Cada organização nova nasce no local padrão (ou no escolhido no formulário de criação) e nunca vê qual é; a troca só vale enquanto a organização não tem arquivos ([locais de armazenamento](files.md#locais-de-armazenamento-da-plataforma)). O espaço incluído e o GB adicional vêm do plano: `included_storage_bytes`, `storage_overage="bill"`, `overage_unit_bytes=1073741824` e `overage_unit_amount`; a cota da plataforma continua como teto manual.
+Configure `FILES_STORAGE_ENCRYPTION_KEYS` e cadastre os buckets em `/platform/storage/`, marcando um deles como padrão. Toda organização nova nasce vinculada ao local padrão (ou ao escolhido no formulário de criação) sem visualizar qual local utiliza. A troca de local só é permitida enquanto a organização não tiver arquivos gravados ([locais de armazenamento](files.md#locais-de-armazenamento-da-plataforma)).
+
+A franquia de armazenamento e o valor por GB adicional são definidos no plano: `included_storage_bytes`, `storage_overage="bill"`, `overage_unit_bytes=1073741824` e `overage_unit_amount`. A cota definida manualmente pela plataforma continua atuando como teto soberano.
 
 ## 7. Cadastro do cliente
 
-Ligue `SKELETON_ORGANIZATION_SIGNUP_ENABLED` (e ajuste `SKELETON_ORGANIZATION_SIGNUP_MAX_PER_PERSON`, padrão 1). Uma pessoa autenticada com email verificado cria a própria organização em `/organizations/new/` (o campo do identificador avisa, enquanto ela digita, se ele já está em uso, e o servidor confere de novo ao criar; #765), escolhe um dos pacotes visíveis no cadastro e vira a administradora; a política das organizações novas e o local padrão se aplicam. Um pacote pago contrata o preço da oferta e leva a pessoa ao pagamento da primeira fatura; as apps chegam com o pagamento. Uma regra da política exigida na criação deixa o cadastro indisponível, e a lista de organizações da plataforma avisa disso. O filtro "Criadas por cadastro" lista as organizações que nasceram assim.
+Ative `SKELETON_ORGANIZATION_SIGNUP_ENABLED` e, se necessário, ajuste `SKELETON_ORGANIZATION_SIGNUP_MAX_PER_PERSON` (padrão `1`).
+
+Com o cadastro ligado, qualquer pessoa autenticada com e-mail verificado pode criar sua organização em `/organizations/new/`:
+- o campo do identificador verifica em tempo real se o valor já está em uso, e o servidor revalida na submissão;
+- a pessoa escolhe um dos pacotes visíveis no cadastro e torna-se administradora da organização, já sujeita à política de organizações novas e ao local de armazenamento padrão;
+- se o pacote escolhido for pago, o sistema contrata o preço da oferta e direciona ao pagamento da primeira fatura, liberando as apps após a quitação.
+
+Se a política tiver alguma regra marcada como exigida na criação, o cadastro público fica indisponível (e a lista de organizações da plataforma exibe um aviso). O filtro "Criadas por cadastro" lista as organizações originadas por esse fluxo.
 
 ## 8. Cliente da API de plataforma
 
-Ligue `SKELETON_INSIGHTS_ENABLED` para a instância coletar o resumo por organização e as métricas diárias que a central lê ([resumo e métricas](platform-api.md#resumo-e-métricas-skeletoninsights)). Em `/platform/api-clients/`, crie um cliente para a central e emita um token com os escopos que ela precisa (`platform.instance:read`, `platform.organizations:read`, `platform.billing:read`, `platform.metrics:read` e, só se for preciso o contato de cobrança, `platform.billing_contacts:read`), a validade e, de preferência, a rede de origem da central. O token aparece uma vez ([clientes e tokens de plataforma](platform-api.md#clientes-e-tokens-de-plataforma)).
+Ative `SKELETON_INSIGHTS_ENABLED` para que a instância colete o resumo por organização e as métricas diárias consultadas pela central ([resumo e métricas](platform-api.md#resumo-e-métricas-skeletoninsights)).
+
+Em `/platform/api-clients/`, crie um cliente para a instância central e emita um token com os escopos necessários (`platform.instance:read`, `platform.organizations:read`, `platform.billing:read`, `platform.metrics:read` e, somente se precisar do contato de cobrança, `platform.billing_contacts:read`), definindo a validade e, de preferência, restringindo à rede de origem da central. O token é exibido uma única vez ([clientes e tokens de plataforma](platform-api.md#clientes-e-tokens-de-plataforma)).
 
 ## 9. Na instância central
 
-Configure `REMOTE_INSTANCE_ENCRYPTION_KEYS` e, em `/platform/remote-instances/`, cadastre uma conexão por instância de produto: o endereço base, o token emitido no passo 8 e a organização da central liberada para lê-la. "Testar" fixa a identidade da remota. A app leitora, instalada na organização liberada, lê as remotas em jobs por `RemoteInstanceService`: as organizações (por cursor, só as que mudaram desde a última leitura), as faturas, os pagamentos e as métricas ([instância central](platform-api.md#instância-central-conexões-remotas)). A própria instância mostra o resumo em `/platform/insights/`.
+Configure `REMOTE_INSTANCE_ENCRYPTION_KEYS` e, em `/platform/remote-instances/`, cadastre uma conexão para cada instância de produto informando o endereço base, o token gerado no passo 8 e a organização da central autorizada a lê-la. O botão "Testar" confirma a conexão e fixa a identidade da instância remota.
+
+A app leitora, instalada na organização autorizada, coleta os dados das remotas em jobs via `RemoteInstanceService`: organizações (com cursor incremental, trazendo apenas o que mudou desde a última coleta), faturas, pagamentos e métricas ([instância central](platform-api.md#instância-central-conexões-remotas)). A própria instância também exibe seu resumo local em `/platform/insights/`.
 
 ## 10. Fora deste roteiro
 
-Ficam como evolução: a troca de pacote pela própria organização sem a cobrança, mover arquivos entre locais de armazenamento, escrita nas instâncias remotas pela central e relatórios financeiros além das métricas diárias.
+Ficam previstos como evoluções futuras:
+- troca de pacote pela própria organização sem uso do subsistema de cobrança;
+- movimentação de arquivos entre locais de armazenamento;
+- escrita nas instâncias remotas a partir da central;
+- relatórios financeiros além das métricas diárias.

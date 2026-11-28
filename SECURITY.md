@@ -2,27 +2,27 @@
 
 ## Versões suportadas
 
-Só a versão mais recente publicada do `django-skeleton` (o `version` de `pyproject.toml` na `main`) recebe correções de segurança. O agente de deployment e as apps first-party seguem o mesmo número e a mesma regra. Projetos derivados atualizam o núcleo para receber a correção.
+Somente a versão publicada mais recente do `django-skeleton` (o campo `version` em `pyproject.toml` na branch `main`) recebe correções de segurança. O agente de deployment e as apps first-party acompanham o mesmo número e a mesma política. Projetos derivados devem atualizar o núcleo para receber as correções.
 
 ## Como relatar
 
-Use **"Report a vulnerability"** na aba **Security** deste repositório (relato privado de vulnerabilidades do GitHub). O relato fica visível só para quem mantém o projeto.
+Use **"Report a vulnerability"** na aba **Security** deste repositório (relato privado de vulnerabilidades do GitHub). O relato fica visível apenas para os mantenedores.
 
-**Não abra issue, PR ou discussão pública com detalhes de exploração.** Uma falha relatada em público fica exposta a todos os projetos derivados antes que a correção exista. Se não houver o botão de relato privado, abra uma issue pública só pedindo um canal de contato, sem descrever a falha.
+**Não abra issue, PR ou discussão pública com detalhes de exploração.** Divulgar uma falha em público expõe todos os projetos derivados antes que haja correção disponível. Se o botão de relato privado não estiver visível, abra uma issue pública apenas pedindo um canal de contato, sem descrever a falha.
 
 ## O que incluir
 
-- O componente afetado (por exemplo `skeleton/access`, `skeleton/integrations`, o agente de deployment, uma app de `skeleton/contrib`).
-- A versão publicada ou o commit em que a falha aparece.
-- O impacto: o que um atacante consegue ler, alterar ou executar, e com que acesso inicial (anônimo, membro de uma organização, administrador de organização, operador).
-- Os passos mínimos para reproduzir, de preferência num checkout local com dados de teste.
+- O componente afetado (por exemplo `skeleton/access`, `skeleton/integrations`, `deployment_agent` ou uma app em `skeleton/contrib`).
+- A versão publicada ou o commit em que o problema ocorre.
+- O impacto: o que um atacante consegue ler, alterar ou executar, e qual o nível de acesso inicial necessário (anônimo, membro de organização, administrador de organização ou operador).
+- Os passos mínimos para reproduzir, de preferência em um checkout local com dados de teste.
 
-Não inclua dados pessoais reais nem segredos de produção no relato.
+Nunca inclua dados pessoais reais nem segredos de produção no relato.
 
 ## O que esperar
 
-O relato recebe confirmação de recebimento e uma avaliação em prazo razoável. Confirmada a falha, a correção entra como uma issue resumida, com os labels `bug` e `security`, sem passos de exploração, e um PR que a fecha; os detalhes técnicos são publicados depois que a versão corrigida sai. Quem relatou é creditado, se quiser.
+Você receberá confirmação de recebimento e uma avaliação em prazo razoável. Confirmada a vulnerabilidade, a correção entra por meio de uma issue resumida com os labels `bug` e `security` (sem passos de exploração) e um PR vinculado. Os detalhes técnicos são divulgados somente após a publicação da versão corrigida, com crédito ao autor do relato caso deseje.
 
 ## Escopo
 
-Valem os controles descritos em [docs/access-control.md](docs/access-control.md), [docs/audit-soft-delete.md](docs/audit-soft-delete.md) e [docs/deployment.md](docs/deployment.md). Ficam de fora o que a arquitetura declara que não promete ([docs/architecture.md](docs/architecture.md#segurança-o-que-a-arquitetura-não-promete)), como a proteção contra quem já controla o DBA/owner do banco, o SQLite da instância e a chave mestra, ou o host do agente, e falhas que dependem de uma configuração explicitamente desaconselhada na documentação.
+Estão no escopo os controles descritos em [docs/access-control.md](docs/access-control.md), [docs/audit-soft-delete.md](docs/audit-soft-delete.md) e [docs/deployment.md](docs/deployment.md). Ficam fora de escopo os limites que a arquitetura declara explicitamente não garantir ([docs/architecture.md](docs/architecture.md#segurança-o-que-a-arquitetura-não-promete)) — como proteção contra quem já controla o DBA ou owner do banco, o SQLite da instância e sua chave mestra, ou o host do agente — além de falhas decorrentes de configurações explicitamente desaconselhadas na documentação.

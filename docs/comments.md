@@ -1,10 +1,10 @@
 # Comentários em registros
 
-`skeleton/comments` permite comentar registros ([#187](https://github.com/alaorneto/skeleton/issues/187), epic [#93](https://github.com/alaorneto/skeleton/issues/93)). A autorização vem do registro alvo, no mesmo padrão dos [anexos](files.md#anexos): quem lê um registro lê os comentários dele e, se a tabela aceitar comentários, comenta.
+O subsistema `skeleton/comments` permite adicionar comentários a registros de negócio ([#187](https://github.com/alaorneto/skeleton/issues/187), epic [#93](https://github.com/alaorneto/skeleton/issues/93)). A autorização deriva do registro-alvo, seguindo o mesmo princípio dos [anexos](files.md#anexos): quem lê um registro pode ler seus comentários e, se a tabela habilitar o recurso, publicar novos comentários.
 
 ## Ativar numa tabela
 
-Uma tabela `SecuredRecord` exposta aceita comentários com `CommentPolicy`:
+Para habilitar comentários em uma tabela `SecuredRecord` exposta, declare `CommentPolicy` no `TableSpec`:
 
 ```python
 from skeleton.system.registry import CommentPolicy, TableSpec
@@ -12,51 +12,51 @@ from skeleton.system.registry import CommentPolicy, TableSpec
 TableSpec(..., expose_api=True, comments=CommentPolicy())
 ```
 
-Sem a política, a tabela não tem superfície de comentários: a lista, a criação e as demais rotas respondem 404, e o painel não aparece.
+Sem essa política, a tabela não oferece superfície de comentários: listagem, criação e demais rotas retornam 404, e o painel não é exibido.
 
-Uma [tabela derivada](access-control.md#tabelas-derivadas) (`access_parent`, #563) também aceita `CommentPolicy`: comentar e ler os comentários exigem leitura do filho, decidida pela âncora, e uma menção só alcança quem lê a âncora. A app usa o `CommentService` e mostra os comentários nas próprias páginas; a notificação da menção num filho não leva à página genérica, que a tabela derivada não tem.
+Uma [tabela derivada](access-control.md#tabelas-derivadas) (`access_parent`) também aceita `CommentPolicy`: ler e comentar exigem permissão de leitura sobre o filho (decidida pela âncora), e menções só alcançam quem lê a âncora. Nesses casos, a app usa `CommentService` e exibe os comentários em suas próprias páginas; a notificação de menção em um registro filho não direciona para a página genérica, que não existe para tabelas derivadas.
 
 ## Regras
 
-| Ação | Quem | Sem permissão |
+| Ação | Quem pode executar | Sem permissão |
 |---|---|---|
-| Ler | Quem lê o registro alvo | 404 (inexistente, de outra organização, excluído ou ilegível respondem igual) |
-| Comentar | Quem lê o registro alvo, numa tabela com `CommentPolicy` | 404 |
-| Editar | Só o autor | 403 |
+| Ler | Quem lê o registro-alvo | 404 (inexistente, de outra organização, excluído ou ilegível respondem igual) |
+| Comentar | Quem lê o registro-alvo em uma tabela com `CommentPolicy` | 404 |
+| Editar | Apenas o autor | 403 |
 | Excluir (exclusão lógica) e restaurar | O autor e o administrador da organização (moderação) | 403 |
 
-- O autor é o ator que criou o comentário (`created_by`); nenhum campo de autor vem do corpo da requisição.
-- Edição, exclusão e restauração exigem a revisão lida (`If-Match` na REST, `revision` no formulário, `expected_revision` no serviço). Revisão antiga responde 412 na REST, 409 na página e `Conflict("stale_revision")` no serviço, sem gravar.
-- A edição marca `edited_at`. A exclusão é lógica e a restauração mantém o UUID. Comentários excluídos só aparecem, para restaurar, ao autor e ao administrador.
-- Toda escrita é auditada pelos triggers da tabela (`sk_comments.comment`). Como a tabela não é exposta no gateway, a auditoria dos comentários é privilegiada: aparece para o administrador da organização.
+- O autor é sempre o ator que criou o comentário (`created_by`); nenhum campo de autor é aceito no corpo da requisição.
+- Edição, exclusão e restauração exigem a revisão lida (`If-Match` na REST, `revision` no formulário HTML e `expected_revision` no serviço). Revisões antigas retornam 412 na REST, 409 na página e `Conflict("stale_revision")` no serviço, sem gravar.
+- Editar preenche `edited_at`. A exclusão é lógica e a restauração preserva o UUID original. Comentários excluídos ficam visíveis para restauração apenas ao autor e ao administrador.
+- Toda escrita é registrada pelos triggers de auditoria de `sk_comments.comment`. Como a tabela não é exposta no gateway genérico, sua auditoria é privilegiada e aparece para o administrador da organização.
 
 ### Comentários de registro selado (#529)
 
-Com `SealPolicy(comments="open")` (o padrão), comentar um registro selado continua como sempre. Com `comments="frozen"`, depois do selo não há comentário novo, edição, exclusão nem restauração: o `CommentService` responde `Conflict("record_sealed")`, a API 409 `record_sealed` e as páginas 409. Comentários nunca entram no resumo do selo.
+Com `SealPolicy(comments="open")` (padrão), um registro selado continua aceitando comentários normalmente. Com `comments="frozen"`, após o selo ficam bloqueados novos comentários, edições, exclusões e restaurações: `CommentService` retorna `Conflict("record_sealed")`, a API retorna 409 `record_sealed` e as páginas respondem 409. Comentários nunca entram no resumo do selo.
 
 ## Texto
 
-O corpo é texto simples, de 1 a 5.000 caracteres, sem Markdown nem HTML e sem caracteres de controle (quebras de linha são mantidas). A apresentação sempre escapa o texto; depois, URLs `http` e `https` viram links com `rel="nofollow noopener noreferrer"`. Nenhum outro esquema vira link e nada do que a pessoa digitou vira marcação. O corpo não é tratado como dado pessoal (`personal_fields`) nem é sensível.
+O corpo do comentário é texto simples, de 1 a 5 000 caracteres, sem Markdown, sem HTML e sem caracteres de controle (preservando quebras de linha). Na apresentação, todo texto é escapado antes de converter URLs `http` e `https` em links com `rel="nofollow noopener noreferrer"`. Nenhum outro esquema vira link e nada digitado vira marcação HTML. O corpo não é classificado em `personal_fields` nem em `sensitive_fields`.
 
 ## Superfícies
 
-- **Página do registro:** painel **Comentários** com a lista, o formulário de novo comentário e, conforme a regra, editar, excluir e restaurar.
-- **Telas de fluxo:** a tarefa e a instância de um [fluxo de processo](flows.md#superfícies) mostram o mesmo painel do registro de negócio da instância ([#421](https://github.com/alaorneto/skeleton/issues/421)), com a mesma autorização: só quem lê o registro vê o painel, e só se a tabela tiver `CommentPolicy`. Os formulários mandam `next` com o caminho da tela, aceito só dentro de `/o/<org>/flows/` da mesma organização; fora disso, a resposta volta à página do registro.
-- **Linha do tempo:** cada comentário que a pessoa lê aparece como item (`register_timeline_source("comments", ...)`).
-- **REST** (`/api/v1/o/<org>/tables/<tabela>/records/<id>/`): `comments/` (GET, POST `{"body": "..."}`), `comments/<comentário>/` (PATCH `{"body": "..."}` e DELETE, com `If-Match`) e `comments/<comentário>/restore/` (POST com `If-Match`). O schema OpenAPI só descreve essas rotas para tabelas com a política que o ator lê.
-- **API de serviços:** `CommentService` (`skeleton.service_api.comments`): `comments`, `add_comment`, `edit_comment`, `delete_comment` e `restore_comment`. Veja [o catálogo](service-api.md#commentservice).
+- **Página do registro.** Painel **Comentários** com listagem, formulário para novo comentário e ações de editar, excluir e restaurar conforme as permissões.
+- **Telas de fluxo.** As telas de tarefa e de instância de um [fluxo de processo](flows.md#superfícies) exibem o mesmo painel de comentários do registro de negócio associado ([#421](https://github.com/alaorneto/skeleton/issues/421)), sob as mesmas regras: apenas para quem lê o registro e somente se a tabela declarar `CommentPolicy`. Os formulários enviam `next` com o caminho da tela, aceito apenas dentro de `/o/<org>/flows/` da mesma organização; fora disso, redirecionam para a página do registro.
+- **Linha do tempo.** Cada comentário legível pela pessoa aparece como item na timeline (`register_timeline_source("comments", ...)`).
+- **REST** (`/api/v1/o/<org>/tables/<tabela>/records/<id>/`): `comments/` (`GET` e `POST {"body": "..."}`), `comments/<comentário>/` (`PATCH {"body": "..."}` e `DELETE`, com `If-Match`) e `comments/<comentário>/restore/` (`POST` com `If-Match`). O esquema OpenAPI descreve essas rotas apenas para tabelas com `CommentPolicy` que o ator consegue ler.
+- **API de serviços.** `CommentService` (`skeleton.service_api.comments`), com os métodos `comments`, `add_comment`, `edit_comment`, `delete_comment` e `restore_comment`. Veja o [catálogo](service-api.md#commentservice).
 
 ## Modelo
 
-`sk_comments.Comment` é uma entidade organizacional própria (`OrganizationRecord`), com `target_table` (FK `PROTECT` ao catálogo de tabelas) e `target_sysid`, imutáveis, `body` e `edited_at`. A infraestrutura (guard, RLS tenant e auditoria) está congelada em `sk_comments.0001_initial`. A spec do núcleo não tem gateway nem `write_fields`: as escritas passam só pelos serviços acima.
+`sk_comments.Comment` é uma entidade organizacional (`OrganizationRecord`) com `target_table` (FK `PROTECT` para o catálogo de tabelas) e `target_sysid` imutáveis, além de `body` e `edited_at`. Sua infraestrutura (guard, RLS de tenant e auditoria) está congelada em `sk_comments.0001_initial`. A spec do núcleo não expõe gateway nem `write_fields`, garantindo que toda escrita passe pelos serviços dedicados.
 
 ## Menções
 
-Um comentário menciona uma pessoa com o marcador `@[nome](sysid)` ([#188](https://github.com/alaorneto/skeleton/issues/188)). O painel lista, em **Mencionar alguém**, os membros que podem ser mencionados com o marcador de cada um, e a REST os devolve em `.../comments/mentionable/` (nome de exibição, sem email, e o marcador) para clientes que montam o próprio seletor.
+Um comentário pode mencionar pessoas usando o marcador `@[nome](sysid)` ([#188](https://github.com/alaorneto/skeleton/issues/188)). O painel lista em **Mencionar alguém** os membros elegíveis com seus respectivos marcadores, e a API REST oferece `.../comments/mentionable/` (retornando nome de exibição, sem email, e o marcador) para clientes que montam seletor próprio.
 
-- O servidor só confia no `sysid`: o nome é o rótulo que o seletor escreveu, nunca resolvido no texto. Na apresentação o rótulo aparece escapado, como `@nome`.
-- Ao gravar ou editar, cada pessoa mencionada precisa ser membro ativo da organização e ler o registro. Senão o comentário é recusado com 400 (`InvalidInput` no serviço), com a mesma mensagem para qualquer motivo, e nada é gravado. Até 20 pessoas por comentário.
-- Cada pessoa recebe uma notificação `comments.mention` por comentário (dedupe por comentário e pessoa): editar o comentário não repete a notificação e só avisa quem foi mencionado pela primeira vez. Mencionar a si mesmo não notifica ninguém.
-- O fan-out reautoriza cada destinatário (`NotificationType.authorize`): se a pessoa perdeu a leitura do registro, ou o comentário foi excluído, entre a menção e o fan-out, ela não recebe nada. Abrir a notificação, ou o `{link}` do texto dela ([#806](https://github.com/alaorneto/skeleton/issues/806)), leva ao comentário (`#comment-<id>` na página do registro) só enquanto ela o lê.
+- O servidor confia apenas no `sysid`: o nome é apenas o rótulo inserido pelo seletor e nunca é resolvido a partir do texto. Na renderização, o rótulo aparece escapado como `@nome`.
+- Ao criar ou editar um comentário, cada pessoa mencionada precisa ser membro ativo da organização e ter leitura sobre o registro. Caso contrário, o comentário é recusado com 400 (`InvalidInput` no serviço), com mensagem uniforme para qualquer motivo, sem gravar nada. O limite é de até 20 menções por comentário.
+- Cada pessoa mencionada recebe uma única notificação `comments.mention` por comentário (deduplicada por comentário e destinatário): edições não repetem avisos anteriores e notificam apenas quem foi incluído pela primeira vez. Mencionar a si mesmo não gera notificação.
+- O fan-out reautoriza cada destinatário via `NotificationType.authorize`: se a pessoa perdeu leitura do registro ou o comentário foi excluído antes do envio, ela não recebe nada. Abrir a notificação — ou clicar no `{link}` do texto ([#806](https://github.com/alaorneto/skeleton/issues/806)) — leva diretamente ao comentário (`#comment-<id>` na página do registro) apenas enquanto o acesso continuar válido.
 
-Reações, respostas em thread e menções a grupos estão fora do escopo.
+Reações, respostas encadeadas (*threads*) e menções a grupos ficam fora do escopo.

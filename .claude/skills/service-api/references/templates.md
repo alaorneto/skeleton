@@ -1,11 +1,11 @@
 # Modelos da API de serviços
 
-Modelos para uma app hipotética `applications.tasks` (label `project_tasks`, app_id `com.example.tasks`) com o modelo `Task(SecuredRecord)`. Troque nomes e campos. O exemplo executável do repositório é `examples/notes/service_api.py`, com testes em `tests/integration/test_notes_service_api.py`.
+Modelos de referência para uma app hipotética `applications.tasks` (label `project_tasks`, `app_id` `com.example.tasks`) com o modelo `Task(SecuredRecord)`. Adapte nomes e campos para o seu domínio. Para um exemplo executável completo neste repositório, consulte `examples/notes/service_api.py` e seus testes em `tests/integration/test_notes_service_api.py`.
 
 ## `service_api.py`
 
 ```python
-"""API de serviços de tarefas: único ponto que outras apps podem importar."""
+"""API de serviços de tarefas: único módulo que outras apps podem importar."""
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -22,7 +22,7 @@ APP_LABEL = "project_tasks"
 
 @dataclass(frozen=True, slots=True)
 class TaskInfo:
-    """Tarefa como vista por outras apps."""
+    """Representação imutável de uma tarefa exposta a outras apps."""
 
     sysid: UUID
     code: str
@@ -37,13 +37,13 @@ def _info(task: Task) -> TaskInfo:
 
 
 class TaskService(ServiceAPI):
-    """Consulta e criação de tarefas da organização atual."""
+    """Consulta e criação de tarefas na organização atual."""
 
     app_label = APP_LABEL
 
     @service_method(read_only=True, since="1.0")
     def task(self, *, actor, task_id: UUID) -> TaskInfo:
-        """Devolve uma tarefa legível pelo ator.
+        """Retorna uma tarefa legível pelo ator.
 
         Autorização: read em project_tasks.task e acesso ao registro.
         Erros: NotFound se inexistente, de outra organização ou não legível; Unavailable se a app estiver desativada.
@@ -58,7 +58,7 @@ class TaskService(ServiceAPI):
     def tasks(
         self, *, actor, status: str | None = None, cursor: str | None = None, page_size: int = 25
     ) -> Page[TaskInfo]:
-        """Lista tarefas legíveis, ordenadas por criação.
+        """Lista tarefas legíveis, ordenadas por data de criação.
 
         Autorização: read em project_tasks.task; filtra antes de paginar.
         Erros: InvalidInput para status desconhecido ou page_size > 100.
@@ -67,18 +67,18 @@ class TaskService(ServiceAPI):
         rows = authorized_queryset(Task, user=actor, action="read")
         if status is not None:
             rows = rows.filter(status=services.validated_status(status))
-        # key: keyset pages over immutable columns, the last one unique (docs/service-api.md, #305).
+        # key: paginação por cursor sobre colunas imutáveis, terminando em coluna única (docs/service-api.md).
         return paginate(rows, cursor=cursor, page_size=page_size, convert=_info, key=("created_at", "sysid"))
 
     @service_method(since="1.0")
     def create_task(
         self, *, actor, title: str, due_at: datetime | None = None, idempotency_key: str | None = None
     ) -> TaskInfo:
-        """Cria uma tarefa privada do ator.
+        """Cria uma tarefa privada para o ator.
 
         Autorização: create em project_tasks.task.
-        Erros: InvalidInput para título vazio ou longo; Forbidden sem permissão de criação.
-        Efeitos: grava Task (auditada); publica o evento tasks.task.created quando eventos existirem.
+        Erros: InvalidInput para título vazio ou longo demais; Forbidden sem permissão de criação.
+        Efeitos: grava Task (auditada) e publica o evento tasks.task.created.
         """
         return _info(services.create_task(actor=actor, title=title, due_at=due_at, idempotency_key=idempotency_key))
 
@@ -86,15 +86,15 @@ class TaskService(ServiceAPI):
     def close_task(self, *, actor, task_id: UUID, expected_revision: int) -> TaskInfo:
         """Conclui uma tarefa.
 
-        Autorização: update em project_tasks.task e acesso de escrita ao registro.
+        Autorização: update em project_tasks.task e permissão de escrita no registro.
         Erros: NotFound; Forbidden sem escrita; Conflict(stale_revision) se a revisão mudou.
-        Efeitos: atualiza Task; notifica o dono quando notificações existirem.
+        Efeitos: atualiza Task e notifica o proprietário.
         """
         task = authorized_queryset(Task, user=actor, action="read").filter(pk=task_id).first()
         if task is None:
             raise NotFound()
         require_record_action(task, user=actor, action="update")
-        # ConcurrentUpdate vira Conflict("stale_revision") no @service_method; não capture aqui.
+        # ConcurrentUpdate é traduzido para Conflict("stale_revision") pelo @service_method; não capture aqui.
         return _info(services.close_task(task, actor=actor, expected_revision=expected_revision))
 ```
 
@@ -147,7 +147,7 @@ from skeleton.testing.service_api import (
 
 @pytest.fixture
 def scenario(skeleton_db):  # skeleton.testing.database.skeleton_db no conftest.py (PostgreSQL, role runtime)
-    open_app(Task._meta.app_label)  # apps nascem indisponíveis (#22); skeleton.testing.applications
+    open_app(Task._meta.app_label)  # apps nascem indisponíveis; skeleton.testing.applications
     return build_service_scenario(Task)
 
 
@@ -195,7 +195,7 @@ def test_idempotent_creation(scenario):
     assert create().sysid == create().sysid
 ```
 
-`scenario.caller` abre o contexto de cada chamada: contextos não aninham nem trocam de ator. O cenário grava dados confirmados, então use-o só na fixture de banco descartável do projeto.
+`scenario.caller` abre um contexto novo em cada chamada (contextos não se aninham nem trocam de ator). Como o cenário persiste dados reais, use-o sempre com a fixture de banco descartável.
 
 ## `docs/service-api.md` da app
 

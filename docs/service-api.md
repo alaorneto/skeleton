@@ -1,12 +1,14 @@
 # API de serviços entre apps
 
-**Estado: contrato entregue (epic [#112](https://github.com/alaorneto/skeleton/issues/112), em todo núcleo publicado): base em `skeleton.service_api`, `runtime.service_api` no manifesto, checks E018/E019, kit de testes `skeleton.testing.service_api` e adoção pelo exemplo Notes e pelo gerador. Serviços do núcleo entregues (epic [#113](https://github.com/alaorneto/skeleton/issues/113), métodos `since="0.1.0"` ou posteriores): veja o [catálogo do núcleo](#catálogo-do-núcleo).** Este documento é o contrato normativo para apps que oferecem operações a outras apps ou consomem as do núcleo. O skill `service-api` (`.claude/skills/service-api/`) é o procedimento. O que as verificações automáticas não alcançam (seção "Limites da verificação") continua valendo por revisão de código.
+**Estado: contrato entregue (epic [#112](https://github.com/alaorneto/skeleton/issues/112), presente em todo núcleo publicado): base em `skeleton.service_api`, `runtime.service_api` no manifesto, checks E018/E019, kit de testes `skeleton.testing.service_api` e adoção no exemplo Notes e no gerador. Serviços do núcleo entregues (epic [#113](https://github.com/alaorneto/skeleton/issues/113), métodos `since="0.1.0"` ou posteriores): veja o [catálogo do núcleo](#catálogo-do-núcleo).**
+
+Este documento estabelece o contrato normativo para apps que oferecem operações a outras apps ou consomem serviços do núcleo. O passo a passo prático está no skill `service-api` (`.claude/skills/service-api/`). As regras que a análise estática não consegue provar (veja [Limites da verificação](#limites-da-verificação)) continuam obrigatórias por revisão de código.
 
 ## Por que existe
 
-Uma app de agenda quer notificar participantes. Uma app de chamados quer saber o nome de exibição de quem abriu o chamado. Uma app de faturamento quer criar uma tarefa na app de tarefas. Sem contrato, cada uma importaria modelos, managers e funções internas das outras. Esses módulos mudam sem aviso, devolvem instâncias de modelo com campos sensíveis e permitem pular a autorização.
+Uma app de agenda precisa notificar participantes; uma app de chamados precisa exibir o nome de quem abriu o registro; uma app de faturamento precisa criar uma tarefa na app de tarefas. Sem um contrato explícito, cada app importaria modelos, managers e funções internas das demais — módulos que mudam sem aviso, expõem instâncias de modelo com campos sensíveis e facilitam contornar a autorização.
 
-A **API de serviços** é o contrato em processo entre apps: classes de serviço em Python, com métodos tipados, que outras apps chamam diretamente. Ela é diferente da [API REST](api.md):
+A **API de serviços** resolve isso como o contrato em processo entre apps: classes Python com métodos tipados chamadas diretamente por outras apps. Ela cumpre papel distinto da [API REST](api.md):
 
 | | API de serviços | API REST (`/api/v1/`) |
 |---|---|---|
@@ -16,25 +18,25 @@ A **API de serviços** é o contrato em processo entre apps: classes de serviço
 | Contexto | O `request_context`/`tenant_context` já aberto | Aberto pelo middleware a partir da URL |
 | Autorização | Revalidada dentro do serviço | Revalidada pela view, que deve chamar o serviço |
 
-A REST e as páginas HTML devem ser camadas finas sobre a API de serviços da própria app, para que exista um único caminho de regra de negócio.
+Tanto a API REST quanto as páginas HTML devem atuar como camadas finas sobre a API de serviços da própria app, garantindo um único ponto de aplicação das regras de negócio.
 
 ## Termos
 
-- **Provedor**: a app (ou subsistema do núcleo) que publica uma API de serviços.
-- **Consumidor**: a app que chama a API de outra.
-- **Serviço**: classe derivada de `ServiceAPI` publicada no módulo `service_api` do provedor.
-- **Método público**: método de serviço decorado com `@service_method`; é o único ponto de entrada para outras apps.
-- **DTO**: objeto imutável de transferência (`@dataclass(frozen=True, slots=True)`) com os campos que o contrato promete.
+- **Provedor:** a app (ou subsistema do núcleo) que publica uma API de serviços.
+- **Consumidor:** a app que consome a API de outro provedor.
+- **Serviço:** classe derivada de `ServiceAPI`, publicada no módulo `service_api` do provedor.
+- **Método público:** método de serviço decorado com `@service_method`; é a única porta de entrada para outras apps.
+- **DTO:** objeto imutável de transferência (`@dataclass(frozen=True, slots=True)`) contendo apenas os campos garantidos pelo contrato.
 
 ## Obrigações de toda app
 
-1. **Publicar uma API de serviços.** Toda app tem `service_api.py` no pacote, com pelo menos uma classe de serviço, ainda que só com consultas. Ela é declarada no manifesto em `runtime.service_api` (verificação pelo check `skeleton.E018`; `package build` e `package doctor` recusam release sem a declaração).
-2. **Publicar só por ela.** Outra app só pode importar o `service_api` do provedor. Modelos, managers, `services.py` internos, forms e views não são contrato (verificação estática pelo check `skeleton.E019` e pelo `package doctor`).
-3. **Declarar a dependência.** Consumir a API de outra app exige declará-la em `dependencies` do manifesto, com faixa de versão, como já acontece com migrations e FKs (E014/E015).
-4. **Autorizar dentro do serviço.** O método aplica `authorized_queryset`, `require_record_action`, capacidades e ativação da app. Ser chamado por código não concede permissão.
-5. **Não vazar internos.** Retorna DTOs, páginas de DTOs ou tipos primitivos, nunca modelos, querysets ou campos de `sensitive_fields`.
-6. **Documentar e testar.** Mantém `docs/service-api.md` no `documentation_root` da app e testes de contrato (seções abaixo).
-7. **Versionar.** Mudança incompatível em método público é mudança *major* da app (seção "Versionamento").
+1. **Publicar uma API de serviços.** Toda app possui `service_api.py` com pelo menos uma classe de serviço (mesmo que ofereça apenas consultas) e a declara em `runtime.service_api` no manifesto (verificado por `skeleton.E018`; `package build` e `package doctor` recusam releases sem a declaração).
+2. **Publicar somente por ela.** Outras apps só podem importar o módulo `service_api` do provedor. Modelos, managers, `services.py` internos, formulários e views não são contrato (verificação estática por `skeleton.E019` e `package doctor`).
+3. **Declarar a dependência.** Consumir a API de outra app exige declará-la em `dependencies` no manifesto com faixa de versão, assim como ocorre com migrations e FKs (E014/E015).
+4. **Autorizar dentro do serviço.** Cada método aplica `authorized_queryset`, `require_record_action`, capacidades e verificação de ativação da app. Ser chamado por código Python não concede permissão.
+5. **Não vazar internos.** Métodos devolvem DTOs, páginas de DTOs ou tipos primitivos — nunca modelos, querysets nem campos de `sensitive_fields`.
+6. **Documentar e testar.** Toda app mantém `docs/service-api.md` em seu `documentation_root` e testes de contrato (seções abaixo).
+7. **Versionar.** Alterações incompatíveis em métodos públicos exigem incremento *major* da versão da app (veja [Versionamento e depreciação](#versionamento-e-depreciação)).
 
 ## Estrutura de arquivos
 
@@ -51,7 +53,7 @@ applications/tasks/
 └── tests/test_service_api.py
 ```
 
-Uma app grande pode transformar `service_api.py` em pacote (`service_api/__init__.py` reexportando as classes). O nome do módulo declarado continua sendo o ponto de importação.
+Apps maiores podem transformar `service_api.py` em pacote (`service_api/__init__.py` reexportando as classes), mantendo o mesmo nome de módulo declarado como ponto de importação.
 
 Declaração no manifesto (`manifest_version` 2):
 
@@ -64,23 +66,23 @@ Declaração no manifesto (`manifest_version` 2):
 }
 ```
 
-- `module` fica dentro do pacote da app (`applications.<package_name>.…`); qualquer outro caminho é recusado pelo validador do manifesto.
-- `classes` são nomes simples e únicos (1 a 32), definidos no módulo declarado (ou num submódulo dele).
-- Declarar o campo exige `compatibility.skeleton` com piso de pelo menos `SERVICE_API_CORE_MINIMUM`. Todo núcleo publicado (0.1.0 em diante) entende o campo: o piso é 0.0.0 e o mecanismo fica para os campos de releases futuras (#569). `package build` acrescenta o piso ao artefato publicado.
-- Manifestos históricos sem o campo continuam carregando, com o aviso `skeleton.W018`, até a versão do core que tornar o campo obrigatório. `package build` e `package doctor` já exigem o campo, o módulo e `docs/service-api.md`.
-- `skeleton.service_api.registry.service_registry()` devolve `app_id → classes` resolvidas, para introspecção e documentação; a página `/platform/apps/<app_label>/documentation/` mostra o `service-api.md` da app.
+- `module` deve permanecer dentro do pacote da app (`applications.<package_name>.…`); caminhos externos são recusados pelo validador.
+- `classes` lista nomes simples e únicos (de 1 a 32), definidos no módulo declarado ou em submódulo dele.
+- Declarar o campo exige `compatibility.skeleton` com piso mínimo `SERVICE_API_CORE_MINIMUM` (como todo núcleo publicado a partir de 0.1.0 entende o campo, o piso é `0.0.0`, mantendo o mecanismo pronto para releases futuras). `package build` grava esse piso no artefato.
+- Manifestos históricos sem o campo continuam carregando com o aviso `skeleton.W018` até a versão do core que o torne obrigatório; `package build` e `package doctor` já exigem o campo, o módulo e `docs/service-api.md`.
+- `skeleton.service_api.registry.service_registry()` devolve o mapa `app_id → classes` resolvidas para introspecção e documentação; `/platform/apps/<app_label>/documentation/` exibe o `service-api.md` da app.
 
 ## Forma de um serviço e de seus métodos
 
-- A classe deriva de `ServiceAPI` (`skeleton.service_api.base`, entregue em [#97](https://github.com/alaorneto/skeleton/issues/97)) e não guarda estado entre chamadas. O consumidor instancia sem argumentos: `TaskService()`.
+- A classe herda de `ServiceAPI` (`skeleton.service_api.base`, entregue em [#97](https://github.com/alaorneto/skeleton/issues/97)) e não mantém estado entre chamadas. Consumidores instanciam sem argumentos: `TaskService()`.
 - Todo método público:
   - é decorado com `@service_method`;
-  - aceita somente argumentos **keyword-only** (`def m(self, *, actor, ...)`);
+  - aceita apenas parâmetros **keyword-only** (`def m(self, *, actor, ...)`);
   - recebe o ator explícito em `actor`;
-  - tem anotações de tipo completas e docstring com as seções **Autorização**, **Erros** e **Efeitos**.
-- Nomes seguem o vocabulário do negócio, no imperativo para comandos (`create_task`, `close_task`) e no substantivo para consultas (`task`, `tasks`, `open_count`).
-- Comandos que alteram um registro existente recebem `expected_revision`. Comandos que criam algo e podem ser repetidos por jobs aceitam `idempotency_key`.
-- Métodos com nome iniciado por `_` são internos, mesmo dentro de `service_api.py`.
+  - traz anotações de tipo completas e docstring contendo as seções **Autorização**, **Erros** e **Efeitos**.
+- Nomes refletem o vocabulário de negócio: verbos no imperativo para comandos (`create_task`, `close_task`) e substantivos para consultas (`task`, `tasks`, `open_count`).
+- Comandos que alteram registros existentes exigem `expected_revision`; comandos de criação sujeitos a reexecução por jobs aceitam `idempotency_key`.
+- Métodos iniciados por `_` são internos, mesmo dentro de `service_api.py`.
 
 ```python
 @service_method(read_only=True, since="1.0")
@@ -95,73 +97,77 @@ def task(self, *, actor: User, task_id: UUID) -> TaskInfo:
 
 ## Contexto e ator
 
-O serviço **não abre** contexto. Ele roda dentro do contexto do chamador:
+Um serviço **nunca abre** contexto próprio: ele sempre executa dentro do contexto já aberto pelo chamador:
 
 | Chamador | Contexto já aberto | `actor` |
 |---|---|---|
 | View ou endpoint tenant | `tenant_context` aberto pelo middleware a partir da URL | `request.user` |
 | Job `run_as="actor"` ([#77](https://github.com/alaorneto/skeleton/issues/77)) | `tenant_context` aberto pelo worker | ator do job |
 | Job `run_as="system"` | `system_context(reason=...)` da organização | `None`, só em métodos `@service_method(allow_system=True)` |
-| View do portal (#515) | `external_context` da pessoa externa | `request.user`, só em métodos `@service_method(allow_external=True)` |
+| View do portal | `external_context` da pessoa externa | `request.user`, só em métodos `@service_method(allow_external=True)` |
 
-Em contexto externo, um método sem `allow_external=True` responde `Forbidden(code="external_not_allowed")`; a marca aparece em `ServiceMethodSpec.allow_external` e o método marcado autoriza pela ligação da app à pessoa, nunca por `authorized_queryset` ([acesso externo](access-control.md#acesso-externo-portal)). Dentro de um método assim, a app numera com a própria sequência, publica o próprio tipo de evento e escreve o próprio evento gerenciado da agenda (#741): essas superfícies conhecem a app dona pela cadeia de chamadas de `service_method` (`skeleton.service_api.base.portal_caller_app`), nunca por argumento, e recusam a chamada direta de uma view com `external_not_allowed` ([portal](portal.md#superfícies-do-núcleo-para-os-recursos-da-própria-app-741)). O decorador confere que `actor` é o mesmo de `current_context().actor` (`skeleton/tenancy/context.py`) e que existe organização quando o método exige tenant. Uma app não consegue agir em nome de outra pessoa passando outro `actor`. Um serviço nunca chama `system_context` para ampliar o que o ator pode fazer, e nunca troca de organização no meio da chamada.
+Em contexto externo, qualquer método sem `allow_external=True` responde `Forbidden(code="external_not_allowed")`. Essa marca aparece em `ServiceMethodSpec.allow_external`, e métodos marcados devem autorizar pela ligação da própria app com a pessoa externa — nunca via `authorized_queryset` ([acesso externo](access-control.md#acesso-externo-portal)).
+
+Dentro de um método `allow_external`, a app pode numerar com sua própria sequência, publicar seu próprio tipo de evento e escrever seu próprio evento gerenciado na agenda: essas superfícies identificam a app chamadora pela cadeia de execução de `service_method` (`skeleton.service_api.base.portal_caller_app`), nunca por argumento, e recusam chamadas diretas vindas de views com `external_not_allowed` ([portal](portal.md#superfícies-do-núcleo-para-os-recursos-da-própria-app-741)).
+
+O decorador valida que `actor` coincide com `current_context().actor` (`skeleton/tenancy/context.py`) e que existe organização quando o método exige tenant. Uma app não consegue atuar em nome de outra pessoa passando outro `actor`, nunca deve chamar `system_context` para elevar privilégios e nunca troca de organização durante a chamada.
 
 ## Autorização
 
-- Consultas partem de `authorized_queryset(model, user=actor, action=...)` e filtram antes de contar ou paginar.
-- Comandos sobre um registro usam `require_record_action(record, user=actor, action=...)` depois de localizar o registro por um queryset autorizado.
-- Operações administrativas usam capacidades (`require_capability`, de [#17](https://github.com/alaorneto/skeleton/issues/17)) ou os serviços de `skeleton.access.services`, nunca checagem manual de papel.
-- Campos de acesso (`owner`, `visibility`, `owning_group`, grants) só mudam pela gestão de acesso autorizada, também via serviço.
-- Registro inexistente, de outra organização ou não legível responde igual (`NotFound`). Diferenciar os casos revelaria a existência de dados.
-- Antes de qualquer coisa, o serviço do provedor exige que a app dele esteja ativa e disponível na organização. `Unavailable` diz ao consumidor que a integração está desligada.
-- Com a [cobrança](billing.md#ganchos-de-direito) ligada, a situação de pagamento da organização também vale: em `restricted`, os comandos respondem `Unavailable` com o código `organization_restricted` (leituras continuam); em `suspended`, todo método de um serviço de app responde `Unavailable` com `organization_suspended`, e os comandos do núcleo também. Chamadas em `system_context` não são limitadas, e um serviço com `access_exempt = True` (o de cobrança) também não.
+- Consultas partem de `authorized_queryset(model, user=actor, action=...)`, filtrando antes de contar ou paginar.
+- Comandos sobre um registro executam `require_record_action(record, user=actor, action=...)` após localizar o alvo em um queryset autorizado.
+- Operações administrativas verificam capacidades (`require_capability`, de [#17](https://github.com/alaorneto/skeleton/issues/17)) ou delegam a `skeleton.access.services`, nunca inspecionando papéis manualmente.
+- Campos de acesso (`owner`, `visibility`, `owning_group` e concessões) só mudam pela gestão de acesso autorizada, igualmente via serviço.
+- Registro inexistente, pertencente a outra organização ou ilegível responde sempre `NotFound`, evitando revelar a existência de dados.
+- Antes de executar qualquer lógica, o serviço do provedor confirma que sua app está disponível e ativa na organização, respondendo `Unavailable` quando a integração está desligada.
+- Com a [cobrança](billing.md#ganchos-de-direito) ativada, a situação de pagamento da organização também é aplicada: em `restricted`, comandos respondem `Unavailable` com código `organization_restricted` (leituras seguem liberadas); em `suspended`, todos os métodos de serviços de apps e os comandos do núcleo respondem `Unavailable` com `organization_suspended`. Chamadas em `system_context` e serviços com `access_exempt = True` (como cobrança) não sofrem esse bloqueio.
 
 ## Retorno: DTOs e páginas
 
-- DTOs são `@dataclass(frozen=True, slots=True)` declarados em `service_api.py` (ou num módulo `service_api/dto.py`) e documentados como parte do contrato.
-- Campos permitidos: UUID, `str`, `int`, `bool`, `Decimal`, `date`, `datetime` com fuso, enums de texto, tuplas e outros DTOs. Datas e horas saem em UTC com `tzinfo`. Converter para o fuso da pessoa é trabalho da superfície.
-- Só entram campos que estão em `read_fields` do `TableSpec` e fora de `sensitive_fields`, salvo campo sensível documentado na seção **Autorização** do método.
-- Um serviço de app pode devolver DTO de uma [tabela derivada](access-control.md#tabelas-derivadas) (#566): as mesmas regras de campos valem, e o serviço autoriza o filho com `authorized_queryset`/`require_record_action` (criar, com `require_parent_action`), que decidem pela âncora. Teste com [`assert_derived_access_contract`](testing.md#kit-de-tabelas-derivadas).
-- Listas usam `Page[T]` (`items`, `next_cursor`, `page_size`, máximo de 100). Nunca devolva lista ilimitada. Um cursor ou uma página que endereça um deslocamento além de `MAX_OFFSET` (1 000 000 de linhas) é `InvalidInput`: leituras mais fundas usam filtros (#271). Exceção: coleção limitada por natureza e documentada no método pode sair como tupla (as organizações do próprio ator, os grupos do ator, as apps instaladas).
-- `paginate(rows, convert=..., page_size=..., cursor=..., key=(...))` pagina por chave (keyset, #305) quando recebe `key`: os campos da ordenação, `-` para decrescente, o último único e nenhum nulo, como `("code", "sysid")` ou `("-created_at", "-record_revision", "sysid")`. Cada página começa depois da última linha vista: uma linha que entra ou sai entre chamadas não faz o percurso pular nem repetir outra, e a página custa o mesmo em qualquer profundidade. Use só sobre colunas imutáveis; uma coluna que muda (como `updated_at` da caixa de entrada) fica no modo por deslocamento. O cursor continua opaco, não concede acesso (só posiciona dentro do queryset já autorizado) e cursores antigos por deslocamento continuam aceitos. `OrganizationService.members`/`groups`, `AuditService.history` e `FileService.list` usam a chave.
-- Retornar instância de modelo, `QuerySet` ou `dict` mutável é violação: `@service_method` recusa o valor na execução, e `assert_service_contract` reprova a anotação de retorno. A checagem na execução é uma lista de permitidos, a mesma do contrato: `None`, `bool`, `int`, `str`, `Decimal`, `date`/`datetime`, `UUID`, enum de texto, tupla e dataclass congelada (inclusive `Page`), em profundidade. Gerador, iterador, `float`, `bytes`, `frozenset`, objeto comum, dataclass não congelada e enum que não seja de texto são `TypeError` (#272).
+- DTOs são `@dataclass(frozen=True, slots=True)` declarados em `service_api.py` (ou `service_api/dto.py`) e documentados como parte do contrato.
+- Tipos permitidos em campos: `UUID`, `str`, `int`, `bool`, `Decimal`, `date`, `datetime` com fuso horário, enums de texto, tuplas e outros DTOs. Datas e horas saem em UTC com `tzinfo`; a conversão para o fuso do usuário compete à superfície.
+- Apenas campos listados em `read_fields` do `TableSpec` e ausentes de `sensitive_fields` podem integrar um DTO (salvo exceção documentada na seção **Autorização** do método).
+- Um serviço de app pode retornar DTOs de uma [tabela derivada](access-control.md#tabelas-derivadas): aplicam-se as mesmas regras de campos, autorizando o filho por `authorized_queryset`/`require_record_action` (e `require_parent_action` na criação), que decidem pela âncora. Valide com [`assert_derived_access_contract`](testing.md#kit-de-tabelas-derivadas).
+- Listagens retornam `Page[T]` (`items`, `next_cursor`, `page_size`, máximo de 100 itens), nunca listas ilimitadas. Cursores ou páginas com deslocamento superior a `MAX_OFFSET` (1 000 000 de linhas) respondem `InvalidInput` — consultas profundas devem usar filtros. Exceção: coleções naturalmente pequenas e documentadas no método podem retornar tupla (organizações do ator, grupos do ator, apps instaladas).
+- `paginate(rows, convert=..., page_size=..., cursor=..., key=(...))` utiliza paginação por chave (*keyset*) ao receber `key` — tupla com os campos de ordenação (`-` para decrescente), último campo único e nenhum anulável, como `("code", "sysid")` ou `("-created_at", "-record_revision", "sysid")`. Cada página parte após a última linha lida, evitando pulos ou duplicações em mudanças concorrentes e mantendo custo constante em qualquer profundidade. Utilize apenas sobre colunas imutáveis (colunas mutáveis, como `updated_at` da caixa de entrada, seguem no modo por deslocamento). O cursor continua opaco, não concede acesso e mantém compatibilidade com cursores antigos por deslocamento. `OrganizationService.members`/`groups`, `AuditService.history` e `FileService.list` usam paginação por chave.
+- Retornar instância de modelo, `QuerySet` ou `dict` mutável viola o contrato: `@service_method` rejeita em tempo de execução e `assert_service_contract` reprova a anotação. A validação em runtime usa a lista fechada do contrato (`None`, `bool`, `int`, `str`, `Decimal`, `date`, `datetime`, `UUID`, enum de texto, tupla e dataclass congelada, incluindo `Page`), recursivamente. Geradores, iteradores, `float`, `bytes`, `frozenset`, objetos comuns, dataclasses mutáveis e enums não textuais levantam `TypeError`.
 
 ## Erros
 
-Os erros públicos ficam em `skeleton.service_api.errors` ([#97](https://github.com/alaorneto/skeleton/issues/97)). Exceções internas não atravessam a fronteira:
+Os erros públicos residem em `skeleton.service_api.errors` ([#97](https://github.com/alaorneto/skeleton/issues/97)); exceções internas nunca atravessam a fronteira:
 
 | Erro | Quando | HTTP correspondente |
 |---|---|---|
 | `NotFound` | Alvo inexistente, de outra organização ou não legível | 404 |
-| `Forbidden` | Ator legível, mas sem permissão para a ação; ator divergente do contexto ou ausente, com o código próprio `actor_mismatch` (#321) | 403 |
-| `InvalidInput(errors)` | Validação de campos; `errors` mapeia campo → mensagens | 400 |
-| `Conflict(code)` | Revisão desatualizada (`code="stale_revision"`), unicidade (`integrity_conflict`), vínculos ativos (`live_references`), último admin (`last_administrator`, `last_platform_administrator`), cota | 409 |
-| `Unavailable` | App provedora desativada, indisponível ou não instalada na organização; ou organização com acesso limitado pela cobrança (`organization_restricted`, `organization_suspended`) | 404 |
+| `Forbidden` | Ator legível, mas sem permissão para a ação; ator divergente do contexto ou ausente, com código `actor_mismatch` | 403 |
+| `InvalidInput(errors)` | Falha de validação de campos; `errors` mapeia campo → mensagens | 400 |
+| `Conflict(code)` | Revisão desatualizada (`code="stale_revision"`), unicidade (`integrity_conflict`), vínculos ativos (`live_references`), último admin (`last_administrator`, `last_platform_administrator`) ou cota | 409 |
+| `Unavailable` | App provedora desativada, indisponível ou não instalada na organização; ou acesso limitado pela cobrança (`organization_restricted`, `organization_suspended`) | 404 |
 | `ContextRequired` | Chamada sem o contexto exigido | 500 (erro de programação) |
 
-O consumidor trata `Unavailable` como "integração desligada": esconde a funcionalidade, sem falhar a operação principal.
+Consumidores devem tratar `Unavailable` como "integração desligada", ocultando o recurso opcional sem interromper o fluxo principal.
 
-A classificação das exceções internas (revisão, vínculos, último administrador, validação, integridade, contexto) fica num lugar só, `skeleton.service_api.internal_errors.classify`, compartilhado pela API de serviços, pela REST e pelos formulários HTML; cada superfície mantém a própria apresentação (status, `code`, mensagem) (#325).
+A classificação de exceções internas (revisão, vínculos, último administrador, validação, integridade e contexto) é centralizada em `skeleton.service_api.internal_errors.classify`, compartilhada por API de serviços, REST e formulários HTML, preservando a apresentação própria de cada superfície (status, `code` e mensagem).
 
 ## Transações, efeitos e idempotência
 
-- Cada comando (`read_only=False`) roda num savepoint da transação do chamador: se levantar um erro público, nada do que ele gravou permanece, e a transação do chamador continua utilizável (#232).
-- O serviço participa da transação do chamador e não faz commit. Pode usar `transaction.atomic()` como savepoint para isolar uma etapa.
-- Efeitos externos (email, HTTP, push) não acontecem dentro do método. Eles vão para jobs ou eventos ([#77](https://github.com/alaorneto/skeleton/issues/77), [#78](https://github.com/alaorneto/skeleton/issues/78)) ou para `on_commit` com valores já materializados. Se o chamador desfizer a transação, nada sai.
-- Reações a mudanças de outra app usam eventos de domínio, não chamadas de serviço disparadas por signals.
-- `idempotency_key` repetida devolve o resultado da primeira execução, sem criar duplicata.
+- Todo comando (`read_only=False`) roda dentro de um savepoint da transação do chamador: se levantar erro público, todas as alterações do comando são revertidas e a transação do chamador permanece utilizável.
+- O serviço participa da transação do chamador e nunca executa `commit`. Pode usar `transaction.atomic()` para isolar etapas internas em savepoints.
+- Efeitos externos (e-mail, HTTP, push) nunca ocorrem dentro do método: são delegados a jobs ou eventos ([#77](https://github.com/alaorneto/skeleton/issues/77), [#78](https://github.com/alaorneto/skeleton/issues/78)) ou agendados em `on_commit` com dados já materializados, garantindo que nenhum efeito saia em caso de rollback.
+- Reações a mudanças em outra app devem usar eventos de domínio, nunca chamadas de serviço acionadas por signals.
+- Uma `idempotency_key` repetida devolve o resultado original sem duplicar registros.
 
 ## Concorrência
 
-Comandos de alteração recebem `expected_revision` e usam o CAS das bases (`revision`). Revisão desatualizada gera `Conflict(code="stale_revision")`. O serviço não tenta de novo em silêncio, porque sobrescreveria a alteração de outra pessoa. Quem decide reler e repetir é o chamador.
+Comandos de alteração recebem `expected_revision` e utilizam o mecanismo CAS das bases (`revision`). Revisões desatualizadas levantam `Conflict(code="stale_revision")`. O serviço nunca tenta novamente em silêncio (o que sobrescreveria edições de terceiros): cabe ao chamador reler e decidir como proceder.
 
 ## Versionamento e depreciação
 
-- O contrato da API de serviços segue a versão da app (`version` do manifesto).
-- Remover método, remover ou mudar o tipo de campo de DTO, mudar o significado de um parâmetro ou de um erro é incompatível: versão *major*.
-- Acrescentar método, parâmetro keyword opcional ou campo novo em DTO é compatível: versão *minor*.
-- Para retirar algo, marque com `@deprecated(since=..., removal=...)` e mantenha por pelo menos uma versão *minor* antes da *major* que remove.
-- O consumidor declara a faixa em `dependencies`, por exemplo `{"com.example.tasks": ">=1.2,<2.0"}`.
+- O contrato da API de serviços acompanha a versão da app (`version` no manifesto).
+- Remover método, remover ou alterar o tipo de campo de um DTO, ou alterar a semântica de parâmetros ou erros é mudança incompatível (*major*).
+- Adicionar método, parâmetro keyword opcional ou campo novo em DTO é mudança compatível (*minor*).
+- Antes de remover qualquer item, marque-o com `@deprecated(since=..., removal=...)` e mantenha-o por pelo menos uma versão *minor* antes da *major* de remoção.
+- Consumidores declaram a faixa compatível em `dependencies`, por exemplo `{"com.example.tasks": ">=1.2,<2.0"}`.
 
 ## Consumir a API de outra app
 
@@ -182,34 +188,34 @@ def open_followup_task(invoice, *, actor):
         return None  # app de tarefas desligada nesta organização
 ```
 
-O manifesto de `billing` declara `com.example.tasks` em `dependencies`. Não há dependência opcional: se a integração só funciona com a outra app presente, ela é declarada, e a ausência por organização é tratada com `Unavailable`.
+O manifesto de `billing` declara `com.example.tasks` em `dependencies`. Não existem dependências opcionais: toda integração que exige o código de outra app precisa declará-la no manifesto e tratar a desativação por organização capturando `Unavailable`.
 
-Uma app first-party, como a agenda, é declarada do mesmo modo, pelo `app_id` e com a faixa da versão do core: `"dependencies": {"org.skeleton.calendar": ">=0.10.0,<0.11.0"}`. A agenda e o livro contábil são bibliotecas first-party (#792): a dependência sempre é satisfeita, porque a biblioteca é instalada com a app (#793), e fica efetiva onde a app está ativa, sem ativação própria; vale para apps do projeto e para apps empacotadas ([extensão](extending.md#apps-first-party-do-núcleo-skeletoncontrib), #254).
+Apps first-party, como a agenda, são declaradas da mesma maneira — pelo `app_id` com a faixa correspondente à versão do core: `"dependencies": {"org.skeleton.calendar": ">=0.10.0,<0.11.0"}`. Como a agenda e o livro contábil são bibliotecas first-party, a dependência é sempre satisfeita (a biblioteca é instalada junto com a app) e fica automaticamente efetiva nas organizações em que a app está ativa, sem exigir ativação própria — tanto em apps do projeto quanto em pacotes `.skapp` ([extensão](extending.md#apps-first-party-do-núcleo-skeletoncontrib)).
 
 ## Superfícies públicas do núcleo para apps
 
-Uma app pode importar do núcleo apenas os nomes abaixo. A coluna "Uso" é a lista fechada de nomes que o check verifica (`PUBLIC_CORE_NAMES` em `skeleton/system/import_boundary.py`, #300); onde ela fala em "construtores" (OpenAPI, fluxos), vale qualquer nome público do módulo. Nomes iniciados por `_` nunca são contrato, nem em `skeleton.service_api`.
+Uma app só pode importar do núcleo os nomes listados abaixo. A coluna "Uso" representa a lista fechada verificada pelo check (`PUBLIC_CORE_NAMES` em `skeleton/system/import_boundary.py`); onde ela menciona "construtores" (OpenAPI e fluxos), qualquer nome público do módulo é aceito. Nomes iniciados por `_` nunca fazem parte do contrato, nem mesmo dentro de `skeleton.service_api`.
 
 | Módulo | Uso |
 |---|---|
 | `skeleton.service_api` e submódulos | Base, erros, DTOs e serviços do núcleo |
-| `skeleton.service_api.insights` | `register_instance_metric`: métricas da app somadas aos números de gestão da instância ([API de gestão](platform-api.md#resumo-e-métricas-skeletoninsights), #710) |
+| `skeleton.service_api.insights` | `register_instance_metric`: métricas da app somadas aos números de gestão da instância ([API de gestão](platform-api.md#resumo-e-métricas-skeletoninsights)) |
 | `skeleton.common.models` | Bases `SystemRecord`, `OrganizationRecord`, `SecuredRecord` e o `SealableMixin` dos registros selados |
-| `skeleton.common.money` | Dinheiro em inteiros da menor unidade: `parse`, `format_amount`, `scale`, `percent`, `exponent`, `validate_currency` e a tabela `CURRENCY_EXPONENTS` (#541) |
-| `skeleton.common.markdown` | Texto formatado em Markdown ([texto formatado](ui-design.md#texto-formatado-markdown), #824): `render_html` (HTML já escapado), `to_plain_text` (texto sem marcadores), `validate_features`, a lista `FEATURES`, o limite `MAX_SOURCE_LENGTH` e os erros `MarkdownError` e `MarkdownTooLong`; nos templates, os filtros `markdown` e `markdown_plain` de `{% load skeleton_markdown %}` |
+| `skeleton.common.money` | Dinheiro em inteiros da menor unidade: `parse`, `format_amount`, `scale`, `percent`, `exponent`, `validate_currency` e a tabela `CURRENCY_EXPONENTS` |
+| `skeleton.common.markdown` | Texto formatado em Markdown ([texto formatado](ui-design.md#texto-formatado-markdown)): `render_html` (HTML já escapado), `to_plain_text` (texto sem marcadores), `validate_features`, a lista `FEATURES`, o limite `MAX_SOURCE_LENGTH` e os erros `MarkdownError` e `MarkdownTooLong`; nos templates, os filtros `markdown` e `markdown_plain` de `{% load skeleton_markdown %}` |
 | `skeleton.common.sealing` | `canonical_bytes` e `digest`: o resumo SHA-256 das partes da app que entram no selo (`extra_digest`) |
 | `skeleton.records.sealing` | `seal_record`, `seal_payload` e `verify_seal`: selar e verificar os modelos da própria app em processo ([modelo de dados](data-model.md#registros-selados-526)) |
 | `skeleton.common.migration_operations` | `InstallRecordInfrastructure` e `InstallSearchIndex`, só em migrations |
 | `skeleton.system.app_registry` | `AppManifest`, `register_app` em `ready()` |
 | `skeleton.system.registry` | `TableSpec`, `register` em `ready()`, e as políticas `AttachmentPolicy`, `CommentPolicy`, `GlobalSearchPolicy` e `SealPolicy` |
 | `skeleton.system.record_operations` | `RecordOperations`, `register_record_operations` |
-| `skeleton.system.dashboard_widgets` | `DashboardWidget`, `register_dashboard_widget` ([quadros do painel da organização](extending.md#quadros-do-painel-da-organização), #620) |
+| `skeleton.system.dashboard_widgets` | `DashboardWidget`, `register_dashboard_widget` ([quadros do painel da organização](extending.md#quadros-do-painel-da-organização)) |
 | `skeleton.access.policies` | `authorized_queryset`, `require_record_action`, `require_parent_action` (criar filho de tabela derivada) e o predicado de leitura `has_table_permission`, sobre modelos da própria app |
 | `skeleton.access.derivation` | `is_authorizable` e `is_derived`: se uma tabela é autorizada direto ou pelo `access_parent` ([tabelas derivadas](access-control.md#tabelas-derivadas)) |
-| `skeleton.tenancy.context` | `current_context` (leitura) e `command_context`, só em `management/commands/` da app (#576): abre o contexto de sistema sem organização de um comando do operador, o único em que uma [tabela global da app](table-catalog.md#tabelas-globais-de-apps) aceita escrita, e é recusado dentro de qualquer contexto já aberto (requisição, tenant, sistema, job, consumidor). `system_context`, `tenant_context` e `request_context` não: o contexto é aberto pelo middleware, pelo worker ou pelo kit de testes, nunca pela app |
+| `skeleton.tenancy.context` | `current_context` (leitura) e `command_context`, só em `management/commands/` da app: abre o contexto de sistema sem organização de um comando do operador, o único em que uma [tabela global da app](table-catalog.md#tabelas-globais-de-apps) aceita escrita, e é recusado dentro de qualquer contexto já aberto (requisição, tenant, sistema, job, consumidor). `system_context`, `tenant_context` e `request_context` não são permitidos: o contexto é aberto pelo middleware, pelo worker ou pelo kit de testes, nunca pela app |
 | `skeleton.web.views` | `tenant_page` |
-| `skeleton.web.markdown_widget` | `MarkdownTextarea`: o widget de formulário do texto formatado, com o editor Markdown ([editor](ui-design.md#editor-markdown), #825) |
-| `skeleton.web.vocabulary` | `register_status` e `register_marker` em `ready()`: os estados e marcadores da app, com rótulo e tom, lidos por `status_badge` e `marker` ([vocabulário visual](ui-design.md#estados-e-marcadores-de-apps), #833) |
+| `skeleton.web.markdown_widget` | `MarkdownTextarea`: o widget de formulário do texto formatado, com o editor Markdown ([editor](ui-design.md#editor-markdown)) |
+| `skeleton.web.vocabulary` | `register_status` e `register_marker` em `ready()`: os estados e marcadores da app, com rótulo e tom, lidos por `status_badge` e `marker` ([vocabulário visual](ui-design.md#estados-e-marcadores-de-apps)) |
 | `skeleton.web.confirm` | `Confirmation`, `confirmation_step`: a página de confirmação de uma ação irreversível, com a mesma autorização do POST ([interface](ui-design.md#ações-pela-intenção)) |
 | `skeleton.api.views` | `TenantAPI` e `request_fields` (o objeto de campos do corpo) |
 | `skeleton.api.openapi` | `Operation` e construtores de schema para o atributo `openapi` das views de API da app ([OpenAPI](api.md#schema-openapi)) |
@@ -219,31 +225,31 @@ Uma app pode importar do núcleo apenas os nomes abaixo. A coluna "Uso" é a lis
 | `skeleton.sequences.registry` | `SequenceSpec`, `register_sequence` em `ready()`; numerar é pelo `SequenceService` |
 | `skeleton.flows.registry` | `FlowSpec` e os construtores de etapas, transições, formulários e condições; `register_flow`, `register_flow_handler`, `register_flow_condition`, `register_flow_assignment` em `ready()`; iniciar e operar é pelo `FlowService` ([fluxos](flows.md)) |
 | `skeleton.integrations.tokens.scopes` | `register_token_scope` em `ready()` (escopos nomeados, como o feed da agenda) |
-| `skeleton.tenancy.aggregate` | `aggregate_route`, `for_each_organization` (leitura de várias organizações, #74) e `user_context` (contexto global da pessoa na parte sem organização de uma rota agregada; recusa aninhar, #343) |
+| `skeleton.tenancy.aggregate` | `aggregate_route`, `for_each_organization` (leitura de várias organizações) e `user_context` (contexto global da pessoa na parte sem organização de uma rota agregada; recusa aninhar) |
 | `skeleton.system.applications` | `application_state` e `require_application_enabled`, transitórios até o `ApplicationService` substituí-los |
 | `skeleton.testing` | Kit de contrato e cenários, só em testes |
 
-Para ler a própria configuração ou a ativação de outra app, use o `ApplicationService` ([#105](https://github.com/alaorneto/skeleton/issues/105)); `skeleton.system.applications.application_state` continua permitido nesta versão e sai da lista numa próxima. Importar outros módulos do núcleo é o aviso `skeleton.W019` nesta versão e vira erro numa próxima. A lista vale também para `from skeleton.common import models` e para imports sob `TYPE_CHECKING`; para anotar o ator sem importar o modelo do núcleo, use `django.contrib.auth.base_user.AbstractBaseUser`.
+Para ler a própria configuração ou verificar se outra app está ativa, use o `ApplicationService` ([#105](https://github.com/alaorneto/skeleton/issues/105)); `skeleton.system.applications.application_state` segue permitido temporariamente nesta versão. Importar outros módulos do núcleo gera o aviso `skeleton.W019` nesta versão e passará a erro numa próxima. A restrição abrange também `from skeleton.common import models` e imports sob `TYPE_CHECKING`; para tipar o parâmetro `actor` sem importar o modelo do núcleo, use `django.contrib.auth.base_user.AbstractBaseUser`.
 
 ### Fronteira verificada
 
-O check `skeleton.E019` analisa com `ast`, sem importar código, todos os `.py` de cada app registrada:
+O check `skeleton.E019` inspeciona via `ast` — sem importar código — todos os arquivos `.py` de cada app registrada:
 
-- importar de outra app registrada qualquer módulo que não seja o `service_api` declarado dela (ou submódulo dele) é erro, inclusive por import relativo (`from ..tasks.models import Task`) e por `from applications.tasks import models`;
-- importar o `service_api` de outra app sem declará-la em `dependencies` é erro, como E014/E015 fazem para migrations e FKs;
-- `applications.<pacote>` desconhecido (app não registrada) só admite `applications.<pacote>.service_api`;
+- importar de outra app registrada qualquer módulo diferente do `service_api` declarado (ou submódulo dele) é erro, incluindo imports relativos (`from ..tasks.models import Task`) e `from applications.tasks import models`;
+- importar o `service_api` de outra app sem declará-la em `dependencies` é erro (análogo a E014/E015 para migrations e FKs);
+- `applications.<pacote>` não registrada só permite importar `applications.<pacote>.service_api`;
 - módulos fora das superfícies públicas do núcleo geram `skeleton.W019`;
-- nomes fora da lista fechada de um módulo público (`from skeleton.tenancy.context import system_context`, `from skeleton.common.models import OperationalRecord`) e nomes privados (`_x`) de qualquer módulo `skeleton.*` geram `skeleton.W019` (#300);
-- `command_context` importado fora de `management/commands/` da app (num serviço, view, job, consumidor ou qualquer outro módulo) é erro `command_only_import` (E019, #576): só um comando do operador abre o contexto de sistema da app. `system_context` continua fora da lista fechada (W019);
-- `apps.get_model("sk_...", ...)` com label literal do núcleo fora de `migrations/` gera `skeleton.W019`: chega a um modelo interno sem `import`. Em migrations, `apps.get_model` (modelo histórico) é obrigatório e não é acusado;
-- todos os diretórios importáveis são analisados, inclusive `build/`, `dist/` e `node_modules/`; só `__pycache__` e diretórios iniciados por `.` ficam de fora;
-- uma app first-party (`skeleton.contrib.<pacote>`) segue as regras de qualquer app: o `service_api` dela exige a dependência declarada (`org.skeleton.calendar`), e os demais módulos são `internal_import` (E019). Um `skeleton.contrib.<pacote>` que a análise não conhece (`package doctor` sem a first-party no inventário) só admite o `service_api`.
+- nomes fora da lista fechada de um módulo público (`from skeleton.tenancy.context import system_context`, `from skeleton.common.models import OperationalRecord`) e nomes privados (`_x`) de qualquer módulo `skeleton.*` geram `skeleton.W019`;
+- importar `command_context` fora de `management/commands/` da app (em serviço, view, job, consumidor ou qualquer outro módulo) gera erro `command_only_import` (E019), pois somente comandos de operador podem abrir o contexto de sistema da app; `system_context` permanece fora da lista fechada (W019);
+- chamadas a `apps.get_model("sk_...", ...)` com label literal do núcleo fora de `migrations/` geram `skeleton.W019` (em migrations, o modelo histórico via `apps.get_model` é obrigatório e permitido);
+- todos os diretórios importáveis são analisados, incluindo `build/`, `dist/` e `node_modules/`; apenas `__pycache__` e diretórios iniciados por `.` são ignorados;
+- apps first-party (`skeleton.contrib.<pacote>`) obedecem às mesmas regras: seu `service_api` exige dependência declarada (`org.skeleton.calendar`) e seus módulos internos geram `internal_import` (E019). Quando desconhecidas pelo inventário do `package doctor`, aceitam apenas `service_api`.
 
-`package doctor` repete a análise antes do build: os provedores vêm do inventário alvo (`--inventory`); violações aparecem como `internal_import`, `undeclared_dependency`, `command_only_import` e `unreadable_source`, e o uso de módulo não público do núcleo como `core_import` com `"severity": "warning"`, que não reprova o doctor.
+`package doctor` repete essa análise antes do build usando o inventário alvo (`--inventory`): violações aparecem como `internal_import`, `undeclared_dependency`, `command_only_import` e `unreadable_source`, enquanto módulos internos do núcleo aparecem como `core_import` com `"severity": "warning"` (sem reprovar o doctor).
 
 ## Catálogo do núcleo
 
-O núcleo publica a própria API de serviços em submódulos de `skeleton.service_api` (epic [#113](https://github.com/alaorneto/skeleton/issues/113)). Os serviços do núcleo não têm `app_label`: não dependem de ativação de app. Todos seguem as regras deste documento (keyword-only, `actor` igual ao do contexto, DTOs imutáveis, erros públicos).
+O núcleo expõe sua própria API de serviços em submódulos de `skeleton.service_api` (epic [#113](https://github.com/alaorneto/skeleton/issues/113)). Serviços do núcleo não têm `app_label` (não dependem de ativação de app) e obedecem integralmente às regras deste contrato (parâmetros keyword-only, `actor` coerente com o contexto, DTOs imutáveis e erros públicos).
 
 | Serviço | Módulo | Métodos | Issue |
 |---|---|---|---|
@@ -280,71 +286,73 @@ IdentityService().update_my_preferences(actor=request.user, expected_revision=me
 
 | Método | Autorização | Erros |
 |---|---|---|
-| `me(*, actor) -> UserProfileInfo` | o próprio ator; com ou sem organização no contexto | `Forbidden` (ator divergente) |
+| `me(*, actor) -> UserProfileInfo` | o próprio ator; funciona com ou sem organização no contexto | `Forbidden` (ator divergente) |
 | `get_person(*, actor, user_id) -> PersonSummary` | vínculo ativo do ator; `email` só com a capacidade `members.view` | `NotFound` se a pessoa não tiver vínculo ativo na organização atual, mesmo que exista |
-| `people(*, actor, user_ids) -> tuple[PersonSummary, ...]` | vínculo ativo do ator; `email` só com `members.view`; quem não tem vínculo ativo na organização atual simplesmente não aparece | `InvalidInput` (mais de 200 ids, id inválido) |
-| `update_my_preferences(*, actor, expected_revision, language=None, timezone=None, color_scheme=None) -> UserProfileInfo` | só o próprio ator; `color_scheme` (desde 0.4.0) é `""` (seguir o sistema), `light` ou `dark` | `InvalidInput` (idioma/fuso/tema inválido, nada a alterar); `Conflict("stale_revision")` |
-| `update_my_profile(*, actor, expected_user_revision, expected_revision, changes) -> UserProfileInfo` | só o próprio ator; `changes` com `first_name`, `last_name`, `display_name`, `timezone`, `language`, `color_scheme` (desde 0.4.0) | `InvalidInput` (campo não permitido ou valor inválido); `Conflict("stale_revision")` em qualquer das duas revisões |
+| `people(*, actor, user_ids) -> tuple[PersonSummary, ...]` | vínculo ativo do ator; `email` só com `members.view`; quem não tem vínculo ativo na organização atual é omitido | `InvalidInput` (mais de 200 IDs ou ID inválido) |
+| `update_my_preferences(*, actor, expected_revision, language=None, timezone=None, color_scheme=None) -> UserProfileInfo` | somente o próprio ator; `color_scheme` (desde 0.4.0) aceita `""` (seguir o sistema), `light` ou `dark` | `InvalidInput` (idioma, fuso ou tema inválido; nada a alterar); `Conflict("stale_revision")` |
+| `update_my_profile(*, actor, expected_user_revision, expected_revision, changes) -> UserProfileInfo` | somente o próprio ator; `changes` aceita `first_name`, `last_name`, `display_name`, `timezone`, `language` e `color_scheme` (desde 0.4.0) | `InvalidInput` (campo não permitido ou valor inválido); `Conflict("stale_revision")` em qualquer das duas revisões |
 
-`UserProfileInfo` tem `sysid`, `email`, `display_name`, `language`, `timezone`, `kind`, `revision` (do perfil, para CAS), `first_name`, `last_name`, `user_revision`, `profile_sysid`, `profile_display_name` (o valor gravado, sem a regra de fallback de `display_name`), `effective_language` e `effective_timezone` (o que vale no contexto atual: perfil, organização, instância) e `color_scheme` (desde 0.4.0: `""`, `light` ou `dark`); `PersonSummary` tem `sysid`, `display_name`, `email` (ou `None`) e `kind`. `kind` é `person`, ou `service` para contas de serviço (#44). Nenhum DTO traz senha, MFA, flags de plataforma ou `auth_version`.
+`UserProfileInfo` expõe `sysid`, `email`, `display_name`, `language`, `timezone`, `kind`, `revision` (do perfil, para CAS), `first_name`, `last_name`, `user_revision`, `profile_sysid`, `profile_display_name` (valor gravado, sem fallback), `effective_language`, `effective_timezone` (valor efetivo no contexto: perfil → organização → instância) e `color_scheme` (desde 0.4.0: `""`, `light` ou `dark`). `PersonSummary` expõe `sysid`, `display_name`, `email` (ou `None`) e `kind` (`person` ou `service` para contas de serviço). Nenhum DTO expõe senha, MFA, flags de plataforma ou `auth_version`.
 
 ### OrganizationService
 
 | Método | Autorização | Erros |
 |---|---|---|
 | `current(*, actor) -> OrganizationInfo` | vínculo ativo | `ContextRequired` sem organização |
-| `my_organizations(*, actor) -> tuple[OrganizationInfo, ...]` | o próprio ator, por autodescoberta; só organizações ativas com vínculo ativo; funciona sem organização; numa requisição no endereço de uma organização (`<slug>.<domínio base>`, #483) devolve só a organização do host | `Forbidden` (ator divergente) |
-| `members(*, actor, query=None, group_id=None, cursor=None, page_size=25) -> Page[PersonSummary]` | vínculo ativo; `email` só com `members.view` | `NotFound` (grupo de outra organização); `InvalidInput` (busca acima de 100 caracteres, cursor, página acima de 100) |
+| `my_organizations(*, actor) -> tuple[OrganizationInfo, ...]` | próprio ator, por autodescoberta; apenas organizações ativas com vínculo ativo; funciona sem organização; no endereço próprio de uma organização (`<slug>.<domínio base>`) devolve apenas a organização do host | `Forbidden` (ator divergente) |
+| `members(*, actor, query=None, group_id=None, cursor=None, page_size=25) -> Page[PersonSummary]` | vínculo ativo; `email` só com `members.view` | `NotFound` (grupo de outra organização); `InvalidInput` (busca acima de 100 caracteres, cursor inválido ou `page_size` acima de 100) |
 | `groups(*, actor, cursor=None, page_size=25) -> Page[GroupSummary]` | vínculo ativo | `InvalidInput` |
 | `is_member(*, actor, user_id) -> bool` | vínculo ativo | `InvalidInput` |
-| `member_refs(*, actor, user_ids, include_service_accounts=False) -> tuple[MemberRef, ...]` | Vínculos ativos da organização entre `user_ids` (`user_id`, `membership_id`, ordenados por `user_id`), só pessoas por padrão; sem nome nem email. Vínculo ativo do ator, ou `actor=None` em `system_context` (jobs) (#343) | `InvalidInput` (identificador inválido, mais de 500) |
+| `member_refs(*, actor, user_ids, include_service_accounts=False) -> tuple[MemberRef, ...]` | vínculos ativos da organização entre `user_ids` (`user_id`, `membership_id`, ordenados por `user_id`), apenas pessoas por padrão e sem nome nem e-mail; vínculo ativo do ator, ou `actor=None` em `system_context` (jobs) | `InvalidInput` (identificador inválido ou mais de 500) |
 | `settings(*, actor) -> OrganizationSettingsInfo` | vínculo ativo | `ContextRequired` sem organização |
 | `update_settings(*, actor, display_name, default_language, default_timezone, brand_color, expected_revision) -> OrganizationSettingsInfo` | administrador da organização | `Forbidden`; `InvalidInput` (idioma fora de `LANGUAGES`, fuso inválido, cor fora de `#RRGGBB`, nome acima de 200 caracteres); `Conflict("stale_revision")` |
-
 | `limits(*, actor) -> tuple[LimitInfo, ...]` (desde 0.6.0) | vínculo ativo com `members.view` ou `members.manage` | `Forbidden` sem a capacidade |
 
-`LimitInfo` tem `metric`, `used`, `limit`, `reserved` (convites pendentes, só em `members`) e `over_limit`; só aparecem as métricas com limite ([limites da organização](organization-limits.md)).
+`LimitInfo` traz `metric`, `used`, `limit`, `reserved` (convites pendentes, somente em `members`) e `over_limit`; apenas métricas com limite aparecem ([limites da organização](organization-limits.md)).
 
-`OrganizationSettingsInfo.locked_fields` (desde 0.6.0) traz os campos que a plataforma travou, e `update_settings` responde `Conflict("setting_locked")` a uma mudança deles; `ApplicationState.locked_fields` traz a ativação e os campos da app travados ou geridos pela plataforma, e `ApplicationAdministrationService.configure` responde `Conflict("setting_locked")` a uma mudança deles; `ApplicationService.my_configuration` devolve também os campos geridos pela plataforma ([configurações geridas pela plataforma](managed-settings.md)).
+`OrganizationSettingsInfo.locked_fields` (desde 0.6.0) lista os campos travados pela plataforma, e `update_settings` responde `Conflict("setting_locked")` a qualquer tentativa de alterá-los. Da mesma forma, `ApplicationState.locked_fields` lista a ativação e os campos de app travados ou geridos pela plataforma (respondendo `Conflict("setting_locked")` em `ApplicationAdministrationService.configure`), enquanto `ApplicationService.my_configuration` já devolve inclusive os campos geridos pela plataforma ([configurações geridas pela plataforma](managed-settings.md)).
 
-As configurações começam em branco com `revision=0` e passam a existir na primeira gravação; valores em branco significam "use o padrão da instância", e `has_logo` diz se há logo sem revelar a chave do storage.
-
-O diretório traz só vínculos ativos de identidades ativas da organização atual, busca por nome de exibição ou nome, e deixa de fora as contas de serviço (#44). Administrar vínculos continua nos serviços de acesso.
+As configurações começam em branco com `revision=0` e passam a existir na primeira gravação; valores vazios herdam o padrão da instância, e `has_logo` indica a presença de logo sem revelar a chave de armazenamento. O diretório de membros retorna apenas vínculos ativos de identidades ativas da organização atual, busca por nome de exibição ou nome e omite contas de serviço. A administração de vínculos continua nos serviços de acesso.
 
 ### AccessService
 
 | Método | Comportamento | Erros |
 |---|---|---|
-| `can(*, actor, action, table_key, record_id=None) -> bool` | Exatamente `authorized_queryset(model, user=actor, action=action)` (filtrado pelo registro, quando informado); uma [tabela derivada](access-control.md#tabelas-derivadas) responde pela âncora com a ação mapeada, e `manage_access` nela é sempre `False` (#564); tabela desconhecida ou não autorizável, registro inexistente ou de outra organização: `False` | `InvalidInput` (ação ou UUID inválidos) |
-| `require(*, actor, action, table_key, record_id=None) -> None` | Igual a `can`, mas levanta | `NotFound` se não for legível (inclusive de outra organização); `Forbidden` se for legível e a ação for negada |
-| `capabilities(*, actor) -> tuple[str, ...]` | Capacidades dos papéis internos do ator, ordenadas (tupla: o contrato não admite `frozenset`) | — |
-| `granted_record_ids(*, actor, table_key, record_ids, action="read") -> tuple[UUID, ...]` | Quais de `record_ids` têm concessão de registro viva ao vínculo do ator, a um grupo dele ou a um papel efetivo, na organização do contexto; não dispensa a `TablePermission` nem diz se o registro existe (inexistente e de outra organização simplesmente não aparecem) (#343). Numa tabela derivada, as linhas cuja âncora tem a concessão, entre as que o ator pode tocar com a ação (#564) | `InvalidInput` (tabela não exposta, ação fora de `read`/`update`/`delete`, identificador inválido, mais de 500) |
+| `can(*, actor, action, table_key, record_id=None) -> bool` | Equivale a `authorized_queryset(model, user=actor, action=action)` (filtrado pelo registro quando informado); em [tabela derivada](access-control.md#tabelas-derivadas), decide pela âncora com a ação mapeada, e `manage_access` é sempre `False`; tabela desconhecida ou não autorizável, registro inexistente ou de outra organização retornam `False` | `InvalidInput` (ação ou UUID inválidos) |
+| `require(*, actor, action, table_key, record_id=None) -> None` | Mesmo comportamento de `can`, mas levantando erro | `NotFound` se ilegível (inclusive de outra organização); `Forbidden` se legível mas sem a ação |
+| `capabilities(*, actor) -> tuple[str, ...]` | Capacidades dos papéis internos do ator, ordenadas em tupla (`frozenset` não é admitido pelo contrato) | — |
+| `granted_record_ids(*, actor, table_key, record_ids, action="read") -> tuple[UUID, ...]` | Quais de `record_ids` têm concessão de registro viva para o vínculo do ator, um grupo dele ou papel efetivo na organização atual; não dispensa `TablePermission` nem confirma existência (inexistentes e de outra organização são omitidos). Em tabela derivada, retorna as linhas cuja âncora tem a concessão, entre as acessíveis ao ator | `InvalidInput` (tabela não exposta, ação fora de `read`/`update`/`delete`, ID inválido ou mais de 500) |
 | `my_groups(*, actor) -> tuple[GroupSummary, ...]` | Grupos vivos do ator na organização | `Forbidden` sem vínculo |
-| `grant_member_table_access(*, actor, table_key, actions) -> tuple[str, ...]` | Dá ao papel interno `member` as ações numa tabela exposta, pelo serviço de concessão da gestão de acesso (lock e auditoria); devolve só as ações acrescentadas, então repetir não muda nada. Usado pela ação "acesso básico" da agenda (#68) | `Forbidden` sem `access.manage`; `InvalidInput` (tabela não exposta, ação inválida, catálogo ou papel indisponível) |
+| `grant_member_table_access(*, actor, table_key, actions) -> tuple[str, ...]` | Concede ao papel interno `member` as ações informadas em uma tabela exposta, pelo serviço de concessão da gestão de acesso (lock e auditoria); retorna apenas as ações efetivamente acrescentadas (idempotente). Usado pela ação "acesso básico" da agenda | `Forbidden` sem `access.manage`; `InvalidInput` (tabela não exposta, ação inválida, catálogo ou papel indisponível) |
+| `grant_record_access(*, actor, table_key, record_id, action, group_id=None, role_id=None, membership_user_id=None) -> RecordGrantInfo` | Concede `read`, `update` ou `delete` em um registro a exatamente um grupo, papel ou pessoa (pelo `user_id` do vínculo ativo), via gestão de acesso (lock e auditoria); uma concessão viva idêntica é devolvida sem nova gravação | `NotFound` (registro inexistente, ilegível ou de outra organização); `Forbidden` sem `access.manage`; `InvalidInput` (tabela não exposta ou derivada — cujo acesso é gerido na âncora; ação inválida; nenhum ou mais de um destinatário; destinatário inativo ou de outra organização) |
+| `revoke_record_access(*, actor, table_key, record_id, action, group_id=None, role_id=None, membership_user_id=None) -> None` | Revoga a concessão daquele destinatário e ação; sem concessão ativa, nada muda | Os mesmos de `grant_record_access` |
+| `record_grants(*, actor, table_key, record_id) -> tuple[RecordGrantInfo, ...]` | Concessões vivas de um registro (até 500, da mais antiga à mais nova), para telas de compartilhamento; exige leitura do registro e `access.manage` | `NotFound` (registro inexistente, ilegível ou de outra organização); `Forbidden` sem `access.manage`; `InvalidInput` (tabela não exposta ou derivada) |
 
-| `grant_record_access(*, actor, table_key, record_id, action, group_id=None, role_id=None, membership_user_id=None) -> RecordGrantInfo` | Concede `read`, `update` ou `delete` num registro a exatamente um grupo, papel ou pessoa (pelo `user_id` do vínculo ativo), pelo mesmo serviço das telas de gestão de acesso (lock, auditoria); uma concessão viva igual é devolvida sem gravar (#539) | `NotFound` (registro inexistente, ilegível ou de outra organização); `Forbidden` sem `access.manage`; `InvalidInput` (tabela não exposta; tabela derivada, cujo acesso é gerido na âncora, #564; ação inválida, nenhum ou mais de um destinatário, destinatário de outra organização ou inativo) |
-| `revoke_record_access(*, actor, table_key, record_id, action, group_id=None, role_id=None, membership_user_id=None) -> None` | Revoga a concessão desse destinatário e dessa ação; sem concessão, nada muda | Os de `grant_record_access` |
-| `record_grants(*, actor, table_key, record_id) -> tuple[RecordGrantInfo, ...]` | As concessões vivas de um registro (até 500, da mais antiga), para uma tela de compartilhamento; a mesma autorização de `grant_record_access`: leitura do registro e `access.manage` (#670) | `NotFound` (registro inexistente, ilegível ou de outra organização); `Forbidden` sem `access.manage`; `InvalidInput` (tabela não exposta ou derivada) |
-
-`RecordGrantInfo` tem `sysid`, `table_key`, `record_id`, `action`, `group_id`, `role_id` e `membership_user_id`. Não há cache entre chamadas: uma revogação vale na chamada seguinte. Alterar ACL continua nos serviços de gestão de acesso.
+`RecordGrantInfo` contém `sysid`, `table_key`, `record_id`, `action`, `group_id`, `role_id` e `membership_user_id`. Não existe cache entre chamadas: qualquer revogação surte efeito imediato. A administração completa de ACL permanece nos serviços de gestão de acesso.
 
 ### ApplicationService
 
 | Método | Comportamento | Erros |
 |---|---|---|
-| `is_enabled(*, actor, app_id) -> bool` | `app_id` ou `app_label`; verdadeiro se a app está instalada, disponível pela plataforma para a organização e ativa, com as dependências; app desconhecida: `False` | `InvalidInput` (vazio) |
-| `require_enabled(*, actor, app_id) -> None` | Igual, mas levanta o `Unavailable` padronizado | `Unavailable` |
-| `my_configuration(*, actor, app_label) -> AppConfiguration` | Configuração da organização para a **própria** app, com todos os campos declarados resolvidos; `AppConfiguration.get(nome)` | `Forbidden` se o módulo que chama não pertencer a `app_label`; `Unavailable` se a app estiver desativada ou indisponível |
+| `is_enabled(*, actor, app_id) -> bool` | Aceita `app_id` ou `app_label`; retorna `True` se a app estiver instalada, disponibilizada pela plataforma e ativa na organização com suas dependências; app desconhecida retorna `False` | `InvalidInput` (vazio) |
+| `require_enabled(*, actor, app_id) -> None` | Mesmo critério de `is_enabled`, mas levanta o erro padronizado | `Unavailable` |
+| `my_configuration(*, actor, app_label) -> AppConfiguration` | Configuração da organização para a **própria** app, com todos os campos declarados resolvidos (`AppConfiguration.get(nome)`) | `Forbidden` se o módulo chamador não pertencer a `app_label`; `Unavailable` se a app estiver desativada ou indisponível |
 
-A app chamadora é identificada pelo módulo do primeiro frame fora da API de serviços, do kit de testes e do Django, resolvido para a app registrada que o contém (`apps.get_containing_app_config`). Uma app não lê a configuração de outra. Essa identificação assume que o código das apps é confiável (o mesmo processo); ela impede engano, não um código malicioso que forje frames. Ativar ou configurar apps continua com o administrador.
+A app chamadora é identificada pelo primeiro frame da pilha fora da API de serviços, do kit de testes e do Django (`apps.get_containing_app_config`), impedindo que uma app leia a configuração de outra. Esse mecanismo assume código de apps confiável no mesmo processo e previne enganos acidentais, não ataques de falsificação de frames. Ativar e configurar apps permanece restrito ao administrador.
 
 ### AuditService
 
-`history(*, actor, table_key, record_id, cursor=None, page_size=25) -> Page[AuditEntry]` devolve o histórico de um registro, do mais recente ao mais antigo, com as mesmas regras de `authorized_audit_queryset`: administrador da organização, ou `TablePermission audit` mais leitura do registro atual (se excluído, restauração autorizada); numa [tabela derivada](access-control.md#tabelas-derivadas), `audit` na tabela âncora e leitura do registro âncora (#564). Filtra antes de paginar. Sem essas permissões, para tabela desconhecida e para registro de outra organização, responde `NotFound`; eventos de outra organização nunca aparecem.
+`history(*, actor, table_key, record_id, cursor=None, page_size=25) -> Page[AuditEntry]` devolve o histórico de um registro (do mais recente ao mais antigo), seguindo `authorized_audit_queryset`: administrador da organização ou `TablePermission audit` combinada à leitura do registro (ou restauração autorizada, se excluído). Em [tabelas derivadas](access-control.md#tabelas-derivadas), exige `audit` na tabela âncora e leitura do registro âncora. A filtragem ocorre antes da paginação; falta de permissão, tabela desconhecida ou registro de outra organização retornam `NotFound`.
 
-`AuditEntry` tem `sysid`, `occurred_at` (UTC), `operation`, `record_revision`, `actor_id`, `request_id`, `source` e `changes`, uma tupla de `FieldChange(name, old, new, redacted)` restrita aos `read_fields` da tabela. Valores sensíveis chegam como `[REDACTED]`; valores não escalares chegam como JSON em texto. A auditoria global da plataforma não passa por este serviço.
+`AuditEntry` contém `sysid`, `occurred_at` (UTC), `operation`, `record_revision`, `actor_id`, `request_id`, `source` e `changes` — tupla de `FieldChange(name, old, new, redacted)` restrita aos `read_fields` da tabela, com campos sensíveis substituídos por `[REDACTED]` e valores não escalares serializados como texto JSON. A auditoria global da plataforma não passa por este serviço.
 
-`AuditLogService` é o log que as páginas e a REST do núcleo mostram (`/o/<org>/audit/`, `/api/v1/o/<org>/audit/` e `/platform/audit/`). `events(*, actor, model_label=None, record_id=None, since=None, until=None, actor_id=None, operation=None, request_id=None, page=1, page_size=25) -> AuditLogPage` devolve uma página numerada (`items`, `count`, `page`, `page_size`) com as regras de `authorized_audit_queryset`, filtrada antes de contar; `event(*, actor, event_id) -> AuditLogEvent` devolve um evento ou `NotFound`. `AuditLogEvent` traz os campos do evento como a REST os publica (inclusive `table_name` e `db_principal`) e `changes_json`, o objeto JSON das colunas visíveis. `table_name` e `db_principal` são identificadores de infraestrutura (nome físico da tabela e role do banco): chegam como texto vazio para quem não administra a organização nem a plataforma (#324). Sem organização no contexto, os dois métodos leem os eventos globais e exigem o administrador da plataforma (`Forbidden` para os demais). Os filtros de período (`since` inclusivo, `until` exclusivo), ator, operação e requisição só estreitam o que a autorização já permite ([#184](https://github.com/alaorneto/skeleton/issues/184)). `related_domain_events(*, actor, request_id) -> tuple[DomainEventSummary, ...]` devolve, só para o administrador da organização, os eventos de domínio ainda retidos da mesma requisição: tipo, tabela, registro, revisão e momento, nunca `data`. Para o histórico de um registro numa app, prefira `AuditService.history`, que já confere a leitura do registro.
+`AuditLogService` atende as telas e endpoints de auditoria do núcleo (`/o/<org>/audit/`, `/api/v1/o/<org>/audit/` e `/platform/audit/`):
+
+- `events(*, actor, model_label=None, record_id=None, since=None, until=None, actor_id=None, operation=None, request_id=None, page=1, page_size=25) -> AuditLogPage` devolve página numerada (`items`, `count`, `page`, `page_size`) filtrada via `authorized_audit_queryset` antes da contagem. Filtros de período (`since` inclusivo, `until` exclusivo), ator, operação e requisição apenas restringem o que já é autorizado ([#184](https://github.com/alaorneto/skeleton/issues/184)).
+- `event(*, actor, event_id) -> AuditLogEvent` devolve um único evento ou `NotFound`. `AuditLogEvent` inclui os campos publicados na REST (`table_name`, `db_principal` e `changes_json` com as colunas visíveis); `table_name` e `db_principal` (metadados de infraestrutura) vêm vazios para quem não administra a organização nem a plataforma. Sem organização no contexto, `events` e `event` leem a auditoria global e exigem administrador da plataforma (`Forbidden` para demais).
+- `related_domain_events(*, actor, request_id) -> tuple[DomainEventSummary, ...]` devolve (somente ao administrador da organização) os eventos de domínio ainda retidos da mesma requisição (tipo, tabela, registro, revisão e momento, nunca `data`).
+
+Em apps, prefira sempre `AuditService.history`, que já valida o acesso ao registro específico.
 
 ### NotificationService
 
@@ -363,55 +371,62 @@ NotificationService().notify(
 
 | Método | Autorização | Erros |
 |---|---|---|
-| `notify(*, actor, type_code, recipients, payload=(), target_table_key=None, target_id=None, dedupe_key=None) -> NotificationReceipt` | a app chamadora é a dona do tipo (`owner_app`); o ator lê o alvo (de tabela derivada: pela âncora, #562); cada destinatário é reautorizado no fan-out; `actor=None` só em `system_context` (consumidores de eventos) | `Forbidden` (tipo de outra app), `NotFound` (alvo ilegível ou de outra organização), `InvalidInput` |
-| `settings(*, actor) -> tuple[NotificationSetting, ...]` (desde 0.7.0) | vínculo ativo; só os tipos da app chamadora: `enabled`, `reason` (`mandatory`, `instance_disabled`, `organization_disabled` ou vazio) e `text_source` (`organization`, `instance`, `type`), [#785](https://github.com/alaorneto/skeleton/issues/785) | — |
+| `notify(*, actor, type_code, recipients, payload=(), target_table_key=None, target_id=None, dedupe_key=None) -> NotificationReceipt` | a app chamadora precisa ser dona do tipo (`owner_app`); o ator precisa ler o alvo (em tabela derivada, pela âncora); cada destinatário é reautorizado no fan-out; `actor=None` só em `system_context` (consumidores de eventos) | `Forbidden` (tipo de outra app), `NotFound` (alvo ilegível ou de outra organização), `InvalidInput` |
+| `settings(*, actor) -> tuple[NotificationSetting, ...]` (desde 0.7.0) | vínculo ativo; retorna apenas os tipos da app chamadora com `enabled`, `reason` (`mandatory`, `instance_disabled`, `organization_disabled` ou vazio) e `text_source` (`organization`, `instance`, `type`), [#785](https://github.com/alaorneto/skeleton/issues/785) | — |
 | `unread_count(*, actor) -> int` | linhas do ator em organizações com vínculo ativo | — |
-| `inbox(*, actor, cursor=None, include_archived=False, page_size=25) -> Page[NotificationItem]` | linhas do ator: o tenant atual, ou todas as organizações ativas sem tenant; cada item traz `title` e `body`, o texto renderizado no idioma do ator no envio (#783; o rótulo nas linhas antigas) | `InvalidInput` |
+| `inbox(*, actor, cursor=None, include_archived=False, page_size=25) -> Page[NotificationItem]` | linhas do ator na organização atual (ou em todas as organizações ativas sem tenant); cada item traz `title` e `body` renderizados no idioma do ator no momento do envio (linhas antigas exibem o rótulo) | `InvalidInput` |
 | `mark_read(*, actor, ids, read=True) -> int`, `archive(*, actor, ids) -> int` | linhas do ator no tenant atual; idempotentes | `NotFound` (linha de outra pessoa), `InvalidInput` |
 
-`Recipients(users, groups, roles, organization)` é o DTO público dos destinatários. Os tipos continuam registrados por cada app ([notificações](notifications.md)). O rollback do chamador não deixa notificação nem job. Canais e preferências ficam internos ao epic de notificações.
+`Recipients(users, groups, roles, organization)` é o DTO público de destinatários. Cada app registra seus tipos em `ready()` ([notificações](notifications.md)). Um rollback do chamador não deixa notificações nem jobs pendentes; canais e preferências permanecem internos ao subsistema.
 
 ### JobService e EventService
 
 | Método | Autorização | Erros |
 |---|---|---|
-| `JobService.enqueue(*, actor, job_type, payload=(), idempotency_key=None, run_after=None) -> JobReceipt` | o tipo pertence à app chamadora (`JobType.owner_app`); a organização é a do contexto; `actor=None` em `system_context` | `Forbidden` (tipo alheio), `InvalidInput` (tipo desconhecido, payload inválido, `run_after` sem fuso) |
-| `EventService.publish(*, actor, event_type, record_id, data=()) -> EventReceipt` | o tipo pertence à app chamadora (`EventType.owner_app`); o ator lê o registro (de tabela derivada: pela âncora, #562); no portal (desde 0.6.0, #741), só de um método `allow_external` da app dona, e basta o registro existir na organização | `Forbidden` (tipo alheio; no portal fora de um método `allow_external` de app, `external_not_allowed`), `NotFound` (registro ilegível ou de outra organização), `InvalidInput` |
+| `JobService.enqueue(*, actor, job_type, payload=(), idempotency_key=None, run_after=None) -> JobReceipt` | o tipo pertence à app chamadora (`JobType.owner_app`); roda na organização do contexto; `actor=None` permitido em `system_context` | `Forbidden` (tipo de outra app), `InvalidInput` (tipo desconhecido, payload inválido ou `run_after` sem fuso) |
+| `EventService.publish(*, actor, event_type, record_id, data=()) -> EventReceipt` | o tipo pertence à app chamadora (`EventType.owner_app`); o ator lê o registro (em tabela derivada, pela âncora); no portal (desde 0.6.0), permitido apenas a partir de um método `allow_external` da app dona, bastando que o registro exista na organização | `Forbidden` (tipo alheio; no portal fora de método `allow_external` de app, `external_not_allowed`), `NotFound` (registro ilegível ou de outra organização), `InvalidInput` |
 
-Tipo registrado sem `owner_app` não pode ser usado pelo serviço: é `Forbidden` para qualquer chamador, app ou não (#272). Isso vale também para `NotificationService.notify` e `SequenceService.next_number`.
+Tipos registrados sem `owner_app` não podem ser acionados via serviço e respondem `Forbidden` a qualquer chamador — regra que também vale para `NotificationService.notify` e `SequenceService.next_number`.
 
-`JobReceipt` traz `sysid`, `job_type`, `state`, `run_after` e `created` (falso quando a chave de idempotência já existia); `EventReceipt` traz `sysid`, `event_type`, `record_id` e `occurred_at`. Nenhum recibo devolve o payload. Os dois gravam na transação do chamador: um rollback não deixa job nem evento. Tipos e consumidores continuam registrados em `ready()` ([jobs](jobs.md), [eventos](events.md)). A `idempotency_key` vale por tipo de job e organização: repetida no mesmo tipo e organização, devolve o job existente; usada por outra organização, é recusada sem revelar o job alheio ([jobs](jobs.md#enfileirar)).
+`JobReceipt` traz `sysid`, `job_type`, `state`, `run_after` e `created` (`False` quando a chave de idempotência já existia); `EventReceipt` traz `sysid`, `event_type`, `record_id` e `occurred_at`. Nenhum recibo devolve o payload. Ambos gravam na transação do chamador (rollback cancela job e evento). Tipos e consumidores são registrados em `ready()` ([jobs](jobs.md), [eventos](events.md)). A `idempotency_key` tem escopo por tipo de job e organização: repetida na mesma organização devolve o job existente; usada por outra organização é recusada sem expor o job alheio ([jobs](jobs.md#enfileirar)).
 
 ### FeedTokenService
 
 | Método | Autorização | Erros |
 |---|---|---|
-| `FeedTokenService.issue(*, actor, name, scope, expires_at) -> IssuedFeedToken` | a própria pessoa (sem contas de serviço), política de MFA; `scope` é um escopo de feed registrado (`register_token_scope(..., feed=True)`) | `InvalidInput` (escopo que não é de feed, nome ou validade), `Forbidden` |
-| `FeedTokenService.issue_for_record(*, actor, name, scope, expires_at, table_key, record_id) -> IssuedFeedToken` | o mesmo de `issue`, numa organização, para um registro que a pessoa lê (`AccessService.can`); o token fica vinculado ao registro e à organização dele (#669) | `NotFound` (registro inexistente, ilegível ou de outra organização), `InvalidInput`, `Forbidden` |
+| `FeedTokenService.issue(*, actor, name, scope, expires_at) -> IssuedFeedToken` | a própria pessoa (exclui contas de serviço) respeitando a política de MFA; `scope` deve ser escopo de feed registrado (`register_token_scope(..., feed=True)`) | `InvalidInput` (escopo não de feed, nome ou validade inválidos), `Forbidden` |
+| `FeedTokenService.issue_for_record(*, actor, name, scope, expires_at, table_key, record_id) -> IssuedFeedToken` | mesmas regras de `issue`, dentro de uma organização, para um registro legível pelo ator (`AccessService.can`); vincula o token ao registro e à sua organização | `NotFound` (registro inexistente, ilegível ou de outra organização), `InvalidInput`, `Forbidden` |
 
-`IssuedFeedToken` traz `sysid`, `prefix`, `scope`, `expires_at` e o `text`, só nesta resposta. Para a view do feed, `skeleton.service_api.tokens.authenticate_feed(request, text, scope=...)` devolve o usuário de um token de feed vivo com o escopo, ou `None` (inclusive acima dos limites de taxa), e a view responde 404. Um token de feed nunca autentica `/api/v1/` ([#76](https://github.com/alaorneto/skeleton/issues/76)). `authenticate_feed(request, text, *, scope)` é função de apoio para a view de feed da própria app; não é método de serviço e não segue as regras de `@service_method`.
+`IssuedFeedToken` traz `sysid`, `prefix`, `scope`, `expires_at` e `text` (exibido apenas nesta resposta). Na view de feed, `skeleton.service_api.tokens.authenticate_feed(request, text, scope=...)` retorna o usuário de um token de feed vivo com aquele escopo ou `None` (incluindo excesso de taxa), cabendo à view responder 404. Tokens de feed nunca autenticam `/api/v1/` ([#76](https://github.com/alaorneto/skeleton/issues/76)). Note que `authenticate_feed(request, text, *, scope)` é função auxiliar para views de feed, não um método `@service_method`.
 
-Um token de `issue_for_record` abre só o feed daquele registro ([#669](https://github.com/alaorneto/skeleton/issues/669)): `authenticate_feed` o recusa, e `authenticate_record_feed(request, text, *, scope, table_key)` devolve um `RecordFeed` (`user`, `organization_id`, `table_key`, `record_id`) ou `None`, com as mesmas recusas e limites. O token não carrega permissão: a view abre só a organização do registro (`for_each_organization(..., organization_id=...)`), relê a autorização a cada pedido e responde 404 quando a pessoa deixou de ler o registro, sem revogar o token.
+Tokens emitidos por `issue_for_record` abrem exclusivamente o feed daquele registro ([#669](https://github.com/alaorneto/skeleton/issues/669)): `authenticate_feed` os recusa, e `authenticate_record_feed(request, text, *, scope, table_key)` devolve `RecordFeed(user, organization_id, table_key, record_id)` ou `None`, sob as mesmas recusas e limites. Como o token não carrega permissão própria, a view abre somente a organização do registro (`for_each_organization(..., organization_id=...)`), revalida a autorização a cada pedido e responde 404 caso o ator perca leitura, sem revogar o token.
 
 ### FileService
 
 | Método | Autorização | Erros |
 |---|---|---|
-| `attach(*, actor, table_key, record_id, filename, stream, content_type=None) -> AttachmentInfo` | update no registro alvo; o tipo é provado pelo conteúdo (`content_type` é só indicativo) | `NotFound` (tabela sem opt-in, alvo inexistente, de outra organização ou ilegível); `Forbidden` (lê sem update); `InvalidInput` (tipo, nome ou tamanho); `Conflict("quota_exceeded")` |
+| `attach(*, actor, table_key, record_id, filename, stream, content_type=None) -> AttachmentInfo` | `update` no registro alvo; o tipo real é validado pelo conteúdo (`content_type` é apenas indicativo) | `NotFound` (tabela sem opt-in, alvo inexistente, de outra organização ou ilegível); `Forbidden` (lê sem `update`); `InvalidInput` (tipo, nome ou tamanho); `Conflict("quota_exceeded")` |
 | `list(*, actor, table_key, record_id, cursor=None, page_size=25) -> Page[AttachmentInfo]` | leitura do alvo | `NotFound`, `InvalidInput` |
-| `download_url(*, actor, attachment_id) -> str` | leitura do alvo e anexo `available`; a URL é interna e a view reautoriza a cada pedido | `NotFound` (inclusive pendente ou em quarentena) |
-| `external_download_url(*, actor, attachment_id) -> str` | só no portal (`allow_external=True`, #534): o `external_reader` do `AttachmentPolicy` decide pelo registro alvo vivo | `NotFound`; `Forbidden` fora do portal |
-| `remove(*, actor, attachment_id, expected_revision) -> None` | update no alvo | `NotFound`, `Forbidden`, `Conflict("stale_revision")` |
+| `download_url(*, actor, attachment_id) -> str` | leitura do alvo e anexo `available`; devolve URL interna cuja view reautoriza a cada requisição | `NotFound` (inclusive pendente ou em quarentena) |
+| `external_download_url(*, actor, attachment_id) -> str` | apenas no portal (`allow_external=True`): o `external_reader` de `AttachmentPolicy` decide pelo registro alvo vivo | `NotFound`; `Forbidden` fora do portal |
+| `remove(*, actor, attachment_id, expected_revision) -> None` | `update` no alvo | `NotFound`, `Forbidden`, `Conflict("stale_revision")` |
 
-Apps não acessam o armazenamento diretamente. A tabela pode ser exposta ou [derivada](access-control.md#tabelas-derivadas) (#563): num filho, ler e baixar exigem leitura e anexar e remover exigem `update`, decididos pela âncora; a URL de `download_url` serve também para o filho e reautoriza a cada pedido, mas a página genérica do registro e as rotas genéricas de envio continuam só para tabelas expostas.
+Apps nunca acessam o storage diretamente. O alvo pode ser uma tabela exposta ou [derivada](access-control.md#tabelas-derivadas): em filhos, listar e baixar exigem leitura na âncora, enquanto anexar e remover exigem `update` na âncora. A URL gerada por `download_url` também funciona para filhos (reautorizando a cada pedido), mas a tela genérica de registro e as rotas genéricas de upload continuam restritas a tabelas expostas.
 
 ### CommentService
 
-[Comentários](comments.md) em registros de tabelas com `CommentPolicy`, autorizados pelo registro alvo como no `FileService`, inclusive de [tabela derivada](access-control.md#tabelas-derivadas) (#563). `comments(*, actor, table_key, record_id, cursor=None, page_size=25) -> Page[CommentInfo]` lista os vivos, do mais antigo ao mais novo; `add_comment(*, actor, table_key, record_id, body)` exige leitura do alvo; `edit_comment(..., comment_id, body, expected_revision)` só para o autor; `delete_comment` e `restore_comment(..., comment_id, expected_revision)` para o autor ou o administrador da organização. `CommentInfo` traz o corpo como texto simples: renderize-o escapado (`skeleton.comments.text.linkify` faz o escape e os links). Erros: `NotFound` para tabela sem a política e alvo inexistente, de outra organização ou ilegível; `Forbidden` para quem não pode editar ou excluir; `Conflict("stale_revision")`; `InvalidInput` para corpo vazio, acima de 5.000 caracteres, com caracteres de controle ou com menção a quem não é membro ou não lê o registro ([menções](comments.md#menções)). Métodos com `since="0.1.0"`.
+Gerencia [comentários](comments.md) em registros de tabelas que declaram `CommentPolicy`, autorizados pelo registro alvo assim como no `FileService` — incluindo [tabelas derivadas](access-control.md#tabelas-derivadas). Todos os métodos têm `since="0.1.0"`:
+
+- `comments(*, actor, table_key, record_id, cursor=None, page_size=25) -> Page[CommentInfo]` lista comentários vivos do mais antigo ao mais novo;
+- `add_comment(*, actor, table_key, record_id, body)` exige leitura do alvo;
+- `edit_comment(..., comment_id, body, expected_revision)` é restrito ao autor;
+- `delete_comment` e `restore_comment(..., comment_id, expected_revision)` aceitam autor ou administrador da organização.
+
+`CommentInfo` devolve o corpo em texto simples, que deve ser renderizado escapado (`skeleton.comments.text.linkify` aplica escape e gera links). Erros possíveis: `NotFound` (tabela sem política ou alvo inexistente, de outra organização ou ilegível), `Forbidden` (sem direito de editar ou excluir), `Conflict("stale_revision")` e `InvalidInput` (corpo vazio, acima de 5 000 caracteres, com caracteres de controle ou menção a quem não é membro ou não lê o registro; veja [menções](comments.md#menções)).
 
 ### SearchService
 
-A [busca global](extending.md#busca-global) nas tabelas marcadas com `GlobalSearchPolicy`, para uma app que queira oferecê-la na própria tela (a REST e a página web chamam o mesmo gateway).
+Expõe a [busca global](extending.md#busca-global) sobre tabelas marcadas com `GlobalSearchPolicy` para apps que queiram integrá-la às próprias telas (a API REST e a página web chamam o mesmo gateway). Método com `since="0.2.0"`.
 
 ```python
 from skeleton.service_api.search import SearchService
@@ -423,58 +438,58 @@ for group in results.groups:  # Um SearchGroup por tabela com resultado.
 
 | Método | Autorização | Erros |
 |---|---|---|
-| `search(*, actor, query, limit=5) -> SearchResults` | leitura de cada tabela (`TablePermission`, escopos do token e app ativa) e de cada registro (`authorized_queryset`); uma tabela ilegível não gera grupo, igual a uma sem resultado | `InvalidInput` (`query` fora de 2 a 200 caracteres ou que não é texto, `limit` fora de 1 a 20 ou que não é inteiro); `Forbidden` (ator divergente); `ContextRequired` (sem organização no contexto) |
+| `search(*, actor, query, limit=5) -> SearchResults` | leitura de cada tabela (`TablePermission`, escopos do token e app ativa) e de cada registro (`authorized_queryset`); tabelas ilegíveis não geram grupo, assim como tabelas sem resultados | `InvalidInput` (`query` fora de 2 a 200 caracteres ou não textual, `limit` fora de 1 a 20 ou não inteiro); `Forbidden` (ator divergente); `ContextRequired` (sem organização no contexto) |
 
-`SearchResults` tem `query` (o termo normalizado, espaços colapsados) e `groups`. `SearchGroup` tem `table_key`, `label` (rótulo da tabela), `hits` e `has_more` (a lista da tabela com o mesmo termo tem mais que `limit`). `SearchHit` tem `sysid` e `label` (o campo de título do registro, nunca `__str__`). Só lê: sem efeito, sem commit e sem contexto próprio. Método com `since="0.2.0"`.
+`SearchResults` traz `query` (termo normalizado com espaços colapsados) e `groups`; cada `SearchGroup` traz `table_key`, `label` (rótulo da tabela), `hits` e `has_more` (indica haver mais resultados além de `limit`); cada `SearchHit` traz `sysid` e `label` (o campo de título do registro, nunca `__str__`). A operação é puramente de leitura, sem efeitos, commit ou contexto próprio.
 
 ### SequenceService
 
 | Método | Autorização | Erros |
 |---|---|---|
-| `next_number(*, actor, key, at=None) -> SequenceNumber` | a app chamadora é a dona da sequência (`owner_app`); numera na organização do contexto; `actor=None` só em `system_context` com organização (consumidor de evento, job por organização; desde 0.2.0, #577); no portal (desde 0.6.0, #741), só de um método `allow_external` da app dona, com a pessoa externa como ator | `Forbidden` (sequência de outra app, `actor=None` fora de `system_context`, ou, no portal fora de um método `allow_external` de app, `external_not_allowed`); `ContextRequired` (sem organização); `InvalidInput` (sequência não declarada, data sem fuso) |
+| `next_number(*, actor, key, at=None) -> SequenceNumber` | a app chamadora é dona da sequência (`owner_app`); numera na organização do contexto; `actor=None` só em `system_context` com organização (consumidores e jobs, desde 0.2.0); no portal (desde 0.6.0), só a partir de método `allow_external` da app dona, com a pessoa externa como ator | `Forbidden` (sequência de outra app, `actor=None` fora de `system_context` ou, no portal fora de método `allow_external` de app, `external_not_allowed`); `ContextRequired` (sem organização); `InvalidInput` (sequência não declarada ou data sem fuso) |
 
-`SequenceNumber` tem `key`, `period`, `number` e `formatted`. O incremento acontece na transação do chamador: um rollback devolve o número e a numeração não tem lacunas. Veja [sequências](sequences.md).
+`SequenceNumber` contém `key`, `period`, `number` e `formatted`. O incremento ocorre dentro da transação do chamador: em caso de rollback o número é devolvido, evitando lacunas ([sequências](sequences.md)).
 
 ### RecordSealService
 
 | Método | Autorização | Erros |
 |---|---|---|
-| `seal(*, actor, table_key, record_id, expected_revision, extra_digest="") -> SealInfo` | `update` no registro (tabela exposta ou derivada, pela âncora, #564) | `NotFound` (inexistente, de outra organização ou ilegível); `Forbidden` (lê e não altera); `Conflict("record_sealed")`; `Conflict("stale_revision")`; `InvalidInput` (tabela sem `TableSpec.seal`, revisão ou `extra_digest` inválidos) |
+| `seal(*, actor, table_key, record_id, expected_revision, extra_digest="") -> SealInfo` | `update` no registro (tabela exposta ou derivada, pela âncora) | `NotFound` (inexistente, de outra organização ou ilegível); `Forbidden` (lê sem `update`); `Conflict("record_sealed")`; `Conflict("stale_revision")`; `InvalidInput` (tabela sem `TableSpec.seal`, revisão ou `extra_digest` inválidos) |
 | `status(*, actor, table_key, record_id) -> SealInfo` | leitura do registro | `NotFound`; `InvalidInput` |
 | `verify(*, actor, table_key, record_id, extra_digest="") -> SealVerification` | leitura do registro | `NotFound`; `InvalidInput` |
 
-`SealInfo` tem `sysid`, `sealed`, `sealed_at`, `sealed_by`, `digest` e `revision`; `SealVerification` tem `sysid`, `valid`, `digest` (o gravado) e `computed` (o recalculado). Selar é ato de negócio de uma app: não há endpoint genérico. O resumo cobre a tabela, o registro, a organização, as colunas de `seal_fields`, os anexos vivos quando a política os congela e `extra_digest`, o SHA-256 que a app calcula das partes dela (linhas filhas, por exemplo) com `skeleton.common.sealing.digest`; para verificar, passe o mesmo `extra_digest`. O núcleo não assina nada: o resumo é o que uma app de assinatura digital assina. Uma app que sela os próprios modelos usa `skeleton.records.sealing.seal_record` ([modelo de dados](data-model.md#registros-selados-526)).
+`SealInfo` contém `sysid`, `sealed`, `sealed_at`, `sealed_by`, `digest` e `revision`; `SealVerification` contém `sysid`, `valid`, `digest` (gravado) e `computed` (recalculado). Selar é sempre ato explícito de negócio da app, sem endpoint genérico. O resumo cobre tabela, registro, organização, colunas de `seal_fields`, anexos vivos (quando congelados pela política) e `extra_digest` (SHA-256 calculado pela app sobre suas partes complementares com `skeleton.common.sealing.digest`, que deve ser repassado em `verify`). O núcleo não assina documentos: entrega o resumo para apps de assinatura digital. Para selar os próprios modelos em processo, a app usa `skeleton.records.sealing.seal_record` ([modelo de dados](data-model.md#registros-selados-526)).
 
 ### BillingService
 
-A [cobrança](billing.md) da organização. As apps leem a situação dela e conferem os próprios limites; as páginas e a API de cobrança do núcleo usam o resto. O serviço continua usável com o acesso limitado (`access_exempt = True`): é por ele que a conta é regularizada. Métodos com `since="0.1.0"`.
+Gerencia a [cobrança](billing.md) da organização. Apps consultam situação de acesso, direitos e cotas, enquanto as telas e a API do núcleo usam os métodos de contratação e faturamento. O serviço possui `access_exempt = True`, permanecendo acessível sob restrição de pagamento para permitir a regularização da conta. Métodos com `since="0.1.0"`.
 
 | Método | Autorização | Erros |
 |---|---|---|
 | `access_state(*, actor) -> AccessState` | qualquer membro, ou `system_context` | — |
-| `entitlement(*, actor, app_label) -> bool` | qualquer membro, ou `system_context`; uma app sem preço sempre tem direito | — |
+| `entitlement(*, actor, app_label) -> bool` | qualquer membro, ou `system_context`; apps sem preço têm direito garantido | — |
 | `storage_allowance(*, actor) -> StorageAllowance` | qualquer membro, ou `system_context` | — |
 | `check_quota(*, actor, metric, increment=1) -> None` | qualquer membro, ou `system_context` | `Conflict("quota_exceeded")` acima do limite; `InvalidInput` para métrica não registrada |
-| `record_usage(*, actor, meter, idempotency_key, quantity=1, occurred_at=None) -> UsageReceipt` | qualquer membro, ou `system_context`; a app do prefixo do medidor ativa | `Conflict("quota_exceeded")`; `Conflict("usage_voided")`; `Unavailable`; `InvalidInput` |
+| `record_usage(*, actor, meter, idempotency_key, quantity=1, occurred_at=None) -> UsageReceipt` | qualquer membro, ou `system_context`; a app do prefixo do medidor precisa estar ativa | `Conflict("quota_exceeded")`; `Conflict("usage_voided")`; `Unavailable`; `InvalidInput` |
 | `void_usage(*, actor, meter, idempotency_key) -> UsageReceipt` | idem | `NotFound` (chave desconhecida); `Conflict("usage_period_closed")`; `Unavailable`; `InvalidInput` |
 | `check_usage(*, actor, meter, quantity=1) -> UsageStatus` | idem; não grava | `Conflict("quota_exceeded")`; `Unavailable`; `InvalidInput` |
 | `usage(*, actor) -> tuple[UsageStatus, ...]` | qualquer membro, ou `system_context`; medidores das apps ativas | — |
 | `subscription(*, actor) -> SubscriptionSummary \| None` | `billing.view` | `NotFound` sem a capacidade |
 | `list_invoices(*, actor, page_size=20, cursor=None) -> Page[InvoiceSummary]` | `billing.view` | `NotFound` sem a capacidade |
-| `offers(*, actor) -> tuple[PriceOffer, ...]` | `billing.view`; preços públicos e ativos na moeda e no ciclo da organização | `NotFound` sem a capacidade |
-| `contract(*, actor, price_id, terms_version="") -> SubscriptionSummary` | `billing.manage`; um plano inicia ou troca a assinatura, uma app ou pacote vira item | `NotFound` (preço inexistente ou não público); `InvalidInput` (ciclo, app já contratada); `Conflict("organization_restricted")` com o acesso limitado |
+| `offers(*, actor) -> tuple[PriceOffer, ...]` | `billing.view`; preços públicos ativos na moeda e no ciclo da organização | `NotFound` sem a capacidade |
+| `contract(*, actor, price_id, terms_version="") -> SubscriptionSummary` | `billing.manage`; planos iniciam ou trocam a assinatura, apps ou pacotes entram como item | `NotFound` (preço inexistente ou não público); `InvalidInput` (ciclo incompatível, app já contratada); `Conflict("organization_restricted")` sob restrição |
 | `remove_item(*, actor, item_id)`, `cancel(*, actor, at_period_end=True)`, `resume(*, actor)` | `billing.manage` | `NotFound`; `InvalidInput` |
-| `redeem_voucher(*, actor, code)` | `billing.manage` | `InvalidInput` com o código do motivo (`invalid_voucher`, `already_redeemed`, `not_trialing`, `too_many_attempts`) |
+| `redeem_voucher(*, actor, code)` | `billing.manage` | `InvalidInput` com o motivo (`invalid_voucher`, `already_redeemed`, `not_trialing`, `too_many_attempts`) |
 | `update_account(*, actor, legal_name, billing_email, tax_id, country) -> None` | `billing.manage` | `InvalidInput` |
-| `checkout(*, actor, invoice_id, return_url) -> CheckoutLink` | `billing.manage` | `NotFound` (fatura de outra organização); `InvalidInput` (fatura não aberta, sem provedor) |
+| `checkout(*, actor, invoice_id, return_url) -> CheckoutLink` | `billing.manage` | `NotFound` (fatura de outra organização); `InvalidInput` (fatura não aberta ou sem provedor) |
 
-**Medidores de uso** (#522). O módulo também expõe `register_usage_meter(code, *, label, unit_label)`, que a app chama no `ready()` para declarar um consumo por período (`<app_label>.<nome>`), e `registered_usage_meters()`, com `(código, rótulo, unidade)` de cada um. `UsageReceipt` tem `meter`, `metered` (falso sem cobrança ou sem assinatura: nada gravado), `created` (falso para chave repetida ou anulação), `used`, `included`, `limit` (`None`: sem limite) e `overage` (`block`, `bill` ou `unlimited`); `UsageStatus` tem `meter`, `label`, `unit_label`, `used`, `included`, `limit`, `overage`, `period_start` e `period_end`; os termos de cada preço estão em [cobrança](billing.md#medidores-de-uso).
+**Medidores de uso.** O módulo exporta `register_usage_meter(code, *, label, unit_label)` para apps declararem consumo por período em `ready()` (`<app_label>.<nome>`), além de `registered_usage_meters()`. `UsageReceipt` traz `meter`, `metered` (`False` sem cobrança ou assinatura ativa), `created` (`False` em chave repetida ou anulação), `used`, `included`, `limit` (`None` para ilimitado) e `overage` (`block`, `bill` ou `unlimited`). `UsageStatus` traz `meter`, `label`, `unit_label`, `used`, `included`, `limit`, `overage`, `period_start` e `period_end`. Consulte os termos de preço em [cobrança](billing.md#medidores-de-uso).
 
-`AccessState` tem `level` e `since`; `StorageAllowance`, `quota_bytes` (`None`: ilimitada), `used_bytes` e `overage` (`block` ou `bill`). Uma app declara as métricas de estado que um preço pode limitar com a função `skeleton.service_api.billing.register_quota_metric("<app_label>.<nome>", contador)` no `ready()`, sem importar `skeleton.billing` (#542; o livro contábil registra `skeleton_ledger.books`). Os DTOs de assinatura, item, fatura e oferta trazem só identificadores, valores na menor unidade da moeda e datas; dados de contato da conta nunca saem por eles.
+`AccessState` traz `level` e `since`; `StorageAllowance` traz `quota_bytes` (`None` quando ilimitada), `used_bytes` e `overage` (`block` ou `bill`). Para declarar métricas de estado limitáveis por preço sem importar `skeleton.billing`, a app chama `skeleton.service_api.billing.register_quota_metric("<app_label>.<nome>", contador)` em `ready()` (o livro contábil registra `skeleton_ledger.books`). Os DTOs de assinatura, item, fatura e oferta trazem apenas identificadores, valores na menor unidade monetária e datas — nunca dados de contato da conta.
 
 ### FlowService
 
-Opera os [fluxos de processo](flows.md) que as apps declaram com `skeleton.flows.registry`. É um serviço do núcleo (sem `app_label`), mas toda chamada exige a **app dona do fluxo** ativa na organização e responde `Unavailable` sem ela; as listas omitem o que é de apps desativadas. Em `instance`, `history` e `task`, a visibilidade é checada antes da disponibilidade da app, de modo que atores sem acesso recebem `NotFound` igual ao de um identificador inexistente mesmo quando a app está desativada (#912). Em `ExternalAccessService`, `revoke_invitation`, `resend_invitation` e `revoke` autorizam o chamador antes de buscar o alvo, respondendo igualmente para alvos inexistentes ou de outra app (#912). Métodos com `since="0.1.0"`.
+Opera os [fluxos de processo](flows.md) registrados por apps via `skeleton.flows.registry`. Embora seja serviço do núcleo (sem `app_label`), toda operação exige que a **app dona do fluxo** esteja ativa na organização (respondendo `Unavailable` caso contrário), e listagens omitem fluxos de apps desativadas. Em `instance`, `history` e `task`, a visibilidade é verificada antes da disponibilidade da app, garantindo que atores sem acesso recebam `NotFound` mesmo quando a app está desativada (de modo semelhante, em `ExternalAccessService`, `revoke_invitation`, `resend_invitation` e `revoke` autorizam o chamador antes de buscar o alvo, respondendo igualmente para alvos inexistentes ou de outra app). Métodos com `since="0.1.0"`.
 
 ```python
 from skeleton.service_api.flows import FlowService
@@ -492,83 +507,90 @@ FlowService().decide_task(actor=request.user, task_id=task.sysid, expected_revis
 
 | Método | Autorização | Erros |
 |---|---|---|
-| `start(*, actor, flow_key, subject_id, data=(), idempotency_key=None) -> StartReceipt` | a app chamadora é a dona do fluxo; o ator lê o registro de negócio e tem a ação de início (`update` por padrão); `actor=None` em `system_context` | `Forbidden` (fluxo de outra app, sem a ação), `NotFound` (registro inexistente, de outra organização ou ilegível), `InvalidInput`, `Conflict("already_running" \| "definition_changed" \| "idempotency_mismatch" \| "flow_failed")` |
-| `signal(*, actor, instance_id, name, data=()) -> SignalReceipt` | a app chamadora é a dona; o ator lê a instância; `actor=None` em `system_context` | `Forbidden`, `NotFound`, `InvalidInput`, `Conflict("instance_suspended")` |
-| `instance(*, actor, instance_id) -> InstanceInfo`, `history(*, actor, instance_id, cursor=None, page_size=25) -> Page[ActivityEntry]` | quem lê o registro de negócio, quem iniciou, quem participa das tarefas, o administrador da organização | `NotFound` |
-| `instances(*, actor, flow_key=None, subject_id=None, status=None, cursor=None, page_size=25) -> Page[InstanceInfo]` | a mesma, filtrada antes de paginar | `InvalidInput` |
-| `tasks(*, actor, scope="mine", status=None, cursor=None, page_size=25) -> Page[TaskSummary]`, `open_task_count(*, actor) -> int` | `mine` e `available` (filas): só o que o ator pode fazer agora; `all`: o que ele pode ler | `InvalidInput` |
-| `task(*, actor, task_id) -> TaskDetail` | responsável, candidatos da fila, quem participou, administrador. Valores sensíveis do formulário só para quem pode agir (`can_act`) | `NotFound` |
-| `claim_task`, `release_task`, `reassign_task(…, to_user_id, comment="")`, `complete_task(…, action=None, data=(), comment="")`, `decide_task(…, decision, data=(), comment="")`, todos com `task_id` e `expected_revision`, devolvem `TaskSummary` | responsável ou candidato da fila; reatribuir: responsável de etapa delegável ou administrador | `NotFound`, `Forbidden`, `InvalidInput`, `Conflict("stale_revision")`, `Conflict` de estado (`instance_suspended`, `instance_closed`, `task_closed`, `not_a_queue_task`, `not_claimed`, `not_a_task`, `not_an_approval`, `flow_failed`) |
+| `start(*, actor, flow_key, subject_id, data=(), idempotency_key=None) -> StartReceipt` | a app chamadora é dona do fluxo; o ator lê o registro de negócio e possui a ação de início (`update` por padrão); `actor=None` em `system_context` | `Forbidden` (fluxo de outra app ou sem a ação), `NotFound` (registro inexistente, de outra organização ou ilegível), `InvalidInput`, `Conflict("already_running" \| "definition_changed" \| "idempotency_mismatch" \| "flow_failed")` |
+| `signal(*, actor, instance_id, name, data=()) -> SignalReceipt` | a app chamadora é dona; o ator lê a instância; `actor=None` em `system_context` | `Forbidden`, `NotFound`, `InvalidInput`, `Conflict("instance_suspended")` |
+| `instance(*, actor, instance_id) -> InstanceInfo`, `history(*, actor, instance_id, cursor=None, page_size=25) -> Page[ActivityEntry]` | quem lê o registro de negócio, quem iniciou, participantes das tarefas ou administrador da organização | `NotFound` |
+| `instances(*, actor, flow_key=None, subject_id=None, status=None, cursor=None, page_size=25) -> Page[InstanceInfo]` | mesma regra, filtrada antes de paginar | `InvalidInput` |
+| `tasks(*, actor, scope="mine", status=None, cursor=None, page_size=25) -> Page[TaskSummary]`, `open_task_count(*, actor) -> int` | `mine` e `available` (filas): apenas o que o ator pode executar agora; `all`: tudo o que ele pode ler | `InvalidInput` |
+| `task(*, actor, task_id) -> TaskDetail` | responsável, candidatos da fila, participantes anteriores ou administrador; campos sensíveis do formulário saem apenas para quem pode agir (`can_act`) | `NotFound` |
+| `claim_task`, `release_task`, `reassign_task(…, to_user_id, comment="")`, `complete_task(…, action=None, data=(), comment="")`, `decide_task(…, decision, data=(), comment="")`, todos com `task_id` e `expected_revision`, devolvem `TaskSummary` | responsável ou candidato da fila; reatribuir exige responsável de etapa delegável ou administrador | `NotFound`, `Forbidden`, `InvalidInput`, `Conflict("stale_revision")`, `Conflict` de estado (`instance_suspended`, `instance_closed`, `task_closed`, `not_a_queue_task`, `not_claimed`, `not_a_task`, `not_an_approval`, `flow_failed`) |
 | `cancel(…, reason="")`, `suspend(…, reason="")`, `resume`, `retry`, todos com `instance_id` e `expected_revision`, devolvem `InstanceInfo` | administrador da organização; `cancel` também por quem iniciou, se o fluxo permitir | `NotFound`, `Forbidden`, `Conflict("stale_revision" \| "instance_closed" \| "not_running" \| "not_suspended" \| "not_failed")` |
 
-- A ordem das verificações é sempre: visível (senão `NotFound`), autorizado a agir (senão `Forbidden`), revisão (`Conflict("stale_revision")`), estado da tarefa e da instância. Quem perde a corrida numa tarefa de fila recebe conflito, não `NotFound`: a tarefa encerrada continua legível para quem está na fila.
-- Dados de formulário entram como tupla de pares `(campo, valor)`; só os campos declarados na etapa e na transição escolhida são aceitos.
-- `InstanceInfo.data` e `ActivityEntry` nunca trazem campos sensíveis. O comentário de um passo aparece no histórico para quem lê a instância; só a auditoria o redige.
-- Tudo é gravado na transação do chamador: um rollback não deixa instância, tarefa, job, evento nem notificação.
+- A ordem de verificação é fixa: visibilidade (`NotFound`) → permissão para agir (`Forbidden`) → revisão (`Conflict("stale_revision")`) → estado da tarefa e da instância. Quem perde a disputa em uma tarefa de fila recebe conflito (não `NotFound`), pois a tarefa encerrada permanece legível à fila.
+- Dados de formulário entram como tupla de pares `(campo, valor)`, aceitando somente campos declarados na etapa e na transição selecionada.
+- `InstanceInfo.data` e `ActivityEntry` nunca incluem campos sensíveis. Comentários de etapas aparecem no histórico para quem lê a instância e são redigidos apenas na auditoria.
+- Todas as operações rodam na transação do chamador: em rollback, nenhuma instância, tarefa, job, evento ou notificação persiste.
 
 ### Superfícies do núcleo sobre os serviços
 
-A REST e as páginas do núcleo são camadas finas sobre estes serviços ([#110](https://github.com/alaorneto/skeleton/issues/110)), sem mudança observável: `GET/PATCH /api/v1/me/` e a página de perfil usam o `IdentityService`; a auditoria usa o `AuditLogService`; `GET /api/v1/organizations/`, a página inicial e o painel da organização usam o `OrganizationService`; `GET/PUT /api/v1/o/<org>/apps/...` e as páginas `/o/<org>/apps/...` usam o `ApplicationAdministrationService`, e o formulário de configuração mostra a mensagem do serviço (dependência, disponibilidade, valor) em vez de uma genérica (#338). `ApplicationState.configuration_valid` (padrão verdadeiro, acrescentado sem quebrar o contrato) diz se a configuração gravada ainda cabe no manifesto (#251). Os erros de serviço passam por um único mapeamento para HTTP (`skeleton.api.errors.service_error_response`); os recursos do núcleo que recebem `If-Match` usam `if_match_precondition()` para manter o 412 `revision_conflict` do gateway numa revisão desatualizada. A auditoria (`/o/<org>/audit/`, a REST `/api/v1/o/<org>/audit/`, com o filtro por registro, e `/platform/audit/`) usa o `AuditLogService`, que mantém a paginação numerada e os campos publicados. Ficam fora os recursos administrativos de acesso (papéis, grupos, concessões, convites e vínculos) e o gateway genérico de tabelas, que continuam sobre `skeleton.access.services` e as policies; não há superfície de diretório de membros no núcleo, e o `OrganizationService.members` atende as apps. A cota por organização vem da `StorageQuota` definida pela plataforma ou de `SKELETON_FILES_ORG_QUOTA_BYTES` (desligada por padrão), com reserva sob lock ([#61](https://github.com/alaorneto/skeleton/issues/61)). Veja [arquivos e anexos](files.md).
+A REST e as páginas HTML do núcleo atuam como camadas finas sobre estes serviços ([#110](https://github.com/alaorneto/skeleton/issues/110)), preservando exatamente o comportamento observável:
 
-A app de agenda é a referência de app first-party com `CalendarService` ([#111](https://github.com/alaorneto/skeleton/issues/111)).
+- `GET/PATCH /api/v1/me/` e a página de perfil usam `IdentityService`;
+- `GET /api/v1/organizations/`, a página inicial e o painel da organização usam `OrganizationService`;
+- `GET/PUT /api/v1/o/<org>/apps/...` e `/o/<org>/apps/...` usam `ApplicationAdministrationService`, exibindo no formulário a mensagem específica do serviço (dependência, disponibilidade ou valor) e respeitando `ApplicationState.configuration_valid` (padrão `True`, indicando se a configuração gravada ainda cabe no manifesto);
+- `/o/<org>/audit/`, `/api/v1/o/<org>/audit/` (incluindo filtro por registro) e `/platform/audit/` usam `AuditLogService`, mantendo a paginação numerada e os campos publicados.
+
+Todos os erros de serviço passam por um único mapeamento HTTP (`skeleton.api.errors.service_error_response`), e recursos com `If-Match` usam `if_match_precondition()` para manter 412 `revision_conflict` em revisão desatualizada. Os recursos administrativos de acesso (papéis, grupos, concessões, convites e vínculos) e o gateway genérico de tabelas seguem diretamente sobre `skeleton.access.services` e as policies; o núcleo não expõe página própria de diretório de membros (atendendo apps via `OrganizationService.members`). A cota de armazenamento por organização vem de `StorageQuota` definida pela plataforma ou de `SKELETON_FILES_ORG_QUOTA_BYTES` (desligada por padrão), com reserva sob lock ([#61](https://github.com/alaorneto/skeleton/issues/61)); veja [arquivos e anexos](files.md).
+
+A app de agenda é a implementação de referência de app first-party com `CalendarService` ([#111](https://github.com/alaorneto/skeleton/issues/111)).
 
 ## Testes obrigatórios
 
-Para cada método público, prove:
+Para cada método público, comprove nos testes:
 
-- **Caminho autorizado:** retorno correto em DTO, sem campos sensíveis.
+- **Caminho autorizado:** retorno válido em DTO, sem campos sensíveis.
 - **Default deny:** ator sem `TablePermission` ou sem acesso ao registro recebe `NotFound` (leitura) ou `Forbidden` (ação).
-- **Organizações A/B:** nada de B aparece em retorno, contagem ou erro quando o contexto é A.
-- **App desativada ou indisponível:** `Unavailable`.
-- **Ator divergente do contexto:** `Forbidden`.
+- **Organizações A/B:** nenhum dado de B aparece em retorno, contagem ou mensagem de erro quando o contexto é A.
+- **App desativada ou indisponível:** levanta `Unavailable`.
+- **Ator divergente do contexto:** levanta `Forbidden`.
 - **Comandos:**
-  - CAS com duas chamadas na mesma revisão: uma vence, a outra recebe `Conflict`;
+  - CAS com duas chamadas na mesma revisão: uma vence e a outra recebe `Conflict`;
   - `idempotency_key` repetida não duplica;
-  - rollback do chamador não deixa efeitos nem eventos.
+  - rollback do chamador não deixa efeitos colaterais nem eventos.
 - **Contrato:** `assert_service_contract(ServiceClass)` do kit.
 
-Rode em PostgreSQL com a role runtime, como exige o [AGENTS.md](../AGENTS.md). Registre na [evidência de testes](testing-evidence.md) somente o que rodou de fato.
+Execute os testes em PostgreSQL com a role runtime, conforme o [AGENTS.md](../AGENTS.md), e registre na [evidência de testes](testing-evidence.md) somente o que foi realmente executado.
 
 ### Kit de testes de contrato
 
-`skeleton.testing.service_api` é distribuído no wheel do core. As funções levantam `AssertionError` e funcionam com pytest ou unittest:
+O módulo `skeleton.testing.service_api` é distribuído no wheel do core, levanta `AssertionError` e funciona com `pytest` ou `unittest`:
 
 | Helper | Prova |
 |---|---|
-| `assert_service_contract(Service)` | Estrutura do E018 mais anotações de retorno só com DTO congelado, `Page[T]`, tupla, enum de texto ou primitivo (nunca modelo, `QuerySet`, `dict`, `list`, `Any` ou `float`), parâmetros anotados (exceto `actor`) e docstring com `Autorização:`, `Erros:` e `Efeitos:` |
-| `build_service_scenario(Model)` | Organizações A/B, `member` com `TablePermission` em todas as ações nas duas, `denied` em A sem permissão, `outsider` sem vínculo e a app ativa nas duas. Identidades, organizações, papéis e vínculos vêm dos serviços públicos de identidade e provisionamento, pelos helpers de `skeleton.testing.people` ([testes](testing.md#pessoas-organizações-e-grupos-em-fixtures), #572); permissões, ativação e registros são fixture em `system_context`. `scenario.password` é a senha das identidades (sorteada por processo) para os testes que fazem login (#321) |
-| `scenario.caller(fn, user=..., organization=...)` | Uma chamada `fn(actor)` dentro do próprio contexto (contextos não aninham nem trocam de ator) |
-| `assert_tenant_isolated(call, foreign=[...], allowed_errors=(NotFound,), expected_count=None)` | Nenhum UUID, código ou título de B aparece em retorno, página ou mensagem de erro. `foreign` vazio é `TypeError`; um erro fora de `allowed_errors` reprova; uma contagem só é conferida com `expected_count` (#321) |
-| `assert_denied_as_not_found(call, missing=...)` | Negado responde `NotFound` idêntico ao de um alvo inexistente |
-| `assert_unavailable_when_disabled(call, disabled=scenario.application_disabled)` | Com a app desativada na organização, `Unavailable`. Antes, uma chamada de controle com a app ativa não pode ser `Unavailable` (outro erro de serviço é aceito: ele prova que a chamada passou da verificação de disponibilidade) |
-| `assert_rejects_other_actor(call)` | `actor` diferente do contexto (ou `None` fora de `system_context`), `Forbidden(code="actor_mismatch")`. Outro `Forbidden` reprova: use como "outro ator" uma pessoa plenamente autorizada |
-| `assert_cas_conflict(first, second, reread=None)` | Duas escritas na mesma revisão: uma vence, a outra recebe `Conflict("stale_revision")`; com `reread`, o registro lido depois da primeira escrita é igual ao lido depois do conflito |
+| `assert_service_contract(Service)` | Estrutura do E018 somada a anotações de retorno restritas a DTO congelado, `Page[T]`, tupla, enum de texto ou primitivo (nunca modelo, `QuerySet`, `dict`, `list`, `Any` ou `float`), parâmetros anotados (exceto `actor`) e docstring com `Autorização:`, `Erros:` e `Efeitos:` |
+| `build_service_scenario(Model)` | Cria organizações A/B, `member` com `TablePermission` completa em ambas, `denied` em A sem permissão, `outsider` sem vínculo e app ativa nas duas. Identidades, organizações, papéis e vínculos usam os serviços públicos via `skeleton.testing.people` ([testes](testing.md#pessoas-organizações-e-grupos-em-fixtures)); permissões, ativação e registros são preparados em `system_context`. `scenario.password` fornece a senha aleatória por processo para testes com login |
+| `scenario.caller(fn, user=..., organization=...)` | Executa `fn(actor)` em contexto próprio (contextos não aninham nem trocam de ator) |
+| `assert_tenant_isolated(call, foreign=[...], allowed_errors=(NotFound,), expected_count=None)` | Garante que nenhum UUID, código ou título de B apareça em retorno, página ou erro (`foreign` vazio levanta `TypeError`; erro fora de `allowed_errors` reprova; contagem só é verificada com `expected_count`) |
+| `assert_denied_as_not_found(call, missing=...)` | Prova que acesso negado devolve `NotFound` idêntico ao de um alvo inexistente |
+| `assert_unavailable_when_disabled(call, disabled=scenario.application_disabled)` | Comprova `Unavailable` com a app desativada após validar uma chamada de controle com a app ativa (outro erro de serviço é aceito no controle por provar passagem pela checagem de disponibilidade) |
+| `assert_rejects_other_actor(call)` | Comprova `Forbidden(code="actor_mismatch")` para ator diferente do contexto (ou `None` fora de `system_context`); passe como "outro ator" uma pessoa plenamente autorizada |
+| `assert_cas_conflict(first, second, reread=None)` | Comprova que, em duas escritas sobre a mesma revisão, uma vence e a outra recebe `Conflict("stale_revision")`; com `reread`, confirma que o estado final não foi alterado após o conflito |
 
-O cenário grava linhas confirmadas: use-o dentro da fixture de banco isolado, nunca num banco compartilhado. Um projeto derivado a importa do wheel: `from skeleton.testing.database import skeleton_db` no `conftest.py` (#334). Ela recria o schema `skeleton` a cada teste como `skeleton_owner` (migra uma vez por processo e restaura um template com `pg_dump`; cada worker do `pytest-xdist` no próprio banco, [testes](testing.md#fixture-distribuída-em-paralelo-e-com-template)), roda as asserções como `skeleton_runtime` e só aceita um banco descartável: `TEST_DATABASE_URL` (runtime), `TEST_MIGRATION_DATABASE_URL` (owner), banco terminado em `_skeleton_test`, diferente de `DATABASE_URL`, e `SKELETON_TEST_ALLOW_SCHEMA_RESET=1`; sem isso, para com erro de uso antes de tocar no banco. As apps nascem indisponíveis (#22): antes do cenário, `skeleton.testing.applications.open_app(label)` faz o papel da plataforma. `tests/integration/test_notes_service_api.py` é o exemplo completo. O gerador cria `tests/conftest.py` com essa fixture e `tests/test_service_api.py` com o teste de contrato e os cenários dos três métodos gerados.
+Como o cenário grava linhas confirmadas, execute-o sempre na fixture de banco isolado — nunca em um banco compartilhado. Projetos derivados importam `from skeleton.testing.database import skeleton_db` em `conftest.py`: a fixture recria o schema `skeleton` a cada teste como `skeleton_owner` (migra uma vez por processo e restaura um template com `pg_dump`, isolando cada worker do `pytest-xdist`; veja [testes](testing.md#fixture-distribuída-em-paralelo-e-com-template)), executa as asserções como `skeleton_runtime` e exige banco descartável (`TEST_DATABASE_URL`, `TEST_MIGRATION_DATABASE_URL`, nome terminado em `_skeleton_test`, diferente de `DATABASE_URL` e `SKELETON_TEST_ALLOW_SCHEMA_RESET=1`). Como apps nascem indisponíveis, use `skeleton.testing.applications.open_app(label)` antes do cenário para simular a liberação pela plataforma. Veja `tests/integration/test_notes_service_api.py` como referência completa; o gerador já cria `tests/conftest.py` e `tests/test_service_api.py` prontos com esses testes.
 
 ### Limites da verificação
 
-- Imports dinâmicos (`importlib.import_module`, `__import__`, strings resolvidas em runtime) escapam da análise estática.
-- `import skeleton.tenancy.context as ctx` seguido de `ctx.system_context(...)` e `from skeleton.tenancy.context import *` não são vistos: rastrear atributos exigiria análise de fluxo. `get_user_model()` e FKs por string (`"sk_tenancy.Membership"`) também não são acusados; a integridade delas tem checks próprios.
-- Os checks verificam forma, não semântica: que o método chama `authorized_queryset` e não vaza dados só se prova com os testes do kit.
-- W019 ainda é aviso; até virar erro, um import de módulo interno do núcleo depende da revisão.
+- Imports dinâmicos (`importlib.import_module`, `__import__`, caminhos resolvidos em runtime) escapam da análise estática.
+- Padrões indiretos como `import skeleton.tenancy.context as ctx` seguido de `ctx.system_context(...)` ou `from skeleton.tenancy.context import *` não são rastreados por análise de fluxo. `get_user_model()` e FKs declaradas por string (`"sk_tenancy.Membership"`) são cobertas por checks próprios.
+- Os checks validam estrutura, não semântica: garantir que o método chama `authorized_queryset` e não vaza dados requer os testes do kit.
+- Enquanto `W019` permanecer como aviso, evitar imports de módulos internos do núcleo depende também da revisão de código.
 
 ## Documentação por app
 
-`docs/service-api.md` de cada app contém:
+O arquivo `docs/service-api.md` de cada app deve conter:
 
-1. **Visão geral:** para que outras apps usariam esta API.
-2. **Dependência:** `app_id` e faixa de versão recomendada para o manifesto do consumidor.
-3. **Serviços:** para cada classe e método, a assinatura, a descrição, as seções Autorização, Erros e Efeitos e um exemplo de chamada.
+1. **Visão geral:** por que e quando outras apps usariam esta API.
+2. **Dependência:** `app_id` e faixa de versão recomendada para o manifesto consumidor.
+3. **Serviços:** para cada classe e método, assinatura, descrição, seções Autorização, Erros e Efeitos e um exemplo de chamada.
 4. **DTOs:** campos, tipos e significado.
-5. **Eventos publicados**, se houver: tipos e payload.
-6. **Histórico de versões:** métodos acrescentados, depreciados e removidos.
+5. **Eventos publicados** (se houver): tipos e payload.
+6. **Histórico de versões:** métodos adicionados, depreciados e removidos.
 
-O modelo está no skill `service-api` (`references/templates.md`).
+O modelo pronto está no skill `service-api` (`references/templates.md`).
 
 ## O que a API de serviços não é
 
 - Não é RPC remoto nem substitui a API REST para clientes externos.
-- Não é atalho de privilégio: ser código não autoriza, e `system_context` não é oferecido a consumidores.
+- Não é atalho de privilégio: ser código Python não concede autorização, e `system_context` não é oferecido a consumidores.
 - Não substitui eventos de domínio para reações assíncronas.
-- Não permite compartilhar transação entre organizações: uma chamada pertence à organização do contexto.
+- Não compartilha transações entre organizações: toda chamada pertence exclusivamente à organização do contexto atual.
