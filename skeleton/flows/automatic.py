@@ -240,4 +240,4 @@ def register_automatic_steps() -> None:
     schema = {"run_id": "uuid", "ticket": "int"}
     for code, handler in ((SERVICE_JOB, run_service), (TIMER_JOB, fire_timer), (WAIT_TIMEOUT_JOB, expire_wait)):
         register_job_type(JobType(code, handler, schema, run_as="system", owner_app="sk_flows"))
-    register_consumer(APP_ENABLED, "flows.resume_application", resume_application)
+    register_consumer(APP_ENABLED, "flows.resume_application", resume_application, owner_app="sk_flows")

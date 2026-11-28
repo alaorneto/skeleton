@@ -63,7 +63,7 @@ def world(owner_schema_editor):
         isolated_notification_types(),
     ):
         register_event_type(EventType(EVENT, ITEM, ("status",), webhook=True, owner_app="example_notes"))
-        register_consumer(EVENT, "tests.derived_capture", capture)
+        register_consumer(EVENT, "tests.derived_capture", capture, owner_app="example_notes")
         register_notification_type(
             NotificationType(
                 "notes.item_assigned",

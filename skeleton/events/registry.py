@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from typing import Any
 
 WILDCARD = "*"
+# Job.idempotency_key max length is 200; key format is "event:<uuid36>:<code>" (#876).
+MAX_CONSUMER_CODE_LENGTH = 200 - len("event:") - 36 - len(":")
 
 
 @dataclass(frozen=True)
@@ -25,6 +27,8 @@ class EventType:
 class Consumer:
     """A reaction to events; ``handler(envelope)`` re-authorizes whatever it reads.
 
+    ``owner_app`` is the Django app label that owns the consumer (a registered app label, or a
+    core ``sk_*`` label); consumers of a disabled or billing-suspended app are skipped (#876).
     ``accepts`` narrows a ``"*"`` consumer to the event types it reacts to, so no delivery
     job is enqueued for the others (the webhook fan-out takes only ``webhook=True`` types).
     """
@@ -32,6 +36,7 @@ class Consumer:
     event_code: str
     code: str
     handler: Callable[..., Any]
+    owner_app: str = ""
     accepts: Callable[[EventType], bool] | None = None
 
 
@@ -58,10 +63,15 @@ def all_event_types() -> tuple[EventType, ...]:
 
 
 def register_consumer(
-    event_code: str, code: str, handler: Callable[..., Any], *, accepts: Callable[[EventType], bool] | None = None
+    event_code: str,
+    code: str,
+    handler: Callable[..., Any],
+    *,
+    owner_app: str,
+    accepts: Callable[[EventType], bool] | None = None,
 ) -> Consumer:
     """Subscribe ``handler`` to one event code or to ``"*"``; one delivery job per event and consumer."""
-    consumer = Consumer(event_code, code, handler, accepts)
+    consumer = Consumer(event_code, code, handler, owner_app=owner_app, accepts=accepts)
     existing = _consumers.get(code)
     if existing is not None and existing != consumer:
         _duplicates.append(f"consumer {code}")
@@ -104,9 +114,17 @@ def event_problems() -> list[str]:
                 problems.append(f"{event_type.code}: payload field {name} is not a read field")
         if event_type.version < 1:
             problems.append(f"{event_type.code}: version must be positive")
+    from django.apps import apps
+
     for consumer in (_consumers[code] for code in sorted(_consumers)):
         if consumer.event_code != WILDCARD and consumer.event_code not in _types:
             problems.append(f"consumer {consumer.code}: unknown event {consumer.event_code}")
         if not callable(consumer.handler):
             problems.append(f"consumer {consumer.code}: handler is not callable")
+        if not consumer.owner_app:
+            problems.append(f"consumer {consumer.code}: owner_app is required")
+        elif consumer.owner_app not in apps.app_configs:
+            problems.append(f"consumer {consumer.code}: unknown owner_app {consumer.owner_app}")
+        if not consumer.code or len(consumer.code) > MAX_CONSUMER_CODE_LENGTH:
+            problems.append(f"consumer {consumer.code}: code must be 1..{MAX_CONSUMER_CODE_LENGTH} characters")
     return problems

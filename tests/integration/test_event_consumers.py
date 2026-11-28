@@ -42,9 +42,15 @@ def declarations(monkeypatch):
     seen["envelopes"].clear()
     with isolated_event_types():
         register_event_type(EventType("notes.note_created", "example_notes.note", ("code",)))
-        register_consumer("notes.note_created", "test.stable", stable)
+        register_consumer("notes.note_created", "test.stable", stable, owner_app="sk_events")
         # The wildcard narrowed to the test types: the fixture's membership events (#43) stay out.
-        register_consumer("*", "test.flaky", flaky, accepts=lambda event_type: event_type.code.startswith("notes."))
+        register_consumer(
+            "*",
+            "test.flaky",
+            flaky,
+            owner_app="sk_events",
+            accepts=lambda event_type: event_type.code.startswith("notes."),
+        )
         yield
 
 
@@ -107,8 +113,83 @@ def test_redelivery_is_harmless_for_an_idempotent_consumer(tenant):
 
 
 def test_consumer_of_unknown_event_fails_the_check():
-    register_consumer("notes.missing", "test.orphan", stable)
+    register_consumer("notes.missing", "test.orphan", stable, owner_app="sk_events")
     assert "consumer test.orphan: unknown event notes.missing" in "\n".join(event_problems())
+
+
+def test_consumer_check_refuses_missing_or_unknown_owner_app_and_long_code():
+    """#876: E022 refuses empty/unknown owner_app and consumer codes over 157 chars."""
+    from skeleton.events.registry import MAX_CONSUMER_CODE_LENGTH
+
+    register_consumer("notes.note_created", "test.no_owner", stable, owner_app="")
+    register_consumer("notes.note_created", "test.bad_owner", stable, owner_app="no_such_app")
+    ok_code = "a" * MAX_CONSUMER_CODE_LENGTH
+    too_long = "b" * (MAX_CONSUMER_CODE_LENGTH + 1)
+    register_consumer("notes.note_created", ok_code, stable, owner_app="sk_events")
+    register_consumer("notes.note_created", too_long, stable, owner_app="sk_events")
+    problems = "\n".join(event_problems())
+    assert "consumer test.no_owner: owner_app is required" in problems
+    assert "consumer test.bad_owner: unknown owner_app no_such_app" in problems
+    assert f"consumer {too_long}: code must be 1..{MAX_CONSUMER_CODE_LENGTH} characters" in problems
+    assert f"consumer {ok_code}:" not in problems
+
+
+def test_app_consumer_skips_when_disabled_or_suspended_and_resumes_when_reenabled(tenant, monkeypatch):
+    """#876: an app consumer does not run when its app is disabled or the organization is billing-suspended."""
+    from skeleton.common.entitlements import AccessLevel
+    from skeleton.system.applications import application_state, configure_application
+    from skeleton.testing.applications import open_app
+
+    user, organization = tenant
+    handled = []
+
+    def app_handler(envelope):
+        handled.append(envelope.event_id)
+
+    register_consumer("notes.note_created", "notes.app_consumer", app_handler, owner_app="example_notes")
+
+    # 1. App explicitly disabled in the organization: event consumer skips, handler never runs.
+    open_app("example_notes")
+    with tenant_context(organization_id=organization.pk, actor=user, source="test:disable-notes"):
+        state = application_state("example_notes")
+        configure_application(
+            "example_notes",
+            user=user,
+            enabled=False,
+            configuration=state["configuration"],
+            revision=state["revision"],
+        )
+    ev_disabled = publish(user, organization, "DIS-1")
+    with system_context(reason="test:consume-disabled", organization_id=organization.pk):
+        assert consume(event_id=str(ev_disabled.pk), consumer="notes.app_consumer") == "skipped"
+    assert handled == []
+
+    # 2. App re-enabled: new events are consumed.
+    with tenant_context(organization_id=organization.pk, actor=user, source="test:enable-notes"):
+        state = application_state("example_notes")
+        configure_application(
+            "example_notes",
+            user=user,
+            enabled=True,
+            configuration=state["configuration"],
+            revision=state["revision"],
+        )
+    ev_enabled = publish(user, organization, "ENA-1")
+    with system_context(reason="test:consume-enabled", organization_id=organization.pk):
+        assert consume(event_id=str(ev_enabled.pk), consumer="notes.app_consumer") == "delivered"
+    assert handled == [ev_enabled.pk]
+
+    # 3. Organization suspended for billing: app consumer skips, core consumer still runs.
+    monkeypatch.setattr(
+        "skeleton.common.entitlements.organization_access",
+        lambda org_id: AccessLevel.SUSPENDED,
+    )
+    ev_suspended = publish(user, organization, "SUS-1")
+    with system_context(reason="test:consume-suspended", organization_id=organization.pk):
+        assert consume(event_id=str(ev_suspended.pk), consumer="notes.app_consumer") == "skipped"
+        assert consume(event_id=str(ev_suspended.pk), consumer="test.stable") == "delivered"
+    assert handled == [ev_enabled.pk]
+    assert ev_suspended.pk in seen["stable"]
 
 
 def test_retention_deletes_only_expired_events(tenant):

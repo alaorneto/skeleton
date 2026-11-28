@@ -44,4 +44,4 @@ def deliver(envelope: Any) -> None:
 def register_event_waits() -> None:
     from skeleton.events.registry import WILDCARD, register_consumer
 
-    register_consumer(WILDCARD, CONSUMER, deliver, accepts=_accepts)
+    register_consumer(WILDCARD, CONSUMER, deliver, owner_app="sk_flows", accepts=_accepts)

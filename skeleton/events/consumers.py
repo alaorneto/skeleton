@@ -69,19 +69,56 @@ def enqueue_deliveries(event: Any) -> int:
     return count
 
 
-def consume(*, event_id: str, consumer: str) -> None:
+def _consumer_gate(owner_app: str) -> str:
+    """Return a skip reason when ``owner_app`` is a disabled or suspended registered app (#876)."""
+    from django.core.exceptions import PermissionDenied
+
+    from skeleton.common.entitlements import AccessLevel, organization_access
+    from skeleton.system.app_registry import get_app
+    from skeleton.system.applications import require_application_enabled
+    from skeleton.tenancy.context import current_context
+
+    if not owner_app:
+        return "missing_owner_app"
+    try:
+        get_app(owner_app)
+    except KeyError:
+        return ""  # Core subsystem (sk_*): not gated by app activation or suspension.
+    organization_id = current_context().organization_id
+    if organization_id is not None and organization_access(organization_id) is AccessLevel.SUSPENDED:
+        return "organization_suspended"
+    try:
+        require_application_enabled(owner_app)
+    except PermissionDenied:
+        return "application_disabled"
+    return ""
+
+
+def consume(*, event_id: str, consumer: str) -> str:
     """Job handler: runs in system_context of the event's organization (tenant RLS applies)."""
+    from skeleton.common.logging import security_event
+
     from .models import DomainEvent
     from .registry import get_consumer
 
     event = DomainEvent.objects.filter(pk=event_id).first()
     if event is None:
-        return  # Purged by retention before delivery: nothing left to react to.
+        return "missing"  # Purged by retention before delivery: nothing left to react to.
     try:
-        handler = get_consumer(consumer).handler
+        entry = get_consumer(consumer)
     except KeyError:
-        return  # The consumer was removed from code; the delivery is obsolete.
-    handler(envelope(event))
+        return "missing"  # The consumer was removed from code; the delivery is obsolete.
+    reason = _consumer_gate(entry.owner_app)
+    if reason:
+        security_event(
+            "event.consumer_skipped",
+            reason_code=reason,
+            source=f"event:{consumer}",
+            target_sysid=event.pk,
+        )
+        return "skipped"
+    entry.handler(envelope(event))
+    return "delivered"
 
 
 def register_event_jobs() -> None:
