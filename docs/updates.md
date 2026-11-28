@@ -32,7 +32,7 @@ As duas áreas aparecem para quem tem `updates.operate`, inclusive sem ser admin
 
 1. **Escolher:** o passo, o pacote enviado ou a ação da app. A tela diz o que vai ser feito ("Atualizar Notas para 1.4.0") e tem um botão, "Conferir o impacto". O formulário com a operação, os digests e os IDs fica em "Plano manual (avançado)", para combinar pacotes num só plano.
 2. **Conferir o impacto:** o agente prepara a prévia (a página se atualiza sozinha). Ela abre com "O que muda": os componentes de → para, se o site sai do ar (o texto vem do modo do plano: janela de manutenção ou nó a nó), o backup, as alterações no banco e o que acontece se algo falhar. Componentes, migrations, arquivos, recursos compartilhados e apresentação ficam recolhidos, com a contagem. "Continuar para a aprovação" guarda o plano.
-3. **Aprovar:** o mesmo resumo, "Abra o acompanhamento" (o link privado é pedido ao agente só no clique) e "Aprovar e iniciar", com autenticação recente. "Descartar plano" encerra o plano sem tocar na instalação.
+3. **Aprovar:** o mesmo resumo, "Abra o acompanhamento" (o link privado é pedido ao agente só no clique) e "Aprovar e iniciar", com autenticação recente. "Descartar plano" encerra o plano sem tocar na instalação. Se o envio ao agente falhar após a aprovação (inclusive quando o operador forçou a janela de manutenção com `mode="window"`, #915), a retentativa reenvia a aprovação original com o mesmo `mode` e o mesmo UUID idempotente.
 4. **Acompanhar:** o estado e a etapa em texto, o resultado e, no fim, o próximo passo rumo ao alvo.
 
 O histórico de cada área mostra por padrão o que está em aberto ou foi executado; o filtro "Descartadas, substituídas e vencidas" mostra os planos encerrados sem rodar.
