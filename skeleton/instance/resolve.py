@@ -81,6 +81,7 @@ class LayeredEnviron(Mapping[str, str]):
             raise ImproperlyConfigured(str(exc)) from exc
 
     def __getitem__(self, name: str) -> str:
+        # Standard env semantics (#913): an explicit empty variable overrides the store.
         if name in self._environment:
             return self._environment[name]
         if name not in self._stored:

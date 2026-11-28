@@ -15,17 +15,22 @@ from pathlib import Path
 
 
 def health_host(base_dir: Path) -> str:
-    from skeleton.instance.resolve import LayeredEnviron, instance_paths
+    from skeleton.instance.resolve import LayeredEnviron, _stored, instance_paths
     from skeleton.instance.store import InstanceStore
     from skeleton.setup.mode import setup_required
 
     if setup_required(base_dir):
         return "localhost"
     database, key = instance_paths(base_dir)
-    layered = LayeredEnviron(os.environ, InstanceStore(database).settings(), key)
-    if layered.get("DJANGO_HEALTH_HOST"):
-        return layered["DJANGO_HEALTH_HOST"]
-    return layered.get("DJANGO_ALLOWED_HOSTS", "localhost").split(",")[0].strip().lstrip(".")
+    layered = LayeredEnviron(os.environ, _stored(InstanceStore(database), os.environ), key)
+    explicit = (layered.get("DJANGO_HEALTH_HOST") or "").strip()
+    if explicit and explicit != "*":
+        return explicit
+    for entry in layered.get("DJANGO_ALLOWED_HOSTS", "").split(","):
+        candidate = entry.strip().lstrip(".")
+        if candidate and candidate != "*":
+            return candidate
+    return "localhost"
 
 
 def main() -> int:

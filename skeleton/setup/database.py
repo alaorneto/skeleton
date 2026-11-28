@@ -185,16 +185,28 @@ def hosts_of(config: dict) -> list[tuple[str, int]]:
 CONNECT_OPTIONS = ("sslmode", "sslrootcert", "sslcert", "sslkey", "target_session_attrs")
 
 
+def _validated_options(config: dict) -> dict[str, object]:
+    """Allow only ``CONNECT_OPTIONS`` from a setup DSN; refuse libpq file/service parameters (#913)."""
+    raw = config.get("OPTIONS") or {}
+    disallowed = [key for key in raw if key not in CONNECT_OPTIONS]
+    if disallowed:
+        raise DatabaseCheckError(
+            gettext("A URL do banco contém opções de conexão não permitidas."),
+            code="disallowed_option",
+        )
+    return {key: raw[key] for key in CONNECT_OPTIONS if key in raw}
+
+
 def _connect(dsn: str):
     import psycopg
 
     config = parse(dsn)
+    extra = _validated_options(config)
     problems = [_network_problem(host, port) for host, port in hosts_of(config)]
     # With several hosts, one that answers is enough: libpq tries them in order (#676).
     problem = None if any(item is None for item in problems) else problems[0]
     sqlstate, error_class = None, None
     if problem is None:
-        extra = {key: value for key, value in (config.get("OPTIONS") or {}).items() if key in CONNECT_OPTIONS}
         try:
             return psycopg.connect(
                 dbname=config["NAME"],
@@ -328,7 +340,9 @@ def django_alias(alias: str, dsn: str) -> Iterator[str]:
     if alias != "default":
         raise ValueError("The setup steps run on the default alias.")
     config = parse(dsn)
-    config.setdefault("OPTIONS", {})["options"] = f"-c search_path={SCHEMA},public"
+    options = _validated_options(config)
+    options["options"] = f"-c search_path={SCHEMA},public"
+    config["OPTIONS"] = options
     config["ATOMIC_REQUESTS"] = False
     config["CONN_MAX_AGE"] = 0
     normalized = ConnectionHandler({"default": config}).settings["default"]

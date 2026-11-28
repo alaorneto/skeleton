@@ -137,7 +137,13 @@ def database_config(env, variable, *, conn_max_age=None, pooler=None):
         if pooler:
             config["DISABLE_SERVER_SIDE_CURSORS"] = True
         else:
-            config.setdefault("OPTIONS", {})["options"] = "-c search_path=skeleton,public"
+            options = config.setdefault("OPTIONS", {})
+            existing = str(options.get("options") or "").strip()
+            search_path = "-c search_path=skeleton,public"
+            if not existing:
+                options["options"] = search_path
+            elif existing != search_path:
+                options["options"] = f"{existing} {search_path}"
         config["CONN_MAX_AGE"] = conn_max_age
         # A persistent connection may have been closed by the server: probe it before reuse (#333).
         config["CONN_HEALTH_CHECKS"] = conn_max_age != 0

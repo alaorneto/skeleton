@@ -29,20 +29,54 @@ def _private_dir(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
 
 
+def _fsync_dir(directory: Path) -> None:
+    """Flush the parent directory entry on POSIX so the link or rename survives power loss (#913)."""
+    if os.name == "nt":
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    descriptor = os.open(directory, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def atomic_write(path: Path, data: bytes, *, mode: int = 0o600) -> None:
+    """Replace ``path`` atomically with ``fsync`` of the file and parent directory (#913)."""
+    _private_dir(path)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        _fsync_dir(path.parent)
+    except BaseException:
+        if temporary.exists():
+            temporary.unlink()
+        raise
+
+
 def _create_key(path: Path) -> None:
-    """Publish a new key atomically: the file never exists without its content (#323)."""
+    """Publish a new key atomically: the file never exists without its content (#323, #913)."""
     _private_dir(path)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
     descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(Fernet.generate_key())
+            handle.flush()
+            os.fsync(handle.fileno())
         try:
             os.link(temporary, path)  # Fails if another process published its key first.
         except FileExistsError:
             pass
         except (AttributeError, OSError) as exc:
             raise InstanceKeyError(f"Não foi possível publicar a chave mestra em {path}.") from exc
+        else:
+            _fsync_dir(path.parent)
     finally:
         os.unlink(temporary)
 
@@ -54,16 +88,7 @@ def read_keys(path: Path) -> list[bytes]:
 
 def write_keys(path: Path, keys: list[bytes]) -> None:
     """Replace the key file atomically (0600): readers see the old or the new content, never a partial one."""
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(b"\n".join(keys) + b"\n")
-        os.replace(temporary, path)
-    except BaseException:
-        if temporary.exists():
-            temporary.unlink()
-        raise
+    atomic_write(path, b"\n".join(keys) + b"\n", mode=0o600)
 
 
 def load_key(path: Path, *, create: bool = False) -> MultiFernet:

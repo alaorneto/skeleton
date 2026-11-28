@@ -242,3 +242,97 @@ def test_setup_without_steps_uses_a_single_centered_column():
     assert "md:grid-cols-[15rem_minmax(0,1fr)]" not in alone
     assert 'class="mx-auto grid max-w-2xl gap-6"' in alone
     assert "md:grid-cols-[15rem_minmax(0,1fr)]" in listed and 'class="setup-steps"' in listed
+
+
+def test_setup_keyrings_match_encryption_checks():
+    """#913: setup generates every keyring checked by skeleton.E026/E027."""
+    from skeleton.instance.schema import CATALOG
+    from skeleton.setup import views
+    from skeleton.system.checks import encryption
+
+    expected = tuple(setting.lower() for setting, _ in encryption.KEYRINGS)
+    assert views.KEYRINGS == expected
+    assert len(views.KEYRINGS) == 6
+    assert set(views.KEYRINGS) <= set(CATALOG)
+
+
+def test_setup_middleware_returns_503_when_store_is_locked(monkeypatch):
+    """#913: SQLite lock error fails closed with 503 instead of reopening /setup/."""
+    import sqlite3
+
+    from django.http import HttpResponse
+    from django.test import RequestFactory
+
+    from skeleton.setup import middleware
+
+    def locked():
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(middleware, "setup_completed", locked)
+    mw = middleware.SetupOnlyMiddleware(lambda req: HttpResponse("ok"))
+    factory = RequestFactory()
+    blocked = mw(factory.get("/setup/"))
+    assert blocked.status_code == 503 and blocked["Retry-After"] == str(middleware.RETRY_AFTER)
+    health = mw(factory.get("/health/live/"))
+    assert health.status_code == 200
+
+
+def test_asgi_entrypoint_selects_setup_settings_like_wsgi(tmp_path):
+    """#913: config.asgi selects setup settings when unconfigured, matching config.wsgi."""
+    environment = {
+        name: value
+        for name, value in os.environ.items()
+        if name not in BY_ENV and not name.startswith(("DJANGO_", "SKELETON_", "TEST_"))
+    }
+    database = tmp_path / "instance" / "instance.sqlite3"
+    environment.update(
+        {"SKELETON_INSTANCE_DB": str(database), "SKELETON_INSTANCE_KEY_FILE": str(tmp_path / "keys" / "master.key")}
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", "import os, config.asgi; print(os.environ['DJANGO_SETTINGS_MODULE'])"],
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().splitlines()[-1] == mode.SETUP_SETTINGS
+
+
+def test_instance_step_does_not_precheck_trust_proxy_and_preserves_ipv6(tmp_path, monkeypatch, settings):
+    """#913: X-Forwarded-Proto does not pre-check trust_proxy and IPv6 host keeps brackets."""
+    import environ
+    from django.test import Client, override_settings
+
+    from skeleton.conf.profiles import setup_settings
+
+    db = tmp_path / "instance" / "instance.sqlite3"
+    monkeypatch.setenv("SKELETON_INSTANCE_DB", str(db))
+    monkeypatch.setenv("SKELETON_INSTANCE_KEY_FILE", str(tmp_path / "keys" / "master.key"))
+    monkeypatch.setenv("SKELETON_SETUP_ALLOWED_HOSTS", "testserver,[::1]")
+    profile = setup_settings({"env": environ.Env(), "BASE_DIR": settings.BASE_DIR})
+    overrides = {
+        name: profile[name]
+        for name in (
+            "ROOT_URLCONF",
+            "MIDDLEWARE",
+            "SESSION_ENGINE",
+            "SESSION_COOKIE_SAMESITE",
+            "MESSAGE_STORAGE",
+            "SECRET_KEY",
+            "SKELETON_SETUP_MODE",
+            "ALLOWED_HOSTS",
+        )
+    }
+    overrides["SESSION_COOKIE_SECURE"] = False
+    overrides["CSRF_COOKIE_SECURE"] = False
+    with override_settings(**overrides):
+        client = Client(enforce_csrf_checks=True)
+        client.get("/setup/")
+        token = tokens.token_file(InstanceStore(db)).read_text().strip()
+        client.post("/setup/", {"token": token, "csrfmiddlewaretoken": client.cookies["csrftoken"].value})
+        resp = client.get("/setup/instance/", HTTP_HOST="[::1]:8000", HTTP_X_FORWARDED_PROTO="https")
+    assert resp.status_code == 200
+    assert resp.context["form"].initial["trust_proxy"] is False
+    assert resp.context["form"].initial["allowed_hosts"] == "[::1]"

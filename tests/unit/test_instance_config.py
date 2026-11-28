@@ -530,3 +530,49 @@ def test_an_invalid_cache_prefix_is_refused_by_the_cli_without_repeating_it(inst
         run("set", "cache_key_prefix", refused)
     assert refused not in str(error.value)
     assert InstanceStore(database).settings() == {}
+
+
+def test_master_key_creation_and_rotation_fsync_file_and_dir(tmp_path, monkeypatch):
+    """#913: creating and rotating master.key call os.fsync so secrets survive power loss."""
+    key_path = tmp_path / "keys" / "master.key"
+    synced: list[int] = []
+    real_fsync = os.fsync
+
+    def record_fsync(fd: int) -> None:
+        synced.append(fd)
+        real_fsync(fd)
+
+    monkeypatch.setattr(crypto.os, "fsync", record_fsync)
+    crypto.load_key(key_path, create=True)
+    expected_per_write = 1 if os.name == "nt" else 2
+    assert len(synced) == expected_per_write
+
+    crypto.write_keys(key_path, [Fernet.generate_key(), *crypto.read_keys(key_path)])
+    assert len(synced) == expected_per_write * 2
+    assert len(crypto.read_keys(key_path)) == 2
+
+
+def test_instance_store_uses_wal_and_propagates_lock_errors(tmp_path, monkeypatch):
+    """#913: WAL is enabled and setup_state() only ignores 'no such table', not 'database is locked'."""
+    path = tmp_path / "instance.sqlite3"
+    store = InstanceStore(path)
+    store.initialize()
+    with sqlite3.connect(path) as connection:
+        mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
+    assert mode.lower() == "wal"
+
+    # A fresh SQLite file without the setup_state table still returns {}.
+    empty = tmp_path / "empty.sqlite3"
+    sqlite3.connect(empty).close()
+    assert InstanceStore(empty).setup_state() == {}
+
+    class LockedConnection:
+        def execute(self, sql, *args):
+            raise sqlite3.OperationalError("database is locked")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(store, "_connect", lambda *, create: LockedConnection())
+    with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+        store.setup_state()
