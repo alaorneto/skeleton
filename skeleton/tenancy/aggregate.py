@@ -130,13 +130,15 @@ def for_each_organization(
     credential_scopes: frozenset[str] | None = None,
     all_organizations: bool = False,
     organization_id: UUID | None = None,
+    respect_mfa: bool = True,
 ) -> list[OrganizationResult]:
     """Run ``fn(organization_id)`` in each of the user's organizations; return the materialized results.
 
     On an organization host only that organization runs (#483), unless ``all_organizations``:
     the personal data export and anything that decides about the account pass it. With
     ``organization_id`` (#669), only that organization runs, and only while the person is an
-    active member of it: the result is empty otherwise.
+    active member of it: the result is empty otherwise. Organizations whose MFA policy demands
+    enrolment not yet completed by ``user`` are skipped unless ``respect_mfa=False`` (#860).
     """
     if in_context():
         raise InvalidContext("for_each_organization runs outside any context (mark the view with aggregate_route).")
@@ -144,6 +146,11 @@ def for_each_organization(
         return []
     if not 1 <= limit <= DEFAULT_LIMIT:
         raise ValueError(f"limit must be between 1 and {DEFAULT_LIMIT}.")
+    check_mfa = False
+    if respect_mfa:
+        from skeleton.accounts.mfa import _person, has_totp, mfa_demanded
+
+        check_mfa = _person(user) and not has_totp(user)
     results = []
     listed = _organizations(
         user,
@@ -163,13 +170,15 @@ def for_each_organization(
                     if connections[using].vendor == "postgresql":
                         with connections[using].cursor() as cursor:
                             cursor.execute("SET TRANSACTION READ ONLY")
+                    if check_mfa and mfa_demanded(user):
+                        raise PermissionDenied("MFA enrollment required.")
                     if app_label is not None:
                         from skeleton.system.applications import require_application_enabled
 
                         require_application_enabled(app_label)
                     value = _materialized(fn(listed_id))
         except (PermissionDenied, ApplicationUnavailable, Forbidden, Unavailable):
-            continue  # Membership inactive since the listing, the app is off, or access is denied here.
+            continue  # Membership inactive since the listing, MFA pending, app off, or access denied here.
         results.append(OrganizationResult(listed_id, name, value))
     return results
 
@@ -182,22 +191,28 @@ def for_each_external_organization(
     request_id: Any = None,
     limit: int = DEFAULT_LIMIT,
     using: str = "default",
+    all_organizations: bool = False,
 ) -> list[OrganizationResult]:
     """Run ``fn(organization_id)`` in the portal context of each organization where ``user`` is external (#533).
 
     The listing reads the person's own ``ExternalAccess`` rows (self-discovery); each organization
     runs in its own read-only ``external_context``, so an inactive access or a portal turned off
-    since the listing is skipped.
+    since the listing is skipped. On an organization host only that organization runs unless
+    ``all_organizations=True`` (#860).
     """
     from .context import external_context
     from .models import ExternalAccess
+    from .routing import site_organization_id
 
     if in_context():
         raise InvalidContext("for_each_external_organization runs outside any context (aggregate_route).")
     if not getattr(user, "is_authenticated", False):
         return []
+    if not 1 <= limit <= DEFAULT_LIMIT:
+        raise ValueError(f"limit must be between 1 and {DEFAULT_LIMIT}.")
+    site = None if all_organizations else site_organization_id()
     with request_context(actor=user, request_id=request_id, source=source, using=using):
-        listed = list(
+        rows = (
             ExternalAccess.all_objects.using(using)
             .filter(
                 user_id=user.pk,
@@ -207,12 +222,17 @@ def for_each_external_organization(
                 organization__deleted_at__isnull=True,
             )
             .order_by("organization__name", "organization_id")
-            .values_list("organization_id", "organization__name")[:limit]
+            .values_list("organization_id", "organization__name")
         )
+        if site is not None:
+            rows = rows.filter(organization_id=site)
+        listed = list(rows[:limit])
     results = []
     for organization_id, name in listed:
         try:
-            with external_context(organization_id=organization_id, actor=user, source=source, using=using):
+            with external_context(
+                organization_id=organization_id, actor=user, source=source, request_id=request_id, using=using
+            ):
                 if connections[using].vendor == "postgresql":
                     with connections[using].cursor() as cursor:
                         cursor.execute("SET TRANSACTION READ ONLY")

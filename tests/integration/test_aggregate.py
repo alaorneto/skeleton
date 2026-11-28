@@ -163,3 +163,89 @@ def test_user_context_refuses_nesting(access):
     with actor_tenant(access.alice, access.a), pytest.raises(InvalidContext):
         with user_context(request, source="test:user-context-nested"):
             pass
+
+
+def test_mfa_policy_is_enforced_in_aggregate_and_openapi_but_not_privacy_export(access, subtests):
+    """#860: an org requiring MFA is omitted from aggregate reads and OpenAPI until TOTP is enrolled."""
+    import io
+    import json
+    import zipfile
+
+    from allauth.mfa.models import Authenticator
+
+    from skeleton.accounts.privacy import export_my_data
+    from skeleton.tenancy.models import OrganizationSettings
+
+    with system_context(reason="test:mfa-policy", organization_id=access.a.pk):
+        OrganizationSettings.objects.update_or_create(organization_id=access.a.pk, defaults={"mfa_policy": "all"})
+
+    with subtests.test("aggregate omits org A without TOTP"):
+        assert [row.organization_id for row in run(access.alice, lambda organization_id: 1)] == [access.b.pk]
+
+    with subtests.test("OpenAPI omits tables of org A while MFA is pending"):
+        client = Client()
+        client.force_login(access.alice)
+        session = client.session
+        session["skeleton_auth_version"] = access.alice.auth_version
+        session.save()
+        before = client.get("/api/v1/openapi.json")
+        assert before.status_code == 200
+        assert not any("example_notes.note" in p for p in before.json()["paths"])
+
+    with subtests.test("LGPD personal export still includes org A without TOTP"):
+        payload = export_my_data(access.alice)
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            exported = json.loads(archive.read("dados.json"))
+        exported_orgs = {item["sysid"] for item in exported["organizations"]}
+        assert str(access.a.pk) in exported_orgs and str(access.b.pk) in exported_orgs
+
+    with subtests.test("enrolling TOTP restores org A in aggregate and OpenAPI"):
+        Authenticator.objects.create(user=access.alice, type=Authenticator.Type.TOTP, data={})
+        assert [row.organization_id for row in run(access.alice, lambda organization_id: 1)] == [
+            access.a.pk,
+            access.b.pk,
+        ]
+        client = Client()
+        client.force_login(access.alice)
+        session = client.session
+        session["skeleton_auth_version"] = access.alice.auth_version
+        session.save()
+        after = client.get("/api/v1/openapi.json")
+        assert after.status_code == 200
+        assert any("example_notes.note" in p for p in after.json()["paths"])
+
+
+def test_for_each_external_organization_validates_limit_site_and_request_id(access):
+    """#860: for_each_external_organization validates limit, respects site scope and propagates request_id."""
+    from uuid import uuid4
+
+    from skeleton.tenancy.aggregate import for_each_external_organization
+    from skeleton.tenancy.context import current_context
+    from skeleton.tenancy.models import ExternalAccess, ExternalAccessPolicy
+    from skeleton.tenancy.routing import site_scope
+
+    for limit in (0, 51):
+        with pytest.raises(ValueError):
+            for_each_external_organization(access.alice, lambda oid: oid, limit=limit)
+
+    for org in (access.a, access.b):
+        with system_context(reason="test:ext-policy", organization_id=org.pk):
+            ExternalAccessPolicy.objects.update_or_create(organization_id=org.pk, defaults={"enabled": True})
+            ExternalAccess.objects.create(
+                organization_id=org.pk,
+                user=access.alice,
+                app_label="example_notes",
+                is_active=True,
+            )
+
+    req_id = uuid4()
+    seen = for_each_external_organization(
+        access.alice,
+        lambda oid: (oid, current_context().request_id),
+        request_id=req_id,
+    )
+    assert [(row.organization_id, row.value[1]) for row in seen] == [(access.a.pk, req_id), (access.b.pk, req_id)]
+
+    with site_scope(access.a.pk):
+        scoped = for_each_external_organization(access.alice, lambda oid: oid, request_id=req_id)
+    assert [row.organization_id for row in scoped] == [access.a.pk]

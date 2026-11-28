@@ -148,7 +148,7 @@ def export_my_data(user: Any) -> bytes:
     data["organizations"] = [
         {"sysid": result.organization_id, "name": result.organization_name, **result.value}
         for result in for_each_organization(
-            user, _organization_part(user), source="privacy:export", all_organizations=True
+            user, _organization_part(user), source="privacy:export", all_organizations=True, respect_mfa=False
         )
     ]
     data["external_accesses"] = _external_accesses(user)

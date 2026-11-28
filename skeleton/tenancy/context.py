@@ -262,7 +262,12 @@ def _require_portal_enabled(using: str) -> None:
 
 @contextmanager
 def external_context(
-    *, organization_id: IdentityRef, actor: IdentityRef, source: str = "http:portal", using: str = "default"
+    *,
+    organization_id: IdentityRef,
+    actor: IdentityRef,
+    source: str = "http:portal",
+    request_id: IdentityRef = None,
+    using: str = "default",
 ) -> Iterator[Context]:
     """The organization's portal for an external person (#531): ``external=True``, no member power.
 
@@ -273,8 +278,10 @@ def external_context(
     tenant_id, actor_id = _uuid(organization_id), _uuid(actor)
     prior = _context.get()
     if prior is None:
-        with request_context(actor=actor, request_id=None, source=source, using=using):
-            with external_context(organization_id=tenant_id, actor=actor, source=source, using=using) as active:
+        with request_context(actor=actor, request_id=request_id, source=source, using=using):
+            with external_context(
+                organization_id=tenant_id, actor=actor, source=source, request_id=request_id, using=using
+            ) as active:
                 yield active
         return
     if tenant_id is None:
