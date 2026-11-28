@@ -6,6 +6,7 @@ from django.utils.decorators import method_decorator
 from django.utils.http import urlencode
 from django.views.decorators.http import require_http_methods
 
+from skeleton.common.client_ip import client_ip
 from skeleton.common.exceptions import QuotaLimitExceeded
 from skeleton.tenancy.invitations import InvalidInvitation, accept_invitation, validate_invitation
 
@@ -28,7 +29,7 @@ def invitation_view(request, organization_id, token):
 
         # SSO-only accounts cannot reauthenticate locally; their login is accepted as before.
         if not has_recent_authentication(request, allow_without_reauthentication_flow=True):
-            return redirect(reauthentication_url(request.user) + "?next=" + request.path)
+            return redirect(f"{reauthentication_url(request.user)}?{urlencode({'next': request.path})}")
         try:
             accept_invitation(user=request.user, organization_id=organization_id, token=token)
         except QuotaLimitExceeded as full:
@@ -59,9 +60,7 @@ def external_invitation_view(request, organization_id, token):
         if not request.user.is_authenticated:
             return redirect(reverse_login(request.path))
         try:
-            external.accept(
-                user=request.user, organization_id=organization_id, token=token, ip=request.META.get("REMOTE_ADDR")
-            )
+            external.accept(user=request.user, organization_id=organization_id, token=token, ip=client_ip(request))
         except external.TooManyAttempts:
             return render(request, "account/invitation_invalid.html", status=429)
         except ValidationError:

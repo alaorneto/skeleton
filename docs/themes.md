@@ -114,7 +114,7 @@ python manage.py appearance check-package temas/aurora
 python manage.py appearance build-package temas/aurora --output dist/aurora-1.0.0.zip
 ```
 
-`check-package` aplica as mesmas regras da instalação (formato, contraste e compatibilidade com o núcleo instalado) e não abre o banco. Com sucesso:
+`check-package` aplica as mesmas regras da instalação (formato, contraste e compatibilidade com o núcleo instalado) e não abre o banco. A leitura do `.zip` faz streaming em blocos com teto real por arquivo e acumulado (6 MiB), taxa máxima de expansão sobre bytes reais e aceita apenas `ZIP_STORED` e `ZIP_DEFLATED` (#891). Com sucesso:
 
 ```text
 Pacote: org.example.theme.aurora 1.0.0

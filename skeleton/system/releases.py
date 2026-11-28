@@ -473,9 +473,12 @@ def retry_submission(*, user, operation_id, revision):
         "generation": row.expected_generation,
         "operation_id": str(row.pk),
     }
+    allowed = {*expected, "actor_id", "request_id"}
+    extra = set(values) - allowed if isinstance(values, dict) else set()
     if (
         not isinstance(values, dict)
-        or set(values) != {*expected, "actor_id", "request_id"}
+        or not allowed <= set(values)
+        or not (not extra or (extra == {"mode"} and values.get("mode") == "window"))
         or any(values.get(name) != value for name, value in expected.items())
     ):
         raise DeploymentUnavailable("Original approval is unavailable; reconcile the agent journal.")

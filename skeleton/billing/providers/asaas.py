@@ -20,6 +20,7 @@ BRL only. The sandbox and production base URLs are fixed by the account's mode.
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import json
 from collections.abc import Mapping
@@ -49,6 +50,9 @@ from .base import (
 PRODUCTION_URL = "https://api.asaas.com/v3"
 SANDBOX_URL = "https://api-sandbox.asaas.com/v3"
 _PAID = {"RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"}
+_REUSABLE = {"PENDING"} | _PAID
+_CHARGEBACK = {"CHARGEBACK_REQUESTED", "CHARGEBACK_DISPUTE", "AWAITING_CHARGEBACK_REVERSAL"}
+_REFUNDED = {"REFUNDED", "REFUND_REQUESTED", "REFUND_IN_PROGRESS", "PARTIALLY_REFUNDED"} | _CHARGEBACK
 _METHODS = {"PIX": "pix", "BOLETO": "boleto", "CREDIT_CARD": "card"}
 
 
@@ -109,17 +113,28 @@ class AsaasProvider:
             body["email"] = customer.email
         return str(self._call(account, "POST", "/customers", body=body)["id"])
 
-    def _open_charge(self, account: Any, reference: str) -> Any:
-        found = self._call(account, "GET", f"/payments?externalReference={quote(reference)}&status=PENDING")
+    def _attempt_reference(self, invoice: InvoiceData, idempotency_key: str) -> str:
+        """Stable externalReference per (invoice, logical attempt), within Asaas's 100-char cap (#886)."""
+        if not idempotency_key:
+            return invoice.reference
+        digest = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()[:16]
+        return f"{invoice.reference}:{digest}"
+
+    def _existing_charge(self, account: Any, reference: str, *, statuses: set[str] | None = None) -> Any:
+        allowed = _REUSABLE if statuses is None else statuses
+        found = self._call(account, "GET", f"/payments?externalReference={quote(reference)}")
         rows = (found or {}).get("data") or []
-        return rows[0] if rows else None
+        for row in rows:
+            if str(row.get("status") or "PENDING") in allowed:
+                return row
+        return None
 
     def create_checkout(
         self, account: Any, invoice: InvoiceData, *, customer_id: str, return_url: str, idempotency_key: str
     ) -> CheckoutSession:
         if invoice.currency != "BRL":
             raise ProviderError("currency_not_supported")
-        existing = self._open_charge(account, invoice.reference)
+        existing = self._existing_charge(account, invoice.reference, statuses={"PENDING"})
         data = existing or self._call(
             account,
             "POST",
@@ -140,9 +155,11 @@ class AsaasProvider:
     ) -> ChargeResult:
         if invoice.currency != "BRL":
             raise ProviderError("currency_not_supported")
-        existing = self._open_charge(account, invoice.reference)
+        reference = self._attempt_reference(invoice, idempotency_key)
+        existing = self._existing_charge(account, reference)
         if existing is not None and existing.get("billingType") == "CREDIT_CARD":
-            return ChargeResult(reference=str(existing["id"]), status=PaymentState.PENDING)
+            status = PaymentState.SUCCEEDED if existing.get("status") in _PAID else PaymentState.PENDING
+            return ChargeResult(reference=str(existing["id"]), status=status)
         data = self._call(
             account,
             "POST",
@@ -153,7 +170,7 @@ class AsaasProvider:
                 "value": _decimal(invoice.amount),
                 "dueDate": invoice.due_at.date().isoformat(),
                 "description": invoice.description,
-                "externalReference": invoice.reference,
+                "externalReference": reference,
                 "creditCardToken": method_ref,
             },
         )
@@ -163,25 +180,34 @@ class AsaasProvider:
     def fetch_payment(self, account: Any, reference: str) -> PaymentStatus:
         data = self._call(account, "GET", f"/payments/{quote(reference)}")
         raw = str(data.get("status") or "")
+        refunded_amount = 0
         if raw in _PAID:
             state = PaymentState.SUCCEEDED
-        elif raw in {"REFUNDED", "REFUND_REQUESTED", "CHARGEBACK_REQUESTED"}:
+        elif raw in _REFUNDED:
             state = PaymentState.REFUNDED
+            if raw not in _CHARGEBACK and data.get("refundedValue"):
+                refunded = _minor(data.get("refundedValue"))
+                if refunded > 0:
+                    refunded_amount = refunded
         else:
             state = PaymentState.PENDING
         card = data.get("creditCard") or {}
         token = str(card.get("creditCardToken") or "")
         number = str(card.get("creditCardNumber") or "")
+        raw_ref = str(data.get("externalReference") or "")
+        ref_parts = raw_ref.split(":")
+        invoice_ref = f"{ref_parts[0]}:{ref_parts[1]}" if len(ref_parts) >= 2 else raw_ref
         return PaymentStatus(
             reference=str(data["id"]),
             status=state,
             amount=_minor(data.get("value")),
             currency="BRL",
-            invoice_reference=str(data.get("externalReference") or ""),
+            invoice_reference=invoice_ref,
             method=_METHODS.get(str(data.get("billingType") or ""), "card"),
             method_ref=token if state == PaymentState.SUCCEEDED else "",
             method_label=f"{str(card.get('creditCardBrand', '')).title()} •••• {number[-4:]}" if number else "",
             customer_id=str(data.get("customer") or ""),
+            refunded_amount=refunded_amount,
         )
 
     def refund(self, account: Any, reference: str, *, amount: int, idempotency_key: str) -> RefundResult:
@@ -207,8 +233,17 @@ class AsaasProvider:
         except ValueError:
             raise WebhookRejected("invalid_body") from None
         payment = event.get("payment") or {}
+        fallback = ":".join(
+            str(part)
+            for part in (
+                event.get("event") or "",
+                payment.get("id") or "",
+                payment.get("status") or "",
+                event.get("dateCreated") or payment.get("dateCreated") or "",
+            )
+        )
         return VerifiedNotification(
-            event_id=str(event.get("id") or f"{event.get('event')}:{payment.get('id')}"),
+            event_id=str(event.get("id") or fallback),
             payment_reference=str(payment.get("id") or "") or None,
             kind=str(event.get("event") or ""),
         )

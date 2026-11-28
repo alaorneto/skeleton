@@ -93,3 +93,41 @@ def test_agent_runtime_pins_match_the_lock():
     for requirement in agent["build-system"]["requires"]:
         name, version = requirement.split("==")
         assert re.search(rf"^{re.escape(name)}=={re.escape(version)} ", dev_lock, re.MULTILINE), requirement
+
+
+def _workflow_job(workflow_text: str, name: str, following: str | None = None) -> str:
+    job = workflow_text.split(f"\n  {name}:\n", 1)[1]
+    return job.split(f"\n  {following}:\n", 1)[0] if following else job
+
+
+def test_release_artifacts_validates_tag_before_checkout_and_signing_environment():
+    """The release signing job only runs after an unprivileged job validates a real vX.Y.Z tag (#925)."""
+    workflow = text(".github", "workflows", "release-artifacts.yml")
+    validate = _workflow_job(workflow, "validate", "publish")
+    publish = _workflow_job(workflow, "publish", "sandbox-branch")
+    assert "environment:" not in validate
+    assert "actions/checkout" not in validate
+    assert "contents: read" in validate and "write" not in validate
+    assert r"^v[0-9]+\.[0-9]+\.[0-9]+$" in validate
+    assert "ls-remote --exit-code --tags" in validate and '"refs/tags/$TAG"' in validate
+    assert "needs: validate" in publish
+    assert "environment: release" in publish
+    assert "ref: refs/tags/${{ needs.validate.outputs.tag }}" in publish
+    assert "ref: ${{ inputs.tag }}" not in workflow
+
+
+def test_ci_installs_every_tool_with_hashes():
+    """No CI step installs Python tools without hashes or runs unpinned uvx (#925)."""
+    ci = text(".github", "workflows", "ci.yml")
+    assert "uvx " not in ci
+    pip_installs = [
+        line.strip()
+        for line in ci.splitlines()
+        if re.search(r"\bpip install\b", line) and not line.strip().startswith("#")
+    ]
+    assert pip_installs
+    for line in pip_installs:
+        assert "--require-hashes" in line or "--no-deps" in line, line
+    ci_lock = text("requirements", "ci-tools.txt")
+    assert "pre-commit==" in ci_lock and "pip-audit==" in ci_lock
+    assert "--hash=sha256:" in ci_lock

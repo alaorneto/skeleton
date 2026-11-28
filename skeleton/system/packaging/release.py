@@ -276,9 +276,11 @@ def _validate_release_archive(path, trust_store):
             if files.keys() != inventory.keys() | {"manifest.json", "manifest.sig"}:
                 _fail("Archive files differ from the complete signed inventory.")
             contents = {}
+            real_total = len(raw) + len(signature)
             for name, item in inventory.items():
-                maximum = limits.MAX_METADATA_BYTES if item["role"] == "lock" else None
-                data = _read_member(archive, files[name], maximum)
+                member_max = limits.MAX_METADATA_BYTES if item["role"] == "lock" else limits.MAX_FILE_BYTES
+                data = _read_member(archive, files[name], min(member_max, limits.MAX_TOTAL_BYTES - real_total))
+                real_total += len(data)
                 if len(data) != item["size"] or hashlib.sha256(data).hexdigest() != item["sha256"]:
                     _fail("Payload hash or size mismatch.")
                 if item["role"] in ("lock", "package"):

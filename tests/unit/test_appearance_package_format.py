@@ -245,3 +245,36 @@ def test_a_package_may_name_the_core_family_or_the_old_one():
         fonts = [{"family": family, "file": "fonts/aurora-sans.woff2", "weight": "100 900"}]
         package = read_theme_archive(with_manifest(tokens=tokens, fonts=fonts))
         assert package.font_family == family and package.fonts[0].family == family
+
+
+def test_theme_archive_rejects_zip_bomb_bounded_and_unsupported_compression():
+    """#891: theme archive reading streams with bounded memory and rejects non-STORED/DEFLATED methods."""
+    import struct
+    import tracemalloc
+
+    from skeleton.appearance.package_format import MAX_UNPACKED_BYTES, archive_files
+
+    raw = bytearray(make_zip({"theme.json": b"\x00" * (64 * 1024 * 1024)}))
+    local_pos = raw.index(b"PK\x03\x04")
+    central_pos = raw.index(b"PK\x01\x02")
+    packed = struct.pack("<I", 100)
+    raw[local_pos + 22 : local_pos + 26] = packed
+    raw[central_pos + 24 : central_pos + 28] = packed
+
+    tracemalloc.start()
+    try:
+        with pytest.raises(ThemePackageError) as error:
+            archive_files(bytes(raw))
+        assert error.value.code == "archive"
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < MAX_UNPACKED_BYTES + 1024 * 1024
+
+    for method in (zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA):
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w", compression=method) as archive:
+            archive.writestr("theme.json", b"{}")
+        with pytest.raises(ThemePackageError) as err:
+            archive_files(stream.getvalue())
+        assert err.value.code == "archive"

@@ -82,4 +82,4 @@ def register_insights() -> None:
     register_periodic(METRICS_JOB, METRICS_JOB, every=timedelta(hours=1), per_organization=False)
     register_periodic(DAILY_JOB, DAILY_JOB, daily_at=time(0, 20), per_organization=False)
     for code in EVENTS:
-        register_consumer(code, f"{CONSUMER}.{code}", on_event)
+        register_consumer(code, f"{CONSUMER}.{code}", on_event, owner_app="sk_insights")

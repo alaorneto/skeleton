@@ -81,10 +81,15 @@ def test_the_administrator_contracts_pays_and_the_app_opens(billing):
     with scenario.acting(scenario.admin_a) as admin:
         summary = service.contract(actor=admin, price_id=prices["plan"].pk, terms_version="1")
         assert summary.status == "incomplete" and engine.account().terms_version_accepted == "1"
+        with pytest.raises(errors.InvalidInput):
+            service.contract(actor=admin, price_id=prices["notes"].pk)  # Incomplete subscription (#883).
+        [initial] = service.list_invoices(actor=admin).items
+        engine.settle_invoice(engine.current_subscription().invoices.get(pk=initial.sysid))
         service.contract(actor=admin, price_id=prices["notes"].pk)
         invoices = service.list_invoices(actor=admin).items
-        assert len(invoices) == 2 and all(invoice.status == "open" for invoice in invoices)
-        link = service.checkout(actor=admin, invoice_id=invoices[-1].sysid, return_url="https://app.example.test/b")
+        assert len(invoices) == 2 and {invoice.status for invoice in invoices} == {"paid", "open"}
+        open_invoice = next(invoice for invoice in invoices if invoice.status == "open")
+        link = service.checkout(actor=admin, invoice_id=open_invoice.sysid, return_url="https://app.example.test/b")
         assert link.url.startswith("https://fake.example.test/pay/")
         with pytest.raises(errors.InvalidInput):
             service.contract(actor=admin, price_id=prices["notes"].pk)  # Already contracted.
@@ -93,7 +98,7 @@ def test_the_administrator_contracts_pays_and_the_app_opens(billing):
     with scenario.acting(scenario.admin_b, scenario.b) as admin_b:
         assert service.subscription(actor=admin_b) is None  # A/B.
         with pytest.raises(errors.NotFound):
-            service.checkout(actor=admin_b, invoice_id=invoices[0].sysid, return_url="https://app.example.test/b")
+            service.checkout(actor=admin_b, invoice_id=open_invoice.sysid, return_url="https://app.example.test/b")
 
 
 def test_check_quota_for_apps(billing):

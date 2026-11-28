@@ -109,3 +109,54 @@ def test_packaging_modules_import_without_django():
         "assert 'django' not in sys.modules, sorted(m for m in sys.modules if m.startswith('django'))[:3]"
     )
     subprocess.run([sys.executable, "-c", code], check=True, capture_output=True, text=True)
+
+
+def _forged_zip_bomb(member_name: str, *, real_bytes: int = 64 * 1024 * 1024, claimed_size: int = 100) -> bytes:
+    """Create a DEFLATE zip whose central directory and local header lie about ``file_size`` (#891)."""
+    import struct
+
+    raw = bytearray(_zip({member_name: b"\x00" * real_bytes}, compression=zipfile.ZIP_DEFLATED))
+    # Patch local file header uncompressed size (offset 22) and central directory header (offset 24).
+    local_pos = raw.index(b"PK\x03\x04")
+    central_pos = raw.index(b"PK\x01\x02")
+    packed = struct.pack("<I", claimed_size)
+    raw[local_pos + 22 : local_pos + 26] = packed
+    raw[central_pos + 24 : central_pos + 28] = packed
+    return bytes(raw)
+
+
+def test_zip_bomb_with_forged_file_size_fails_bounded_in_memory():
+    """#891: a 64 MiB zero member with forged file_size=100 is rejected without inflating into RAM."""
+    import tracemalloc
+
+    from skeleton.system.packaging.zipio import read_bounded
+
+    bomb = _forged_zip_bomb("manifest.json", real_bytes=64 * 1024 * 1024, claimed_size=100)
+    limit = 256 * 1024
+    tracemalloc.start()
+    try:
+        with zipfile.ZipFile(io.BytesIO(bomb)) as archive:
+            info = archive.getinfo("manifest.json")
+            with pytest.raises(PackageError):
+                read_bounded(archive, info, limit)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < limit + 1024 * 1024
+
+
+def test_read_bounded_rejects_unsupported_compression_and_expansion_ratio():
+    """#891: compression other than STORED/DEFLATED and excessive real expansion are rejected."""
+    from skeleton.system.packaging.zipio import read_bounded
+
+    for method in (zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA):
+        raw = _zip({"manifest.json": b"{}"}, compression=method)
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            with pytest.raises(PackageError, match="unsupported compression"):
+                read_bounded(archive, archive.getinfo("manifest.json"), 1024)
+
+    # Real expansion ratio check over 256 KiB of zeros compressed to ~300 bytes (> 100x).
+    compressible = _zip({"manifest.json": b"\x00" * (256 * 1024)}, compression=zipfile.ZIP_DEFLATED)
+    with zipfile.ZipFile(io.BytesIO(compressible)) as archive:
+        with pytest.raises(PackageError, match="expansion limit"):
+            read_bounded(archive, archive.getinfo("manifest.json"), 512 * 1024, max_expansion_ratio=10)

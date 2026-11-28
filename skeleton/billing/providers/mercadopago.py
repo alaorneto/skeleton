@@ -141,16 +141,28 @@ class MercadoPagoProvider:
         currency = str(data.get("currency_id") or "")
         card = data.get("card") or {}
         last_four = str(card.get("last_four_digits") or "")
+        raw_status = str(data.get("status") or "")
+        state = _STATES.get(raw_status, PaymentState.PENDING)
+        refunded_amount = 0
+        if currency in money.CURRENCY_EXPONENTS and data.get("transaction_amount_refunded"):
+            refunded = _minor(data.get("transaction_amount_refunded"), currency)
+            if refunded > 0:
+                refunded_amount = refunded
+                if raw_status == "approved":
+                    state = PaymentState.REFUNDED
+        if raw_status == "charged_back":
+            refunded_amount = 0
         return PaymentStatus(
             reference=str(data["id"]),
-            status=_STATES.get(str(data.get("status") or ""), PaymentState.PENDING),
+            status=state,
             amount=_minor(data.get("transaction_amount"), currency) if currency in money.CURRENCY_EXPONENTS else -1,
             currency=currency,
             invoice_reference=str(data.get("external_reference") or ""),
             method=_METHODS.get(str(data.get("payment_type_id") or ""), "card"),
             method_label=f"{str(data.get('payment_method_id', '')).title()} •••• {last_four}" if last_four else "",
             customer_id=str((data.get("payer") or {}).get("id") or ""),
-            failure_code=str(data.get("status_detail") or "") if data.get("status") == "rejected" else "",
+            failure_code=str(data.get("status_detail") or "") if raw_status == "rejected" else "",
+            refunded_amount=refunded_amount,
         )
 
     def refund(self, account: Any, reference: str, *, amount: int, idempotency_key: str) -> RefundResult:
@@ -188,8 +200,11 @@ class MercadoPagoProvider:
         data_id = str((query or {}).get("data.id") or ((event.get("data") or {}).get("id")) or "")
         if data_id.isalnum():
             data_id = data_id.lower()
+        raw_secret = account.secret("webhook_secret")
+        if not raw_secret:
+            raise WebhookRejected("missing_secret")
         manifest = f"id:{data_id};request-id:{headers.get('x-request-id', '')};ts:{timestamp};"
-        expected = hmac.new(account.secret("webhook_secret").encode(), manifest.encode(), hashlib.sha256).hexdigest()
+        expected = hmac.new(raw_secret.encode(), manifest.encode(), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(expected, signature):
             raise WebhookRejected("invalid_signature")
         kind = str(event.get("type") or (query or {}).get("type") or "")

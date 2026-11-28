@@ -161,17 +161,28 @@ class StripeProvider:
             if card:
                 label = f"{str(card.get('brand', '')).title()} •••• {card.get('last4', '')}"
         error = data.get("last_payment_error") or {}
+        state = _state(data)
+        refunded_amount = int(data.get("amount_refunded") or 0)
+        charges = (data.get("charges") or {}).get("data") or []
+        disputed = bool(data.get("disputed")) or any(bool(charge.get("disputed")) for charge in charges)
+        if not refunded_amount and charges:
+            refunded_amount = sum(int(charge.get("amount_refunded") or 0) for charge in charges)
+        if disputed or refunded_amount > 0 or any(bool(charge.get("refunded")) for charge in charges):
+            state = PaymentState.REFUNDED
+            if disputed:
+                refunded_amount = 0
         return PaymentStatus(
             reference=str(data["id"]),
-            status=_state(data),
+            status=state,
             amount=int(data.get("amount_received") or data.get("amount") or 0),
             currency=str(data.get("currency") or "").upper(),
             invoice_reference=str((data.get("metadata") or {}).get("invoice_reference") or ""),
             method="card",
-            method_ref=method_id if data.get("status") == "succeeded" else "",
+            method_ref=method_id if state == PaymentState.SUCCEEDED else "",
             method_label=label,
             customer_id=str(data.get("customer") or ""),
             failure_code=str(error.get("code") or error.get("decline_code") or ""),
+            refunded_amount=refunded_amount,
         )
 
     def refund(self, account: Any, reference: str, *, amount: int, idempotency_key: str) -> RefundResult:
@@ -199,7 +210,10 @@ class StripeProvider:
             raise WebhookRejected("missing_signature")
         if abs(now.timestamp() - timestamp) > TOLERANCE_SECONDS:
             raise WebhookRejected("stale_timestamp")
-        secret = account.secret("webhook_secret").encode()
+        raw_secret = account.secret("webhook_secret")
+        if not raw_secret:
+            raise WebhookRejected("missing_secret")
+        secret = raw_secret.encode()
         expected = hmac.new(secret, f"{timestamp}.".encode() + body, hashlib.sha256).hexdigest()
         if not any(hmac.compare_digest(expected, candidate) for candidate in signatures):
             raise WebhookRejected("invalid_signature")
@@ -208,13 +222,18 @@ class StripeProvider:
             obj = event["data"]["object"]
         except (ValueError, KeyError, TypeError):
             raise WebhookRejected("invalid_body") from None
+        event_id = str(event.get("id") or "")
+        if not event_id:
+            raise WebhookRejected("missing_event_id")
         kind = str(event.get("type") or "")
         reference = None
         if kind.startswith("payment_intent."):
             reference = str(obj.get("id") or "") or None
         elif kind.startswith("checkout.session."):
             reference = str(obj.get("payment_intent") or obj.get("id") or "") or None
-        return VerifiedNotification(event_id=str(event.get("id") or ""), payment_reference=reference, kind=kind)
+        elif kind.startswith("charge."):
+            reference = str(obj.get("payment_intent") or "") or None
+        return VerifiedNotification(event_id=event_id, payment_reference=reference, kind=kind)
 
 
 class StripeError(ProviderError):

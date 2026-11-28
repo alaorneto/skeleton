@@ -105,6 +105,17 @@ class _LdapOptions(forms.Form):
         "ca_bundle",
     )
 
+    def clean_ca_bundle(self):
+        from skeleton.accounts.ldap.client import validate_ca_bundle
+
+        value = (self.cleaned_data.get("ca_bundle") or "").strip()
+        if not value:
+            return ""
+        try:
+            return validate_ca_bundle(value)
+        except ValueError as exc:
+            raise forms.ValidationError(str(exc)) from None
+
     def ldap_settings(self):
         data = self.cleaned_data
         options = {name: data[name] for name in self.LDAP_FIELDS if data.get(name) not in (None, "")}

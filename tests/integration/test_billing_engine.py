@@ -314,3 +314,71 @@ def test_events_carry_identifiers_and_amounts(billing):
         "billing.invoice_paid",
     ]
     assert events[1][1] == {"number": "2026-000001", "status": "open", "currency": "BRL", "total": 10000}
+
+
+def test_incomplete_subscription_refuses_changes_and_zero_invoice_does_not_activate(billing, clock):
+    """#883: incomplete subscription refuses add_item/change_plan and ignores unrelated zero invoices."""
+    scenario, prices = billing
+    with in_org(scenario.a):
+        subscription = engine.start_subscription(prices["basic"], now=MAR1)
+        assert subscription.status == "incomplete"
+        late = APR1 + timedelta(days=5)
+        clock["now"] = late
+
+        with pytest.raises(engine.SubscriptionNotActive) as add_err:
+            engine.add_item(prices["notes"], now=late)
+        assert codes(add_err, "subscription") == ["subscription_not_active"]
+
+        with pytest.raises(engine.SubscriptionNotActive) as plan_err:
+            engine.change_plan(prices["pro"], now=late)
+        assert codes(plan_err, "subscription") == ["subscription_not_active"]
+
+        subscription.refresh_from_db()
+        assert subscription.status == "incomplete" and not notes_available()
+
+        # Even if a zero-total proration invoice is settled while the initial invoice is open,
+        # the incomplete subscription must stay incomplete.
+        zero = engine.issue_invoice(
+            subscription.account,
+            subscription,
+            [engine.LineDraft(kind="proration", description="Zero", amount=0, unit_amount=0)],
+            now=late,
+        )
+        assert zero.status == "paid"
+        subscription.refresh_from_db()
+        assert subscription.status == "incomplete"
+
+
+def test_pending_plan_change_blocks_second_upgrade_and_base_plan_quantity_must_be_one(billing):
+    """#883: at most one pending base-plan upgrade at a time; base plan always has quantity 1."""
+    from skeleton.billing.models import Price, Product, SubscriptionItem
+
+    scenario, prices = billing
+    with system_context(reason="test:billing-enterprise"):
+        enterprise = Product(code="enterprise", kind="base_plan", name="Enterprise")
+        enterprise.save()
+        enterprise_price = Price(product=enterprise, currency="BRL", unit_amount=30000)
+        enterprise_price.save()
+
+    with in_org(scenario.a):
+        with pytest.raises(ValidationError) as qty_err:
+            engine.start_subscription(prices["basic"], now=MAR1, quantity=2)
+        assert codes(qty_err, "quantity") == ["invalid_quantity"]
+
+        subscription = engine.start_subscription(prices["basic"], now=MAR1)
+        engine.settle_invoice(open_invoices()[0], now=MAR1)
+        engine.change_plan(prices["pro"], now=MAR1 + timedelta(days=10))
+
+        with pytest.raises(engine.PlanChangePending) as pending_err:
+            engine.change_plan(enterprise_price, now=MAR1 + timedelta(days=11))
+        assert codes(pending_err) == ["plan_change_pending"]
+
+        [upgrade_invoice] = open_invoices()
+        engine.settle_invoice(upgrade_invoice, now=MAR1 + timedelta(days=12))
+        active_bases = SubscriptionItem.objects.filter(
+            subscription=subscription,
+            status="active",
+            price__product__kind="base_plan",
+        )
+        assert active_bases.count() == 1
+        assert active_bases.get().price_id == prices["pro"].pk

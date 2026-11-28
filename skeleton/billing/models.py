@@ -457,6 +457,7 @@ class Invoice(OrganizationRecord):
         PAID = "paid", gettext_lazy("Paga")
         VOID = "void", gettext_lazy("Anulada")
         UNCOLLECTIBLE = "uncollectible", gettext_lazy("Incobrável")
+        REFUNDED = "refunded", gettext_lazy("Estornada")
 
     account = models.ForeignKey(BillingAccount, on_delete=models.PROTECT, related_name="invoices")
     subscription = models.ForeignKey(
@@ -499,7 +500,8 @@ class Invoice(OrganizationRecord):
         constraints = OrganizationRecord.Meta.constraints + [
             models.CheckConstraint(condition=CURRENCY, name="sk_billing_invoice_currency"),
             models.CheckConstraint(
-                condition=Q(status__in=("open", "paid", "void", "uncollectible")), name="sk_billing_invoice_status"
+                condition=Q(status__in=("open", "paid", "void", "uncollectible", "refunded")),
+                name="sk_billing_invoice_status",
             ),
             models.CheckConstraint(
                 condition=Q(total=F("subtotal") - F("discount_total") + F("tax_total")),

@@ -149,6 +149,43 @@ def test_a_lost_webhook_is_reconciled(billing):
     assert invoice_status(scenario, invoice) == "paid"
 
 
+def test_reconcile_uses_billing_account_provider_account_over_default(billing):
+    """#886: reconcile queries the billing account's own ProviderAccount when multiple exist."""
+    from skeleton.billing.models import BillingAccount, Payment, ProviderAccount
+
+    scenario, provider, default_account, invoice = billing
+    with system_context(reason="test:providers-second-account"):
+        live_account = ProviderAccount(
+            provider="fake",
+            label="Fake Live",
+            mode=ProviderAccount.Mode.LIVE,
+            currencies=["BRL"],
+            is_default=False,
+        )
+        live_account.set_secrets(api_key="sk_live_fake", webhook_secret="whsec_live_fake")
+        live_account.save()
+
+    seen_accounts = []
+    original_fetch = provider.fetch_payment
+
+    def tracking_fetch(acc, ref):
+        seen_accounts.append(acc.pk)
+        return original_fetch(acc, ref)
+
+    provider.fetch_payment = tracking_fetch
+    with in_a(scenario):
+        BillingAccount.objects.update(provider_account=live_account)
+        attempt = payments.create_checkout(invoice, return_url="https://app.example.test/back")
+        status = original_fetch(live_account, attempt.reference)
+        payments.apply_status(live_account, status)
+        assert Payment.objects.get().status == "pending"
+    provider.pay(attempt.reference)
+    with in_a(scenario):
+        assert payments.reconcile(now=datetime.now(UTC) + timedelta(hours=1)) == 1
+    assert seen_accounts == [live_account.pk]
+    assert invoice_status(scenario, invoice) == "paid"
+
+
 def test_auto_charge_is_idempotent_and_a_decline_schedules_the_retry(billing):
     from skeleton.billing.models import BillingAccount, Invoice, Subscription
 
@@ -209,3 +246,72 @@ def test_provider_secrets_are_encrypted_and_redacted(billing):
     with request_context(actor=platform, request_id=uuid4(), source="test:providers-audit"):
         [event] = AuditEvent.objects.filter(record_sysid=account.pk)
     assert event.changes["api_key"]["redacted"] is True and event.changes["webhook_secret"]["redacted"] is True
+
+
+def test_refund_partial_full_and_duplicate_payment_update_access_events_and_alerts(billing):
+    """#885: full refund/chargeback suspends access; partial & duplicate emit events and platform alerts."""
+    from skeleton.billing.models import BillingAccount, Invoice, InvoiceLine, Payment
+    from skeleton.events.models import DomainEvent
+    from skeleton.notifications.models import PlatformNotification
+    from skeleton.notifications.platform_alerts import BILLING_PAYMENT_DUPLICATED, BILLING_PAYMENT_REFUNDED
+
+    scenario, provider, account, invoice = billing
+    attempt1 = checkout(scenario, invoice)
+    provider.pay(attempt1.reference)
+    body, sig = FakeProvider.webhook(attempt1.reference, event_id="evt_pay_1")
+    assert post(account, body, sig).status_code == 200
+    run_pending_jobs()
+    assert invoice_status(scenario, invoice) == "paid"
+    with in_a(scenario):
+        lines_before = list(InvoiceLine.objects.filter(invoice=invoice).values("sysid", "amount", "kind", "revision"))
+
+    # Duplicate payment on already-paid invoice emits event + platform alert without changing invoice.
+    from skeleton.billing.providers.base import PaymentStatus
+
+    dup_ref = "pay_duplicate_1"
+
+    provider.payments[dup_ref] = PaymentStatus(
+        reference=dup_ref,
+        status=PaymentState.SUCCEEDED,
+        amount=invoice.total,
+        currency=invoice.currency,
+        invoice_reference=f"{scenario.a.pk}:{invoice.pk}",
+    )
+    body_dup, sig_dup = FakeProvider.webhook(dup_ref, event_id="evt_dup_1")
+    assert post(account, body_dup, sig_dup).status_code == 200
+    run_pending_jobs()
+    assert invoice_status(scenario, invoice) == "paid"
+    with in_a(scenario):
+        assert DomainEvent.objects.filter(event_type="billing.payment_duplicated").count() == 1
+        assert Payment.objects.filter(invoice=invoice, status="succeeded").count() == 2
+    with system_context(reason="test:providers-alert-dup"):
+        assert PlatformNotification.objects.filter(type_code=BILLING_PAYMENT_DUPLICATED).count() == 1
+
+    # Partial refund keeps invoice paid and access active, while alerting the platform.
+    provider.mark_refunded(attempt1.reference, amount=1000)
+    body_part, sig_part = FakeProvider.webhook(attempt1.reference, event_id="evt_ref_part")
+    assert post(account, body_part, sig_part).status_code == 200
+    run_pending_jobs()
+    with in_a(scenario):
+        assert Invoice.objects.get(pk=invoice.pk).status == "paid"
+        assert BillingAccount.objects.get().access_state == "active"
+    with system_context(reason="test:providers-alert-part"):
+        part_alert = PlatformNotification.objects.get(type_code=BILLING_PAYMENT_REFUNDED)
+        assert part_alert.payload["partial"] is True
+
+    # Full refund transitions invoice to refunded, suspends access, and keeps InvoiceLines unchanged.
+    provider.mark_refunded(attempt1.reference)
+    body_full, sig_full = FakeProvider.webhook(attempt1.reference, event_id="evt_ref_full")
+    assert post(account, body_full, sig_full).status_code == 200
+    run_pending_jobs()
+    with in_a(scenario):
+        refreshed = Invoice.objects.get(pk=invoice.pk)
+        assert refreshed.status == "refunded" and refreshed.amount_paid == 0
+        assert BillingAccount.objects.get().access_state == "suspended"
+        assert DomainEvent.objects.filter(event_type="billing.payment_refunded").count() == 2
+        assert list(InvoiceLine.objects.filter(invoice=invoice).values("sysid", "amount", "kind", "revision")) == (
+            lines_before
+        )
+    with system_context(reason="test:providers-alert-full"):
+        alerts = list(PlatformNotification.objects.filter(type_code=BILLING_PAYMENT_REFUNDED).order_by("created_at"))
+        assert len(alerts) == 2 and alerts[-1].payload["partial"] is False

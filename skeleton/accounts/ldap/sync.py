@@ -36,6 +36,7 @@ class SyncReport:
     skipped_last_admin: list[str] = field(default_factory=list)
     provisioned: list[str] = field(default_factory=list)
     requested: list[str] = field(default_factory=list)
+    skipped: list[dict[str, str]] = field(default_factory=list)
     dry_run: bool = False
     aborted: str = ""
 
@@ -84,6 +85,7 @@ def sync_provider(
     accounts = list(SocialAccount.objects.filter(provider=row.provider_id).values_list("uid", "user_id"))
     gone = sorted({user_id for uid, user_id in accounts if uid not in present}, key=str)
     staying = sorted({user_id for uid, user_id in accounts if uid in present}, key=str)
+    # Phase 1: deactivations commit in their own transaction so provisioning failures never undo them (#861).
     try:
         with system_context(reason=REASON, organization_id=row.bound_organization_id), transaction.atomic():
             organization = (
@@ -104,12 +106,20 @@ def sync_provider(
                     report.skipped_last_admin.append(str(membership.user_id))
                 else:
                     report.deactivated.append(str(membership.user_id))
-            if provision:
-                _provision(organization, row, staying, report, admit_member, IdentityProviderAdmission, JoinRequest)
             if dry_run:
+                if provision:
+                    _provision(organization, row, staying, report, admit_member, IdentityProviderAdmission, JoinRequest)
                 raise _Rollback
     except _Rollback:
         pass
+    # Phase 2: provisioning runs after deactivations are durably committed, one savepoint per person (#861).
+    if provision and not dry_run and not report.aborted:
+        with system_context(reason=REASON, organization_id=row.bound_organization_id), transaction.atomic():
+            organization = (
+                Organization.objects.select_for_update(no_key=True).filter(pk=row.bound_organization_id).first()
+            )
+            if organization is not None and organization.is_active:
+                _provision(organization, row, staying, report, admit_member, IdentityProviderAdmission, JoinRequest)
     if not dry_run:
         _record(row, report.aborted or "ok")
     return report
@@ -117,8 +127,10 @@ def sync_provider(
 
 def _provision(organization, row, staying, report, admit_member, admission_model, join_request_model) -> None:
     from django.contrib.auth import get_user_model
+    from django.core.exceptions import ValidationError
 
     from skeleton.access.models import Role
+    from skeleton.common.exceptions import QuotaLimitExceeded
     from skeleton.tenancy.admission import REQUEST_TTL
     from skeleton.tenancy.models import Membership
 
@@ -128,26 +140,36 @@ def _provision(organization, row, staying, report, admit_member, admission_model
     role = (
         Role.objects.filter(pk=rules.default_role_id).first()
         if rules.default_role_id
-        else Role.objects.get(code="member", is_builtin=True)
+        else Role.objects.filter(code="member", is_builtin=True).first()
     )
-    known = set(Membership.all_objects.filter(user_id__in=staying).values_list("user_id", flat=True))
+    known = set(
+        Membership.all_objects.filter(organization=organization, user_id__in=staying).values_list("user_id", flat=True)
+    )
     users = get_user_model().objects.filter(pk__in=[pk for pk in staying if pk not in known], is_active=True)
     for user in users.order_by("pk"):
         # Never anyone who had a membership here: a former member is a human decision.
-        if rules.jit_requires_approval:
-            if not join_request_model.objects.filter(user=user, status__in=join_request_model.OPEN).exists():
-                join_request_model(
-                    organization=organization,
-                    user=user,
-                    channel=join_request_model.Channel.SSO,
-                    role=role,
-                    status=join_request_model.Status.PENDING,
-                    expires_at=timezone.now() + REQUEST_TTL,
-                ).save()
-                report.requested.append(str(user.pk))
-        else:
-            admit_member(organization=organization, user=user, role=role)
-            report.provisioned.append(str(user.pk))
+        try:
+            with transaction.atomic():
+                if role is None:
+                    raise ValidationError("Papel padrão indisponível.")
+                if rules.jit_requires_approval:
+                    if not join_request_model.objects.filter(user=user, status__in=join_request_model.OPEN).exists():
+                        join_request_model(
+                            organization=organization,
+                            user=user,
+                            channel=join_request_model.Channel.SSO,
+                            role=role,
+                            status=join_request_model.Status.PENDING,
+                            expires_at=timezone.now() + REQUEST_TTL,
+                        ).save()
+                        report.requested.append(str(user.pk))
+                else:
+                    admit_member(organization=organization, user=user, role=role)
+                    report.provisioned.append(str(user.pk))
+        except QuotaLimitExceeded:
+            report.skipped.append({"user_id": str(user.pk), "reason": "quota"})
+        except ValidationError:
+            report.skipped.append({"user_id": str(user.pk), "reason": "invalid_role"})
 
 
 def providers(provider_id: str | None) -> list[Any]:

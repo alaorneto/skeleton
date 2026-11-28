@@ -98,3 +98,32 @@ def test_stripe_checkout_webhook_and_fetch_pay_the_invoice(skeleton_db, settings
         url, body, content_type="application/json", HTTP_STRIPE_SIGNATURE=f"t={stamp - 600},v1={signature}"
     )
     assert stale.status_code == 400
+    # Chargeback/refund webhook revokes invoice and suspends access (#885).
+    refund_body = json.dumps(
+        {"id": "evt_ref", "type": "charge.refunded", "data": {"object": {"id": "ch_1", "payment_intent": "pi_flow"}}}
+    ).encode()
+    refund_sig = hmac.new(SECRET.encode(), f"{stamp}.".encode() + refund_body, hashlib.sha256).hexdigest()
+    assert (
+        Client()
+        .post(url, refund_body, content_type="application/json", HTTP_STRIPE_SIGNATURE=f"t={stamp},v1={refund_sig}")
+        .status_code
+        == 200
+    )
+    recorder.add(
+        "GET",
+        "https://api.stripe.com/v1/payment_intents/pi_flow",
+        200,
+        {
+            "id": "pi_flow",
+            "status": "succeeded",
+            "amount_received": 4990,
+            "amount_refunded": 4990,
+            "currency": "brl",
+            "customer": "cus_flow",
+            "metadata": {"invoice_reference": reference},
+        },
+    )
+    run_pending_jobs()
+    with system_context(reason="test:stripe-refunded", organization_id=scenario.a.pk):
+        refreshed = Invoice.objects.get(pk=invoice.pk)
+        assert refreshed.status == "refunded" and refreshed.account.access_state == "suspended"

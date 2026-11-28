@@ -117,12 +117,17 @@ def normalize_settings(protocol: str, value: Any) -> dict[str, Any]:
 
 def validate_directory(directory: str, options: dict[str, Any]) -> None:
     """``ldaps://`` (or ``ldap://`` with StartTLS), a base DN, a service account and a safe filter."""
-    from .ldap.client import options_from
+    from .ldap.client import options_from, validate_ca_bundle
 
     try:
-        options_from(directory, options)
+        parsed = options_from(directory, options)
     except (ValueError, TypeError) as exc:
         raise ValidationError({"directory": str(exc)}) from None
+    if parsed.ca_bundle:
+        try:
+            validate_ca_bundle(parsed.ca_bundle)
+        except ValueError as exc:
+            raise ValidationError({"ca_bundle": str(exc)}) from None
 
 
 def _require_platform(actor: Any) -> None:

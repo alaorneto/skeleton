@@ -14,13 +14,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
+from django.db import transaction
 from django.db.models import Max
 from django.utils import timezone
 from django.utils.translation import gettext
 
 from skeleton.tenancy.context import current_context
 
+from .idempotency import Authorizer, create_or_replay, find_replay
 from .models import Account, Book, CostCenter, Entry, EntryLine
 
 SYSTEM_SEALER = uuid.UUID(int=0)  # sealed_by of an entry posted in a system context (a job).
@@ -104,10 +105,21 @@ def _lines_payload(lines: tuple[LineDraft, ...]) -> list[dict[str, Any]]:
     ]
 
 
-def existing_entry(source_app: str, idempotency_key: str) -> Entry | None:
-    if not idempotency_key:
-        return None
-    return Entry.objects.filter(source_app=source_app, idempotency_key=idempotency_key).first()
+def entry_scope(
+    *,
+    book_id: Any,
+    source_table: str = "",
+    source_id: Any = None,
+    kind: str,
+    reverses_id: Any = None,
+) -> dict[str, Any]:
+    return {
+        "book_id": book_id,
+        "source_table": source_table,
+        "source_id": source_id,
+        "kind": kind,
+        "reverses_id": reverses_id,
+    }
 
 
 def create_entry(
@@ -124,8 +136,9 @@ def create_entry(
     source_id: Any = None,
     idempotency_key: str = "",
     reverses: Entry | None = None,
+    authorize_replay: Authorizer | None = None,
 ) -> Entry:
-    """Create, line and seal an entry; an idempotency key already used returns that entry."""
+    """Create, line and seal an entry; an idempotency key already used returns that entry if scope matches."""
     from skeleton.common.sealing import digest
     from skeleton.records.sealing import seal_payload
 
@@ -133,62 +146,78 @@ def create_entry(
         raise _invalid("date", gettext("Use uma data."))
     if not isinstance(description, str) or not description.strip() or len(description) > 300:
         raise _invalid("description", gettext("Descreva o lançamento (até 300 caracteres)."))
-    found = existing_entry(source_app, idempotency_key)
+    scope = entry_scope(
+        book_id=book.pk,
+        source_table=source_table,
+        source_id=source_id,
+        kind=kind,
+        reverses_id=reverses.pk if reverses is not None else None,
+    )
+    found = find_replay(Entry, source_app=source_app, key=idempotency_key, scope=scope, authorize=authorize_replay)
     if found is not None:
         return found
     total = check_lines(book, lines)
     using = current_context().using
-    with transaction.atomic(using=using):
-        locked = _locked_book(book)
-        if locked.locked_until is not None and date <= locked.locked_until:
-            raise PeriodLocked()
-        number = (Entry.all_objects.filter(book=locked, year=date.year).aggregate(top=Max("number"))["top"] or 0) + 1
-        entry = Entry(
-            organization_id=locked.organization_id,
-            book=locked,
-            year=date.year,
-            number=number,
-            date=date,
-            description=description.strip(),
-            kind=kind,
-            rule=rule,
-            source_app=source_app,
-            source_table=source_table,
-            source_id=source_id,
-            idempotency_key=idempotency_key,
-            reverses=reverses,
-            total=total,
-        )
-        try:
-            with transaction.atomic(using=using):
-                entry.save()
-        except (IntegrityError, ValidationError):
-            found = existing_entry(source_app, idempotency_key)
-            if found is not None:
-                return found
-            if reverses is not None and Entry.objects.filter(reverses=reverses).exists():
-                raise AlreadyReversed() from None
-            raise
-        for line in lines:
-            EntryLine(
+
+    def _insert() -> Entry:
+        with transaction.atomic(using=using):
+            locked = _locked_book(book)
+            if locked.locked_until is not None and date <= locked.locked_until:
+                raise PeriodLocked()
+            number = (
+                Entry.all_objects.filter(book=locked, year=date.year).aggregate(top=Max("number"))["top"] or 0
+            ) + 1
+            entry = Entry(
                 organization_id=locked.organization_id,
-                entry=entry,
-                account_id=line.account_id,
+                book=locked,
+                year=date.year,
+                number=number,
                 date=date,
-                debit=line.debit,
-                credit=line.credit,
-                memo=line.memo,
-                cost_center_id=line.cost_center_id,
-                party_ref=line.party_ref,
-                party_kind=line.party_kind,
-            ).save()
-        entry.apply_seal(
-            actor_id=actor_id or SYSTEM_SEALER,
-            digest=digest(seal_payload(entry, extra={"lines": _lines_payload(lines)})),
-            at=timezone.now(),
-        )
-        entry.save(update_fields={"sealed_at", "sealed_by", "seal_digest"})
-    return entry
+                description=description.strip(),
+                kind=kind,
+                rule=rule,
+                source_app=source_app,
+                source_table=source_table,
+                source_id=source_id,
+                idempotency_key=idempotency_key,
+                reverses=reverses,
+                total=total,
+            )
+            entry.save()
+            for line in lines:
+                EntryLine(
+                    organization_id=locked.organization_id,
+                    entry=entry,
+                    account_id=line.account_id,
+                    date=date,
+                    debit=line.debit,
+                    credit=line.credit,
+                    memo=line.memo,
+                    cost_center_id=line.cost_center_id,
+                    party_ref=line.party_ref,
+                    party_kind=line.party_kind,
+                ).save()
+            entry.apply_seal(
+                actor_id=actor_id or SYSTEM_SEALER,
+                digest=digest(seal_payload(entry, extra={"lines": _lines_payload(lines)})),
+                at=timezone.now(),
+            )
+            entry.save(update_fields={"sealed_at", "sealed_by", "seal_digest"})
+        return entry
+
+    def _check_reversal_conflict() -> None:
+        if reverses is not None and Entry.objects.filter(reverses=reverses).exists():
+            raise AlreadyReversed()
+
+    return create_or_replay(
+        Entry,
+        source_app=source_app,
+        key=idempotency_key,
+        scope=scope,
+        create=_insert,
+        authorize=authorize_replay,
+        on_conflict=_check_reversal_conflict,
+    )
 
 
 def entry_lines(entry: Entry) -> tuple[LineDraft, ...]:
@@ -206,11 +235,32 @@ def entry_lines(entry: Entry) -> tuple[LineDraft, ...]:
     )
 
 
-def reverse_entry(*, entry: Entry, date: dt.date, reason: str, actor_id: Any, idempotency_key: str = "") -> Entry:
+def reverse_entry(
+    *,
+    entry: Entry,
+    date: dt.date,
+    reason: str,
+    actor_id: Any,
+    idempotency_key: str = "",
+    authorize_replay: Authorizer | None = None,
+) -> Entry:
     """The inverse entry of ``entry`` (debits and credits swapped), once; a reversal is not reversible."""
     if entry.kind == Entry.Kind.REVERSAL:
         raise _invalid("entry_id", gettext("Um estorno não é estornável."))
-    found = existing_entry(entry.source_app, idempotency_key)
+    scope = entry_scope(
+        book_id=entry.book_id,
+        source_table=entry.source_table,
+        source_id=entry.source_id,
+        kind=Entry.Kind.REVERSAL,
+        reverses_id=entry.pk,
+    )
+    found = find_replay(
+        Entry,
+        source_app=entry.source_app,
+        key=idempotency_key,
+        scope=scope,
+        authorize=authorize_replay,
+    )
     if found is not None:
         return found
     if Entry.objects.filter(reverses=entry).exists():
@@ -244,6 +294,7 @@ def reverse_entry(*, entry: Entry, date: dt.date, reason: str, actor_id: Any, id
         source_id=entry.source_id,
         idempotency_key=idempotency_key,
         reverses=entry,
+        authorize_replay=authorize_replay,
     )
 
 

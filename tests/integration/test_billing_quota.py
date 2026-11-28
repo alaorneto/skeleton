@@ -202,3 +202,83 @@ def test_an_app_metric_is_checked_by_the_billing_quota(billing):
         from skeleton.common import limits
 
         limits._metrics.pop("example_notes.notes", None)
+
+
+def test_overage_counts_removed_pack_mid_period_pack_and_scheduled_downgrade(billing, subtests):
+    """#882: storage overage uses period_items (removed packs, mid-period packs and outgoing downgrade plan)."""
+    import json
+    from io import StringIO
+
+    from django.core.management import call_command
+
+    from skeleton.billing.models import InvoiceLine, Price, Product, UsageSnapshot
+
+    scenario, prices = billing
+    with system_context(reason="test:quota-e1-catalog"):
+        pack_prod = Product(code="pack-100", kind="storage_pack", name="Pacote 100")
+        pack_prod.save()
+        pack = Price(product=pack_prod, currency="BRL", unit_amount=500, included_storage_bytes=100)
+        pack.save()
+        small_plan = Product(code="small-plan", kind="base_plan", name="Plano Menor")
+        small_plan.save()
+        small_price = Price(
+            product=small_plan,
+            currency="BRL",
+            unit_amount=500,
+            included_storage_bytes=50,
+            storage_overage="bill",
+            overage_unit_bytes=50,
+            overage_unit_amount=700,
+        )
+        small_price.save()
+
+    with subtests.test("pack scheduled for removal at period end still covers closing period"):
+        subscribe(scenario.a, prices["bill"])  # 100 bytes
+        with system_context(reason="test:e1-remove-pack", organization_id=scenario.a.pk):
+            pack_item = engine.add_item(pack, now=MAR1)  # +100 bytes = 200
+            engine.settle_invoice(engine.current_subscription().invoices.get(status="open"), now=MAR1)
+            engine.remove_item(pack_item, now=datetime(2026, 3, 15, tzinfo=UTC))
+            UsageSnapshot(organization=scenario.a, day=date(2026, 3, 20), bytes_used=180).save()
+            renewal = engine.renew_due(now=APR1)
+            assert not renewal.lines.filter(kind="overage").exists()
+            engine.settle_invoice(renewal, now=APR1)
+
+    with subtests.test("mid-period pack counts toward closing period allowance"):
+        with system_context(reason="test:e1-mid-pack", organization_id=scenario.a.pk):
+            mid_pack = engine.add_item(pack, now=datetime(2026, 4, 15, tzinfo=UTC))
+            engine.settle_invoice(
+                engine.current_subscription().invoices.get(status="open"), now=datetime(2026, 4, 15, tzinfo=UTC)
+            )
+            mid_pack.refresh_from_db()
+            assert mid_pack.status == "active"
+            UsageSnapshot(organization=scenario.a, day=date(2026, 4, 20), bytes_used=190).save()
+            may1 = datetime(2026, 5, 1, tzinfo=UTC)
+            renewal = engine.renew_due(now=may1)
+            assert not renewal.lines.filter(kind="overage").exists()
+
+    with subtests.test("scheduled downgrade uses outgoing plan allowance for closing period"):
+        subscribe(scenario.b, prices["bill"])  # 100 bytes
+        with system_context(reason="test:e1-downgrade", organization_id=scenario.b.pk):
+            engine.change_plan(small_price, now=datetime(2026, 3, 15, tzinfo=UTC))
+            UsageSnapshot(organization=scenario.b, day=date(2026, 3, 20), bytes_used=95).save()
+            renewal = engine.renew_due(now=APR1)
+            assert not renewal.lines.filter(kind="overage").exists()
+            # Simulate a historical buggy overage line on this invoice and verify the report finds it.
+            InvoiceLine(
+                organization_id=scenario.b.pk,
+                invoice=renewal,
+                kind="overage",
+                description="Excedente histórico",
+                quantity=1,
+                unit_amount=700,
+                amount=700,
+                period_start=MAR1,
+                period_end=APR1,
+            ).save()
+        out = StringIO()
+        call_command("billing_overage_report", "--since", "2026-03-01", "--format", "json", stdout=out)
+        findings = json.loads(out.getvalue())
+        assert len(findings) == 1
+        assert findings[0]["invoice_id"] == str(renewal.pk)
+        assert findings[0]["billed_overage"] == 700
+        assert findings[0]["expected_overage"] == 0

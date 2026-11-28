@@ -21,6 +21,7 @@ import hashlib
 import logging
 from uuid import UUID
 
+from django.db import IntegrityError, transaction
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -80,6 +81,12 @@ def receive(request, provider: str, account_id: UUID):
         payment_reference=(notification.payment_reference or "")[:200],
         body_digest=hashlib.sha256(body).hexdigest(),
     )
-    record.save()
+    try:
+        with transaction.atomic():
+            record.save()
+    except IntegrityError:
+        if ProviderEvent.objects.filter(provider_account=account, event_id=event_id).exists():
+            return JsonResponse({"received": True, "duplicate": True})
+        raise
     enqueue(PROCESS_JOB, payload={"event": str(record.pk)}, idempotency_key=f"provider-event:{record.pk}")
     return HttpResponse(status=200)

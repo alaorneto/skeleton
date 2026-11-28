@@ -15,11 +15,14 @@ billing tables have no record-level authorization.
 from __future__ import annotations
 
 INVOICE_FIELDS = ("number", "status", "currency", "total")
+PAYMENT_FIELDS = ("invoice", "status", "provider", "amount", "currency")
 EVENT_TYPES = (
     ("billing.invoice_finalized", "sk_billing.invoice", INVOICE_FIELDS),
     ("billing.invoice_paid", "sk_billing.invoice", INVOICE_FIELDS),
     ("billing.subscription_changed", "sk_billing.subscription", ("status",)),
     ("billing.access_state_changed", "sk_billing.billingaccount", ("access_state",)),
+    ("billing.payment_refunded", "sk_billing.payment", PAYMENT_FIELDS),
+    ("billing.payment_duplicated", "sk_billing.payment", PAYMENT_FIELDS),
 )
 
 

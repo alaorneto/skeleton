@@ -43,9 +43,10 @@ def _binding(provider_id):
 
 
 def _limited(request, provider_id, username):
+    from skeleton.common.client_ip import client_ip
     from skeleton.common.ratelimit import hit
 
-    address = request.META.get("REMOTE_ADDR", "")
+    address = client_ip(request)
     checks = (
         (f"ldap-login:ip:{address}", IP_LIMIT),
         (f"ldap-login:{provider_id}:{username.strip().lower()}", USER_LIMIT),

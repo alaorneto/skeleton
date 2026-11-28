@@ -103,3 +103,19 @@ def test_customer_found_by_email_or_created(recorder):  # noqa: F811
     recorder.add("POST", "https://api.mercadopago.com/v1/customers", 201, {"id": "cust_new"})
     assert MP.ensure_customer(account(), customer) == "cust_new"
     assert recorder.json()["identification"] == {"type": "CNPJ", "number": "12345678000199"}
+
+
+def test_webhook_rejects_empty_secret():
+    """#886: empty webhook_secret is rejected even if signature matches empty HMAC."""
+    import hashlib
+    import hmac
+
+    manifest = b"id:123456;request-id:req-1;ts:1767225600;"
+    sig = hmac.new(b"", manifest, hashlib.sha256).hexdigest()
+    headers = {"x-signature": f"ts=1767225600,v1={sig}", "x-request-id": "req-1"}
+    body = b'{"id": 999, "type": "payment", "data": {"id": "123456"}}'
+    with pytest.raises(WebhookRejected) as err:
+        MP.verify_webhook(
+            Account(webhook_secret=""), headers, body, now=AT, query={"data.id": "123456", "type": "payment"}
+        )
+    assert err.value.code == "missing_secret"

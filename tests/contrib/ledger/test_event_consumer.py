@@ -86,7 +86,7 @@ def shop(skeleton_db, monkeypatch):
     monkeypatch.setattr(events, "_consumers", dict(events._consumers))
     register_sequence(SequenceSpec(CHARGE, period="year", template="CB-{year}-{number:04d}", owner_app="example_notes"))
     register_event_type(EventType(COMPLETED, table_key=NOTE, payload_fields=("code",), owner_app="example_notes"))
-    register_consumer(COMPLETED, CONSUMER, open_charge)
+    register_consumer(COMPLETED, CONSUMER, open_charge, owner_app="example_notes")
     scenario = build_service_scenario(Note, slug="event-charges")
     for organization in (scenario.a, scenario.b):
         enable_ledger(organization)

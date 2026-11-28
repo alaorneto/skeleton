@@ -63,17 +63,21 @@ A função interna do núcleo é `skeleton.events.services.publish_event(code, *
 ```python
 from skeleton.events.registry import register_consumer
 
-register_consumer("tasks.task_closed", "notifications.task_closed", on_task_closed)  # ou "*" para todos
-register_consumer("*", "audit.mirror", mirror, accepts=lambda event_type: event_type.owner_app == "tasks")
+register_consumer(
+    "tasks.task_closed", "notifications.task_closed", on_task_closed, owner_app="tasks"
+)  # ou "*" para todos
+register_consumer(
+    "*", "audit.mirror", mirror, owner_app="tasks", accepts=lambda event_type: event_type.owner_app == "tasks"
+)
 ```
 
-Um consumidor `"*"` pode declarar `accepts(event_type)`: os tipos recusados não geram job de entrega. O fan-out de webhooks usa `accepts` para receber só os tipos `webhook=True`, de modo que os eventos de vínculo e de ativação de apps não enfileiram nada para ele. O consumidor `flows.event_waits` do núcleo aceita só os eventos das apps (não os `sk_*`) e avança as [esperas por evento](flows.md#etapas) dos fluxos (#411).
+Um consumidor `"*"` pode declarar `accepts(event_type)`: os tipos recusados não geram job de entrega. Todo consumidor declara `owner_app` (o `app_label` da app dona, ou o label `sk_*` para consumidores do núcleo) e um `code` de até 157 caracteres (para caber em `Job.idempotency_key` com o prefixo `event:<uuid>:`, #876). Em `consume()`, consumidores de apps registradas são pulados (`skipped`, evento `event.consumer_skipped`) quando a app não está efetiva na organização ou quando a organização está suspensa por cobrança; consumidores do núcleo continuam rodando. O fan-out de webhooks usa `accepts` para receber só os tipos `webhook=True`, de modo que os eventos de vínculo e de ativação de apps não enfileiram nada para ele. O consumidor `flows.event_waits` do núcleo aceita só os eventos das apps (não os `sk_*`) e avança as [esperas por evento](flows.md#etapas) dos fluxos (#411).
 
 - `publish_event` enfileira, na mesma transação, **um job `events.consume` por consumidor**, com a chave `event:<id>:<consumidor>`. A falha de um consumidor é retentada pelo [worker](jobs.md#executar-run_worker) sem afetar os outros.
 - O handler recebe um `EventEnvelope` imutável (`event_id`, `event_type`, `version`, `organization_id`, `table_key`, `record_sysid`, `record_revision`, `actor_id`, `request_id`, `occurred_at` e `data` somente leitura) e roda em `system_context` da organização. Ele **reautoriza** o que for ler: o envelope não concede acesso a nada.
 - A entrega é pelo menos uma vez: o consumidor precisa ser idempotente. Reenfileirar o mesmo evento devolve os jobs existentes.
 - Um evento já apagado pela retenção, ou um consumidor retirado do código, torna a entrega inócua.
-- O check `skeleton.E022` reprova consumidor de evento desconhecido e handler que não é chamável.
+- O check `skeleton.E022` reprova consumidor de evento desconhecido, handler que não é chamável, `owner_app` ausente ou desconhecido e `code` acima de 157 caracteres (#876).
 
 ### Reagir numerando e abrindo um título
 
@@ -129,7 +133,9 @@ Os serviços de lifecycle do núcleo publicam quatro tipos (`skeleton/events/cor
 ```python
 from skeleton.events.registry import register_consumer
 
-register_consumer("membership.created", "tasks.welcome_member", welcome)  # welcome(envelope) relê o vínculo
+register_consumer(
+    "membership.created", "tasks.welcome_member", welcome, owner_app="tasks"
+)  # welcome(envelope) relê o vínculo
 ```
 
 Use o código do evento como texto (primeira coluna da tabela acima); o módulo `skeleton.events.core_events` é interno.
@@ -138,7 +144,7 @@ Os [avisos padrão da organização](notifications.md#avisos-padrão-da-organiza
 
 ## Eventos da cobrança
 
-A [cobrança](billing.md#eventos) publica `billing.invoice_finalized` e `billing.invoice_paid` sobre `sk_billing.invoice` (`number`, `status`, `currency`, `total`) e `billing.subscription_changed` sobre `sk_billing.subscription` (`status`), na transação do motor. Dados de contato da conta nunca entram no payload. Esses tipos não vão para webhooks; um emissor fiscal externo consome `billing.invoice_paid` em processo (`register_consumer`).
+A [cobrança](billing.md#eventos) publica `billing.invoice_finalized` e `billing.invoice_paid` sobre `sk_billing.invoice` (`number`, `status`, `currency`, `total`), `billing.subscription_changed` sobre `sk_billing.subscription` (`status`), `billing.access_state_changed` sobre `sk_billing.billingaccount` (`access_state`) e `billing.payment_refunded` / `billing.payment_duplicated` sobre `sk_billing.payment` (`invoice`, `status`, `provider`, `amount`, `currency`, #885), na transação do motor. Dados de contato da conta nunca entram no payload. Esses tipos não vão para webhooks; um emissor fiscal externo consome `billing.invoice_paid` em processo (`register_consumer`).
 
 ## Eventos de fluxos de processo
 

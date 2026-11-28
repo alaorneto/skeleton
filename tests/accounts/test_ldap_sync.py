@@ -234,3 +234,126 @@ def test_provision_admits_only_people_who_never_were_members(setup):
     with system_context(reason="test:sync-request", organization_id=organization.pk):
         assert JoinRequest.objects.get(user=erin).channel == "sso"
     assert not active(organization, erin)
+
+
+def test_quota_exceeded_keeps_deactivations_and_records_skipped(setup, settings):
+    """#861: hitting member quota during --provision never rolls back deactivations or _record."""
+    from skeleton.accounts.models import IdentityProvider
+    from skeleton.tenancy.models import IdentityProviderAdmission
+
+    organization, row, people = setup["organization"], setup["row"], setup["people"]
+    with system_context(reason="test:sync-quota-jit", organization_id=organization.pk):
+        IdentityProviderAdmission(organization=organization, provider=row, jit_provisioning=True).save()
+    dave = identity_with_account(setup["directory"].add_person("dave"), "dave@sync.test")
+    setup["directory"].remove_person("carl")
+    # 4 active members initially (owner, ana, bob, carl); deactivating carl leaves 3 = full quota.
+    settings.SKELETON_ORGANIZATION_MEMBER_LIMIT = 3
+    report = run("--provision")
+    assert report["deactivated"] == [str(people["carl"].pk)]
+    assert report["provisioned"] == []
+    assert report["skipped"] == [{"user_id": str(dave.pk), "reason": "quota"}]
+    assert not active(organization, people["carl"])
+    assert not active(organization, dave)
+    refreshed = IdentityProvider.objects.get(pk=row.pk)
+    assert refreshed.last_sync_code == "ok" and refreshed.last_sync_at is not None
+
+
+def test_deleted_default_role_skips_provisioning_without_undoing_deactivations(setup):
+    """#861: a deleted default role records invalid_role in skipped without rolling back deactivations."""
+    from skeleton.access.models import Role
+    from skeleton.tenancy.models import IdentityProviderAdmission
+
+    organization, row, people = setup["organization"], setup["row"], setup["people"]
+    with system_context(reason="test:sync-role-jit", organization_id=organization.pk):
+        custom_role = Role.objects.create(organization=organization, code="temp-role", name="Temporário")
+        IdentityProviderAdmission(
+            organization=organization, provider=row, jit_provisioning=True, default_role=custom_role
+        ).save()
+        custom_role.delete()
+    dave = identity_with_account(setup["directory"].add_person("dave"), "dave@sync.test")
+    setup["directory"].remove_person("carl")
+    report = run("--provision")
+    assert report["deactivated"] == [str(people["carl"].pk)]
+    assert report["provisioned"] == []
+    assert report["skipped"] == [{"user_id": str(dave.pk), "reason": "invalid_role"}]
+    assert not active(organization, people["carl"])
+    assert not active(organization, dave)
+
+
+def test_starttls_and_service_bind_failures_unbind_connection(monkeypatch):
+    """#861: failed StartTLS or service bind always calls unbind() on the LDAP connection."""
+    import ldap3
+
+    unbound = []
+
+    class FakeConnection:
+        def __init__(self, *args, **kwargs):
+            self.start_tls_ok = False
+            self.bind_ok = False
+
+        def open(self):
+            return True
+
+        def start_tls(self):
+            return self.start_tls_ok
+
+        def bind(self):
+            return self.bind_ok
+
+        def unbind(self):
+            unbound.append("unbind")
+
+    monkeypatch.setattr(ldap3, "Connection", FakeConnection)
+    options = ldap_client.options_from(
+        "ldap://ldap.example.test/dc=ex,dc=test", {"bind_dn": "cn=svc", "start_tls": True}
+    )
+    with pytest.raises(ldap_client.DirectoryError) as tls_err:
+        ldap_client.default_connect(options, "cn=svc", "secret")
+    assert tls_err.value.code == "start_tls_failed"
+    assert len(unbound) == 1
+
+    fake = FakeConnection()
+    ldap_client.set_connection_factory(lambda opts, user, pw: fake)
+    try:
+        with pytest.raises(ldap_client.DirectoryError) as bind_err:
+            ldap_client._service(options, "secret")
+        assert bind_err.value.code == "service_bind_failed"
+        assert len(unbound) == 2
+    finally:
+        ldap_client.set_connection_factory(None)
+
+
+def test_ca_bundle_validates_readable_x509_pem(tmp_path):
+    """#861: ca_bundle refuses directories, missing files, non-PEM and > 1 MiB; accepts valid X.509 PEM."""
+    from datetime import UTC, datetime, timedelta
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    bad_text = tmp_path / "not-a-cert.txt"
+    bad_text.write_text("root:x:0:0:root:/root:/bin/bash\n", encoding="utf-8")
+    too_big = tmp_path / "huge.pem"
+    too_big.write_bytes(b"x" * (ldap_client.MAX_CA_BUNDLE_BYTES + 1))
+
+    for invalid in (str(tmp_path), str(tmp_path / "missing.pem"), str(bad_text), str(too_big)):
+        with pytest.raises(ValueError):
+            ldap_client.validate_ca_bundle(invalid)
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "test-ca")])
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.now(UTC) - timedelta(days=1))
+        .not_valid_after(datetime.now(UTC) + timedelta(days=1))
+        .sign(key, hashes.SHA256())
+    )
+    valid_pem = tmp_path / "ca.pem"
+    valid_pem.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    assert ldap_client.validate_ca_bundle(str(valid_pem)) == str(valid_pem)
+    assert ldap_client.validate_ca_bundle("") == ""

@@ -88,6 +88,7 @@ class PaymentStatus:
     method_label: str = ""  # Brand and last digits only.
     customer_id: str = ""
     failure_code: str = ""
+    refunded_amount: int = 0  # Minor units refunded when partial; 0 means full refund on REFUNDED (#885).
 
 
 @dataclass(frozen=True)

@@ -343,3 +343,80 @@ def test_an_uploaded_app_package_updates_the_installed_app(admin, monkeypatch):
     body = response.content.decode()
     assert "Conferir o impacto" in body and response.context["platform_section"] == "updates-apps"
     assert not response.context["plan_manual"]  # The summary and one button, the form in "Avançado".
+
+
+def test_retry_submission_accepts_window_mode_and_rejects_unknown_keys(admin, monkeypatch, subtests):
+    """#915: retry_submission forwards mode='window' from confirm_operation(force_window=True)."""
+    from skeleton.system.releases import DeploymentUnavailable
+
+    submitted: list[dict] = []
+    fail_once = {"fail": True}
+
+    def submit(**kwargs):
+        submitted.append(dict(kwargs))
+        if fail_once["fail"]:
+            fail_once["fail"] = False
+            raise RuntimeError("transient socket drop")
+        return {
+            "id": kwargs["operation_id"],
+            "operation": "core_update",
+            "action": "core_update",
+            "expected_generation": kwargs["generation"],
+            "generation": kwargs["generation"],
+            "plan_digest": kwargs["plan_digest"],
+            "state": "running",
+            "stage": "preparing",
+        }
+
+    double = SimpleNamespace(
+        inventory=lambda: {"generation": 3, "core": {"version": "0.8.0"}, "apps": []},
+        submit=submit,
+    )
+
+    with subtests.test(case="force_window=True"):
+        row = record(admin, monkeypatch, plan(str(uuid4()), rollout_mode="rolling"))
+        monkeypatch.setattr(releases, "agent_client", lambda: double)
+        fail_once["fail"] = True
+        submitted.clear()
+        with request_context(actor=admin, request_id=uuid4(), source="test:retry-window"):
+            releases.confirm_operation(user=admin, operation_id=row.pk, revision=row.revision, force_window=True)
+        with system_context(reason="test:retry-window-read"):
+            failed = DeploymentOperation.objects.get(pk=row.pk)
+            assert failed.state == "submission_failed" and failed.result["submission"]["mode"] == "window"
+        with request_context(actor=admin, request_id=uuid4(), source="test:retry-window"):
+            releases.retry_submission(user=admin, operation_id=failed.pk, revision=failed.revision)
+        assert len(submitted) == 2 and submitted[0] == submitted[1] and submitted[1]["mode"] == "window"
+        assert state(row) == "running"
+
+    with subtests.test(case="force_window=False"):
+        row = record(admin, monkeypatch, plan(str(uuid4())))
+        monkeypatch.setattr(releases, "agent_client", lambda: double)
+        fail_once["fail"] = True
+        submitted.clear()
+        with request_context(actor=admin, request_id=uuid4(), source="test:retry-default"):
+            releases.confirm_operation(user=admin, operation_id=row.pk, revision=row.revision, force_window=False)
+        with system_context(reason="test:retry-default-read"):
+            failed = DeploymentOperation.objects.get(pk=row.pk)
+            assert failed.state == "submission_failed" and "mode" not in failed.result["submission"]
+        with request_context(actor=admin, request_id=uuid4(), source="test:retry-default"):
+            releases.retry_submission(user=admin, operation_id=failed.pk, revision=failed.revision)
+        assert len(submitted) == 2 and "mode" not in submitted[1]
+        assert state(row) == "running"
+
+    with subtests.test(case="unknown key or invalid mode refused"):
+        row = record(admin, monkeypatch, plan(str(uuid4())))
+        monkeypatch.setattr(releases, "agent_client", lambda: double)
+        fail_once["fail"] = True
+        with request_context(actor=admin, request_id=uuid4(), source="test:retry-tampered"):
+            releases.confirm_operation(user=admin, operation_id=row.pk, revision=row.revision, force_window=True)
+        for bad_patch in ({"mode": "rolling"}, {"extra": "nope"}):
+            with system_context(reason="test:retry-tamper"):
+                target = DeploymentOperation.objects.get(pk=row.pk)
+                sub = dict(target.result["submission"])
+                sub.update(bad_patch)
+                target.result = {"submission": sub}
+                target.save(update_fields={"result"})
+            with request_context(actor=admin, request_id=uuid4(), source="test:retry-tampered"):
+                current = DeploymentOperation.objects.get(pk=row.pk)
+                with pytest.raises(DeploymentUnavailable):
+                    releases.retry_submission(user=admin, operation_id=current.pk, revision=current.revision)
