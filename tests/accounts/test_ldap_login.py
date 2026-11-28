@@ -175,6 +175,56 @@ def test_rate_limit_answers_429(setup, monkeypatch):
     assert limited.status_code == 429 and limited["Retry-After"] == "600"
 
 
+def test_rate_limit_uses_trusted_proxy_client_ip(setup, monkeypatch):
+    """#862: behind a trusted proxy, client A hitting IP_LIMIT does not block client B."""
+    from skeleton.accounts.ldap import views
+
+    monkeypatch.setattr(views, "IP_LIMIT", (2, 600))
+    monkeypatch.setattr(views, "USER_LIMIT", (50, 600))
+    client = Client()
+    with override_settings(ALLAUTH_TRUSTED_PROXY_COUNT=1, ALLAUTH_TRUSTED_CLIENT_IP_HEADER=None):
+        for _ in range(2):
+            resp = client.post(
+                url(),
+                {"username": "ana", "password": "wrong"},
+                REMOTE_ADDR="10.0.0.1",
+                HTTP_X_FORWARDED_FOR="203.0.113.10",
+            )
+            assert resp.status_code == 401
+        blocked_a = client.post(
+            url(),
+            {"username": "ana", "password": "ana-pass"},
+            REMOTE_ADDR="10.0.0.1",
+            HTTP_X_FORWARDED_FOR="203.0.113.10",
+        )
+        assert blocked_a.status_code == 429
+        allowed_b = client.post(
+            url(),
+            {"username": "ana", "password": "ana-pass"},
+            REMOTE_ADDR="10.0.0.1",
+            HTTP_X_FORWARDED_FOR="203.0.113.20",
+        )
+        assert allowed_b.status_code == 302
+    # Without a trusted proxy, X-Forwarded-For is ignored and REMOTE_ADDR is used.
+    cache.clear()
+    with override_settings(ALLAUTH_TRUSTED_PROXY_COUNT=0, ALLAUTH_TRUSTED_CLIENT_IP_HEADER=None):
+        for ip in ("203.0.113.10", "203.0.113.20"):
+            resp = client.post(
+                url(),
+                {"username": "ana", "password": "wrong"},
+                REMOTE_ADDR="10.0.0.1",
+                HTTP_X_FORWARDED_FOR=ip,
+            )
+            assert resp.status_code == 401
+        blocked_peer = client.post(
+            url(),
+            {"username": "ana", "password": "ana-pass"},
+            REMOTE_ADDR="10.0.0.1",
+            HTTP_X_FORWARDED_FOR="203.0.113.30",
+        )
+        assert blocked_peer.status_code == 429
+
+
 def test_tls_is_mandatory_in_the_configuration(setup):
     organization = setup["organization"]
     base = {

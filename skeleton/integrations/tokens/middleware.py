@@ -34,6 +34,7 @@ from django.http.response import HttpResponseBase
 from django.urls import Resolver404, ResolverMatch, resolve
 from django.utils.translation import gettext
 
+from skeleton.common.client_ip import client_ip
 from skeleton.common.logging import security_event
 from skeleton.common.ratelimit import hit, peek
 
@@ -56,16 +57,6 @@ def _limit(name: str, default: int) -> int:
     from django.conf import settings
 
     return int(getattr(settings, name, default))
-
-
-def client_ip(request: ApiRequest) -> str:
-    """The client address under the configured proxy topology (allauth's trusted proxy count)."""
-    try:
-        from allauth.account.adapter import get_adapter
-
-        return str(get_adapter(request).get_client_ip(request))
-    except Exception:  # noqa: BLE001 - a malformed forwarded header falls back to the peer
-        return request.META.get("REMOTE_ADDR", "unknown")
 
 
 def _too_many(request: ApiRequest, reason: str, retry_after: int) -> JsonResponse:
