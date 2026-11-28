@@ -107,11 +107,27 @@ class Launcher:
         self.release: Path | None = None
         previous = read_json(self.state_file) or {}
         self.applied = previous.get("id") if isinstance(previous.get("id"), str) else ""
-        self.wanted = "stopped" if previous.get("state") == "stopped" else "running"
-        if getattr(options, "wait_for_agent", False):
+        previous_wanted = previous.get("wanted") if isinstance(previous.get("wanted"), str) else ""
+        if previous.get("state") == "stopped" or previous_wanted == "stopped":
+            self.wanted = "stopped"
+        elif getattr(options, "wait_for_agent", False):
             # In a cluster (#681) the agent first checks that this node runs the cluster's release,
-            # then sends a restart: never start the pointer's release on our own.
-            self.wanted = "held"
+            # then sends a restart: never start the pointer's release on our own. After a container
+            # crash/restart (#916), resume running if the current restart request was already applied.
+            current_request = read_json(self.requests)
+            if (
+                self.applied
+                and valid_request(current_request)
+                and current_request is not None
+                and current_request["id"] == self.applied
+                and current_request["action"] == "restart"
+                and previous_wanted in ("running", "")
+            ):
+                self.wanted = "running"
+            else:
+                self.wanted = "held"
+        else:
+            self.wanted = "running"
         self.status = ""
         self.reason = ""
         self.ignored = ""
@@ -129,6 +145,8 @@ class Launcher:
             "release": str(self.release) if self.release else "",
             "pid": self.child.pid if self.child else None,
         }
+        if self.wanted in ("running", "stopped"):
+            value["wanted"] = self.wanted
         if reason:
             value["reason"] = reason
         write_json(self.state_file, value)
@@ -144,19 +162,42 @@ class Launcher:
             return
         self.release = release
         command = command_for(self.template, release)
-        self.child = subprocess.Popen(command, cwd=release, env=release_environment(release))
+        kwargs: dict[str, Any] = {"cwd": release, "env": release_environment(release)}
+        if os.name == "posix":
+            kwargs["start_new_session"] = True
+        try:
+            self.child = subprocess.Popen(command, **kwargs)
+        except OSError as error:
+            self.child = None
+            log(f"{self.service} failed to start: {error}")
+            self.publish("failed", "exec_failed")
+            return
         self.publish("running")
+
+    def _signal_child(self, child: subprocess.Popen[bytes], sig: int) -> None:
+        if os.name == "posix":
+            try:
+                os.killpg(child.pid, sig)
+                return
+            except ProcessLookupError:
+                return
+            except PermissionError:
+                pass
+        if sig == signal.SIGTERM:
+            child.send_signal(signal.SIGTERM)
+        else:
+            child.kill()
 
     def stop(self) -> None:
         child, self.child = self.child, None
         if child is None or child.poll() is not None:
             return
-        child.send_signal(signal.SIGTERM)
+        self._signal_child(child, signal.SIGTERM)
         try:
             child.wait(timeout=self.grace)
         except subprocess.TimeoutExpired:
             log(f"{self.service} did not stop within {self.grace}s; killing it")
-            child.kill()
+            self._signal_child(child, getattr(signal, "SIGKILL", signal.SIGTERM))
             child.wait()
 
     # ------------------------------------------------------------------ requests

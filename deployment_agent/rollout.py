@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+from .control import read_json as read_control_json
 from .storage import AgentError, atomic_json, digest, load_json, log_internal_error
 from .types import JSON
 
@@ -470,12 +471,31 @@ class Follower:
         except AgentError as error:
             self.coordinator.problem = error.code
 
+    def _held_services(self) -> list[str]:
+        """Services whose launcher is waiting for the agent while expected running (#916)."""
+        control = self.service.config.get("service_control")
+        if not isinstance(control, dict) or not control.get("state_root"):
+            return []
+        state_root = Path(control["state_root"])
+        if not state_root.is_dir():
+            return []
+        held: list[str] = []
+        for entry in sorted(state_root.iterdir()):
+            if not entry.is_dir():
+                continue
+            state = read_control_json(entry / "state.json")
+            if state is not None and state.get("state") == "waiting" and state.get("reason") == "agent":
+                held.append(entry.name)
+        return held
+
     def ensure_started(self) -> None:
-        """Once per agent start, outside maintenance: start this node's services (--wait-for-agent)."""
-        if self.started_services or Path(self.service.config["maintenance_marker"]).exists():
+        """Start this node's services on boot and reconcile launchers held under --wait-for-agent (#681, #916)."""
+        if Path(self.service.config["maintenance_marker"]).exists():
             return
         active, _ = self._active()
-        if active is not None:
+        if active is None:
+            return
+        if not self.started_services or self._held_services():
             self.service.backend.start(active, "cluster-start")
             self.started_services = True
 

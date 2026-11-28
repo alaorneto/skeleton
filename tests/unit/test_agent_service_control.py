@@ -330,3 +330,137 @@ def test_the_control_hook_and_its_configuration(tmp_path, subtests, capsys):
         with pytest.raises(AgentError) as error:
             control_services(quick, Namespace(action="stop", services=["worker"], release="", operation=""))
         assert error.value.code == "service_control_timeout"
+
+
+def test_wait_for_agent_recovery_state_machine_and_exec_error(tmp_path, monkeypatch, subtests):
+    """#916: launcher resumes running after crash under --wait-for-agent and handles Popen OSError."""
+    control, state = tmp_path / "control", tmp_path / "state"
+    with subtests.test(case="fresh start without state stays held"):
+        runner, _ = make_launcher(tmp_path, wait_for_agent=True)
+        assert runner.wanted == "held"
+
+    req_id = write_request(control, "worker", "restart")
+    with subtests.test(case="restarted container after crash resumes running when request matches"):
+        write_json(state / "worker" / "state.json", {"id": req_id, "state": "exited", "wanted": "running"})
+        runner, _ = make_launcher(tmp_path, wait_for_agent=True)
+        assert runner.wanted == "running"
+
+    with subtests.test(case="explicit stop stays stopped across restart"):
+        stop_id = write_request(control, "worker", "stop")
+        write_json(state / "worker" / "state.json", {"id": stop_id, "state": "stopped", "wanted": "stopped"})
+        runner, _ = make_launcher(tmp_path, wait_for_agent=True)
+        assert runner.wanted == "stopped"
+
+    with subtests.test(case="Popen OSError publishes failed without crashing"):
+        write_json(state / "worker" / "state.json", {"id": "", "state": "waiting"})
+        runner, root = make_launcher(tmp_path, command=["/nonexistent-binary-916"])
+        fake_release = root / "r1"
+        fake_release.mkdir(exist_ok=True)
+        monkeypatch.setattr(launcher, "resolve_active", lambda _a, _r: (fake_release, ""))
+
+        def boom(*_args, **_kwargs):
+            raise OSError("No such file")
+
+        monkeypatch.setattr(launcher.subprocess, "Popen", boom)
+        runner.start()
+        assert runner.child is None
+        current = state_of(tmp_path)
+        assert current["state"] == "failed" and current["reason"] == "exec_failed"
+
+
+@POSIX
+def test_wait_for_agent_survives_child_sigkill_and_container_restart(tmp_path):
+    """#916: killing the child and recreating the launcher under --wait-for-agent resumes running."""
+    runner, root = make_launcher(tmp_path, wait_for_agent=True)
+    try:
+        point(root / "current", release(root, "r1"))
+        request = write_request(tmp_path / "control", "worker", "restart")
+        runner.step()
+        assert state_of(tmp_path)["state"] == "running" and state_of(tmp_path)["wanted"] == "running"
+        os.kill(runner.child.pid, 9)
+        assert until(lambda: runner.child.poll() is not None)
+        assert runner.step() != 0 and state_of(tmp_path)["state"] == "exited"
+    finally:
+        runner.stop()
+    restarted, _ = make_launcher(tmp_path, wait_for_agent=True)
+    try:
+        restarted.step()
+        assert restarted.child is not None
+        assert state_of(tmp_path)["state"] == "running" and state_of(tmp_path)["id"] == request
+    finally:
+        restarted.stop()
+
+
+@POSIX
+def test_stop_kills_entire_process_group_without_orphans(tmp_path):
+    """#916: stop() sends SIGTERM/SIGKILL to the child's process group so grandchildren do not survive."""
+    pid_file = tmp_path / "grandchild.pid"
+    parent_script = tmp_path / "parent.py"
+    parent_script.write_text(
+        "import subprocess, sys, time\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        f"open({str(pid_file)!r}, 'w').write(str(child.pid))\n"
+        "while True: time.sleep(0.05)\n",
+        encoding="utf-8",
+    )
+    runner, root = make_launcher(tmp_path, grace=0.3, command=[sys.executable, str(parent_script)])
+    try:
+        point(root / "current", release(root, "r1"))
+        runner.step()
+        assert until(lambda: pid_file.exists() and pid_file.read_text().strip().isdigit())
+        grandchild_pid = int(pid_file.read_text().strip())
+        write_request(tmp_path / "control", "worker", "stop")
+        runner.step()
+        assert until(lambda: not _pid_alive(grandchild_pid), timeout=3.0)
+    finally:
+        runner.stop()
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def test_follower_reconciles_held_services_under_wait_for_agent(tmp_path):
+    """#916: Follower.ensure_started() restarts services reported as waiting (agent) outside maintenance."""
+    from types import SimpleNamespace
+
+    from deployment_agent.rollout import Follower
+
+    state_root = tmp_path / "state"
+    release_dir = tmp_path / "releases" / "r1"
+    release_dir.mkdir(parents=True)
+    marker = tmp_path / "maintenance.json"
+    started: list[tuple[Path, str]] = []
+    service = SimpleNamespace(
+        config={"maintenance_marker": str(marker), "service_control": {"state_root": str(state_root)}},
+        coordinator=SimpleNamespace(),
+        backend=SimpleNamespace(start=lambda rel, op: started.append((rel, op))),
+        state=lambda: {"release": str(release_dir), "inventory": {"generation": 1}},
+    )
+    follower = Follower(service)  # type: ignore[arg-type]
+
+    # Initial boot starts services once.
+    write_json(state_root / "web" / "state.json", {"id": "", "state": "waiting", "reason": "agent"})
+    follower.ensure_started()
+    assert len(started) == 1
+
+    # Once running, subsequent heartbeats do not restart.
+    write_json(state_root / "web" / "state.json", {"id": "a" * 32, "state": "running", "wanted": "running"})
+    follower.ensure_started()
+    assert len(started) == 1
+
+    # Container crashes and restarts with wiped state -> held in waiting (agent): follower reconciles!
+    write_json(state_root / "web" / "state.json", {"id": "", "state": "waiting", "reason": "agent"})
+    follower.ensure_started()
+    assert len(started) == 2
+
+    # During maintenance, follower never restarts held services.
+    marker.write_text("{}", encoding="utf-8")
+    follower.ensure_started()
+    assert len(started) == 2
