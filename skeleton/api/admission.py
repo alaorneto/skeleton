@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import re
-
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.http import Http404
@@ -50,12 +48,9 @@ REVOKED_JOIN_LINK = obj({"sysid": UUID, "revoked": {"const": True}})
 
 
 def _revision(request):
-    value = request.headers.get("If-Match")
-    if value is None:
-        raise BoundaryError("revision_required", "Informe a revisão.", 428)
-    if not re.fullmatch(r'"(?:0|[1-9][0-9]{0,18})"', value):
-        raise BoundaryError("invalid_revision", "Revisão inválida.")
-    return int(value[1:-1])
+    from skeleton.api.errors import parse_revision
+
+    return parse_revision(request.headers.get("If-Match"))
 
 
 def request_data(record, *, decider=False):

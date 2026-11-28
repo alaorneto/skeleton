@@ -84,3 +84,32 @@ def test_search_fields_must_be_readable_non_sensitive_text(monkeypatch):
 
     with table_spec_override(KEY, search_fields=("body",)):
         assert any(error.id == "skeleton.E031" for error in record_contract_checks(None))
+
+
+def test_label_search_escapes_like_wildcards_and_caches_trigram_probe(scenario, subtests):
+    """Picker LIKE matches ``%``, ``_`` and ``\\`` literally and caches the pg_trgm check (#912)."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from skeleton.records.services import record_queryset
+    from skeleton.system import search as search_mod
+
+    scenario.create(scenario.a, owner=scenario.member, code="P-1", title="50% desconto especial")
+    scenario.create(scenario.a, owner=scenario.member, code="P-2", title="500 reais de entrada")
+    scenario.create(scenario.a, owner=scenario.member, code="P-3", title="a_b literal")
+    scenario.create(scenario.a, owner=scenario.member, code="P-4", title="axb diferente")
+    spec = registry.get_spec(KEY)
+
+    with acting_as(scenario.member, scenario.a):
+        search_mod.clear_trigram_cache()
+        with subtests.test("percent literal"):
+            rows = search_mod.apply_label_search(record_queryset(spec, user=scenario.member), "title", "50%")
+            assert [row.code for row in rows] == ["P-1"]
+        with subtests.test("underscore literal"):
+            rows = search_mod.apply_label_search(record_queryset(spec, user=scenario.member), "title", "a_b")
+            assert [row.code for row in rows] == ["P-3"]
+        with subtests.test("pg_trgm lookup is cached across calls"):
+            search_mod.trigram_available()
+            with CaptureQueriesContext(connection) as captured:
+                search_mod.trigram_available()
+            assert len(captured) == 0

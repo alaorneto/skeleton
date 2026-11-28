@@ -275,29 +275,33 @@ def _fields(form: Any, values: dict[str, Any], *, reveal: bool) -> tuple[FormFie
 
 def _readable_instance(actor: Any, instance_id: Any) -> Any:
     from skeleton.flows import policies
-    from skeleton.flows.models import FlowInstance
 
     identifier = as_uuid(instance_id, field="instance_id")
-    row = FlowInstance.objects.select_related("definition").filter(pk=identifier).first()
+    row = (
+        policies.visible_instances(actor, include_disabled_apps=True)
+        .select_related("definition")
+        .filter(pk=identifier)
+        .first()
+    )
     if row is None:
         raise NotFound()
     policies.require_flow_app(row.definition.app_label)
-    if not policies.visible_instances(actor).filter(pk=row.pk).exists():
-        raise NotFound()
     return row
 
 
 def _readable_task(actor: Any, task_id: Any) -> Any:
     from skeleton.flows import policies
-    from skeleton.flows.models import FlowTask
 
     identifier = as_uuid(task_id, field="task_id")
-    row = FlowTask.objects.select_related("instance__definition").filter(pk=identifier).first()
+    row = (
+        policies.visible_tasks(actor, include_disabled_apps=True)
+        .select_related("instance__definition")
+        .filter(pk=identifier)
+        .first()
+    )
     if row is None:
         raise NotFound()
     policies.require_flow_app(row.instance.definition.app_label)
-    if not policies.visible_tasks(actor).filter(pk=row.pk).exists():
-        raise NotFound()
     return row
 
 

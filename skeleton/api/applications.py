@@ -1,7 +1,5 @@
 """REST administration of the organization's apps (/api/v1/o/<org>/apps/), over the service API (#338)."""
 
-import re
-
 from django.http import Http404
 from django.utils.translation import gettext
 from rest_framework.response import Response
@@ -100,17 +98,14 @@ class ApplicationAPI(TenantAPI):
         return etag(Response(state_data(state)), state.revision)
 
     def put(self, request, organization_id, app_label):
+        from skeleton.api.errors import if_match_precondition, parse_revision
+        from skeleton.service_api.applications import ApplicationAdministrationService
+
         _manifest(app_label)
-        value = request.headers.get("If-Match")
-        if value is None:
-            raise BoundaryError("revision_required", gettext("Informe a revisão."), 428)
-        if not re.fullmatch(r'"(?:0|[1-9][0-9]{0,18})"', value):
-            raise BoundaryError("invalid_revision", gettext("Revisão inválida."))
+        expected_revision = parse_revision(request.headers.get("If-Match"), allow_zero=True)
         data = request_fields(request)
         if set(data) != {"enabled", "configuration"}:
             raise BoundaryError("invalid_request", gettext("Informe enabled e configuration."))
-        from skeleton.api.errors import if_match_precondition
-        from skeleton.service_api.applications import ApplicationAdministrationService
 
         service = ApplicationAdministrationService()
         # The service lists available apps and enabled ones the platform withdrew (#24).
@@ -125,6 +120,6 @@ class ApplicationAPI(TenantAPI):
                 app_label=app_label,
                 enabled=data["enabled"],
                 configuration=tuple(configuration.items()) if isinstance(configuration, dict) else configuration,
-                expected_revision=int(value[1:-1]),
+                expected_revision=expected_revision,
             )
         return etag(Response(state_data(state)), state.revision)

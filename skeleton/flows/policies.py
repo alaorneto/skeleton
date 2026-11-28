@@ -112,11 +112,13 @@ def _subject_filter(user: Any) -> Q:
     return condition
 
 
-def visible_instances(user: Any) -> QuerySet[FlowInstance]:
-    """Instances the person may read, of enabled apps only; filter before counting or paginating."""
+def visible_instances(user: Any, *, include_disabled_apps: bool = False) -> QuerySet[FlowInstance]:
+    """Instances the person may read, of enabled apps only (unless ``include_disabled_apps``); filter before counting or paginating."""
     if not has_membership(user):
         return FlowInstance.objects.none()
-    rows = FlowInstance.objects.filter(definition__app_label__in=enabled_flow_apps())
+    rows = FlowInstance.objects.all()
+    if not include_disabled_apps:
+        rows = rows.filter(definition__app_label__in=enabled_flow_apps())
     if is_flow_admin(user):
         return rows
     taking_part = FlowTask.objects.filter(participation_filter(user)).values("instance_id")
@@ -133,11 +135,13 @@ def actionable_tasks(user: Any) -> QuerySet[FlowTask]:
     )
 
 
-def visible_tasks(user: Any) -> QuerySet[FlowTask]:
+def visible_tasks(user: Any, *, include_disabled_apps: bool = False) -> QuerySet[FlowTask]:
     """Tasks the person may read: actionable, past, closed in their queue and, for the administrator, all."""
     if not has_membership(user):
         return FlowTask.objects.none()
-    rows = FlowTask.objects.filter(instance__definition__app_label__in=enabled_flow_apps())
+    rows = FlowTask.objects.all()
+    if not include_disabled_apps:
+        rows = rows.filter(instance__definition__app_label__in=enabled_flow_apps())
     if is_flow_admin(user):
         return rows
     return rows.filter(participation_filter(user) | former_queue_filter(user))

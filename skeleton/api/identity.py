@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import re
-
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.http import Http404
@@ -101,18 +99,16 @@ class OrganizationIdentityProviderAdmissionAPI(OrganizationIdentityProvidersAPI)
         return etag(Response(provider_data(item)["admission"]), item.revision)
 
     def put(self, request, organization_id, sysid):
-        value = request.headers.get("If-Match")
-        if value is None:
-            raise BoundaryError("revision_required", "Informe a revisão.", 428)
-        if not re.fullmatch(r'"(?:0|[1-9][0-9]{0,18})"', value):
-            raise BoundaryError("invalid_revision", "Revisão inválida.")
+        from skeleton.api.errors import parse_revision
+
+        expected_revision = parse_revision(request.headers.get("If-Match"), allow_zero=True)
         data = request_fields(request)
         if set(data) != set(identity_admission.FIELDS):
             raise BoundaryError("invalid_request", "Informe " + ", ".join(identity_admission.FIELDS) + ".")
         try:
             with transaction.atomic():
                 identity_admission.configure(
-                    actor=request.user, provider_sysid=sysid, data=data, expected_revision=int(value[1:-1])
+                    actor=request.user, provider_sysid=sysid, data=data, expected_revision=expected_revision
                 )
         except identity_admission.ProviderNotFound:
             raise Http404 from None

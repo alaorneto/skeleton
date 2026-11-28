@@ -270,6 +270,15 @@ def test_the_service_contract_isolation_and_the_portal_me(scenario):
         assert me.user_id == scenario.external.pk and me.is_active
         with pytest.raises(Forbidden):
             ExternalAccessService().accesses(actor=person)
+    # Unauthorized non-manager answers Forbidden identically for existing and missing IDs (#912).
+    with acting_as(scenario.member, scenario.a) as plain:
+        for target_id in (info.sysid, uuid.uuid4()):
+            with pytest.raises(Forbidden):
+                ExternalAccessService().revoke_invitation(actor=plain, invitation_id=target_id, expected_revision=1)
+            with pytest.raises(Forbidden):
+                ExternalAccessService().resend_invitation(actor=plain, invitation_id=target_id, expected_revision=1)
+            with pytest.raises(Forbidden):
+                ExternalAccessService().revoke(actor=plain, access_id=target_id, expected_revision=1)
 
 
 def test_the_pages(scenario, django_capture_on_commit_callbacks):
