@@ -202,6 +202,8 @@ A plataforma avisa sozinha quem precisa agir ([#788](https://github.com/alaornet
 | `platform.operation_failed` | uma operação de atualização terminou `failed`, `interrupted` ou `restored` nas últimas 24 h | `updates.operate` | operação |
 | `platform.erasure_requested` | uma pessoa pede a eliminação dos dados (na própria requisição, sem esperar o vigia) | administradores | pedido |
 | `platform.organization_suspended` | o resumo de gestão da organização (`OrganizationSnapshot`) está `suspended` pela cobrança | `billing.operate` | organização e dia |
+| `platform.billing_payment_refunded` | um pagamento de fatura recebe estorno (parcial ou integral) ou chargeback (#885) | `billing.operate` | pagamento e tipo (`partial`/`full`) |
+| `platform.billing_payment_duplicated` | chega um segundo pagamento confirmado para uma fatura já paga (#885) | `billing.operate` | pagamento |
 
 Os payloads só têm números, códigos e identificadores: nunca nome, email, segredo nem mensagem de erro; o aviso leva à tela da plataforma onde a pessoa vê o resto. Cada tipo pode ser desligado ou ter os canais trocados em [Avisos](#configuração-da-plataforma), e `SKELETON_PLATFORM_ALERTS_ENABLED=False` desliga o vigia e o aviso de eliminação. Sem worker vivo nenhum job roda: a falta de worker continua sendo vista pela sonda de saúde e por `check_jobs`.
 

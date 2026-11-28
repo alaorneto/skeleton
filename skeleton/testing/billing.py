@@ -137,6 +137,14 @@ class FakeProvider:
             self.payments[reference], status=PaymentState.FAILED, failure_code="declined"
         )
 
+    def mark_refunded(self, reference: str, *, amount: int | None = None) -> None:
+        current = self.payments[reference]
+        self.payments[reference] = replace(
+            current,
+            status=PaymentState.REFUNDED,
+            refunded_amount=0 if amount is None else amount,
+        )
+
     @staticmethod
     def webhook(payment: str | None, *, event_id: str | None = None, secret: str = SECRET) -> tuple[bytes, str]:
         body = json.dumps({"id": event_id or f"evt_{uuid4().hex}", "payment": payment}).encode()

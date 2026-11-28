@@ -70,3 +70,30 @@ def test_asaas_charge_is_paid_by_a_token_webhook_after_the_fetch(skeleton_db, se
     run_pending_jobs()
     with system_context(reason="test:asaas-read", organization_id=scenario.a.pk):
         assert Invoice.objects.get(pk=invoice.pk).status == "paid"
+    # Chargeback revokes the paid invoice and suspends access (#885).
+    cb_body = json.dumps(
+        {
+            "id": "evt_cb",
+            "event": "PAYMENT_CHARGEBACK_REQUESTED",
+            "payment": {"id": "pay_flow", "status": "CHARGEBACK_REQUESTED"},
+        }
+    )
+    assert (
+        Client().post(url, cb_body, content_type="application/json", HTTP_ASAAS_ACCESS_TOKEN=TOKEN).status_code == 200
+    )
+    recorder.add(
+        "GET",
+        f"{SANDBOX_URL}/payments/pay_flow",
+        200,
+        {
+            "id": "pay_flow",
+            "status": "CHARGEBACK_REQUESTED",
+            "value": 49.9,
+            "billingType": "PIX",
+            "externalReference": reference,
+        },
+    )
+    run_pending_jobs()
+    with system_context(reason="test:asaas-chargeback", organization_id=scenario.a.pk):
+        refreshed = Invoice.objects.get(pk=invoice.pk)
+        assert refreshed.status == "refunded" and refreshed.account.access_state == "suspended"

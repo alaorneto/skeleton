@@ -27,6 +27,8 @@ UPDATE_AVAILABLE = "platform.update_available"
 OPERATION_FAILED = "platform.operation_failed"
 ERASURE_REQUESTED = "platform.erasure_requested"
 ORGANIZATION_SUSPENDED = "platform.organization_suspended"
+BILLING_PAYMENT_REFUNDED = "platform.billing_payment_refunded"
+BILLING_PAYMENT_DUPLICATED = "platform.billing_payment_duplicated"
 FAILED_OPERATION_STATES = ("failed", "interrupted", "restored")
 DEAD_BANDS = (1000, 100, 10, 1)
 
@@ -148,6 +150,38 @@ def register_platform_alerts() -> None:
             platform_capability="billing.operate",
             description=gettext_lazy("Quando a falta de pagamento suspende uma organização"),
             title=gettext_lazy("Uma organização foi suspensa por falta de pagamento"),
+            open_url=_url("platform:organization-billing", "billing.operate", sysid="organization"),
+            **platform,
+        )
+    )
+    register_notification_type(
+        NotificationType(
+            BILLING_PAYMENT_REFUNDED,
+            gettext_lazy("Pagamento estornado ou contestado"),
+            payload_fields=("organization", "invoice_number", "partial"),
+            fields=(NotificationField("invoice_number", gettext_lazy("Fatura")),),
+            default_channels=("in_app", "email"),
+            owner_app="sk_billing",
+            platform_capability="billing.operate",
+            description=gettext_lazy("Quando um pagamento de fatura recebe estorno ou chargeback"),
+            title=gettext_lazy("Pagamento estornado na fatura {invoice_number}"),
+            body=gettext_lazy("Abra a cobrança da organização para conferir a fatura e o acesso."),
+            open_url=_url("platform:organization-billing", "billing.operate", sysid="organization"),
+            **platform,
+        )
+    )
+    register_notification_type(
+        NotificationType(
+            BILLING_PAYMENT_DUPLICATED,
+            gettext_lazy("Pagamento duplicado"),
+            payload_fields=("organization", "invoice_number"),
+            fields=(NotificationField("invoice_number", gettext_lazy("Fatura")),),
+            default_channels=("in_app", "email"),
+            owner_app="sk_billing",
+            platform_capability="billing.operate",
+            description=gettext_lazy("Quando mais de um pagamento confirmado chega para a mesma fatura"),
+            title=gettext_lazy("Pagamento duplicado na fatura {invoice_number}"),
+            body=gettext_lazy("Abra a cobrança da organização para conferir e estornar se necessário."),
             open_url=_url("platform:organization-billing", "billing.operate", sysid="organization"),
             **platform,
         )
@@ -280,3 +314,50 @@ def erasure_requested(request_id: Any) -> None:
         notify_platform(ERASURE_REQUESTED, payload={"request": str(request_id)}, dedupe_key=f"erasure:{request_id}")
     except NotAPlatformType:
         return  # Not registered (a test with an isolated registry).
+
+
+def _schedule_platform_alert(type_code: str, *, payload: dict[str, Any], dedupe_key: str) -> None:
+    """Emit a platform alert after commit from a tenant transaction (#885)."""
+    from django.db import transaction
+
+    if not getattr(settings, "SKELETON_PLATFORM_ALERTS_ENABLED", True):
+        return
+
+    def _emit() -> None:
+        from skeleton.tenancy.context import current_context, system_context
+
+        from .platform import NotAPlatformType, notify_platform
+
+        def _send() -> None:
+            try:
+                notify_platform(type_code, payload=payload, dedupe_key=dedupe_key)
+            except NotAPlatformType:
+                return
+
+        context = current_context()
+        if context.organization_id is None and context.system:
+            _send()
+        else:
+            with system_context(reason="billing:platform_alert"):
+                _send()
+
+    transaction.on_commit(_emit)
+
+
+def billing_payment_refunded(*, organization_id: Any, invoice_number: str, payment_id: Any, partial: bool) -> None:
+    """Alert billing operators when a payment is refunded or charged back (#885)."""
+    kind = "partial" if partial else "full"
+    _schedule_platform_alert(
+        BILLING_PAYMENT_REFUNDED,
+        payload={"organization": str(organization_id), "invoice_number": invoice_number, "partial": partial},
+        dedupe_key=f"billing-refund:{payment_id}:{kind}",
+    )
+
+
+def billing_payment_duplicated(*, organization_id: Any, invoice_number: str, payment_id: Any) -> None:
+    """Alert billing operators when a second succeeded payment arrives for an already paid invoice (#885)."""
+    _schedule_platform_alert(
+        BILLING_PAYMENT_DUPLICATED,
+        payload={"organization": str(organization_id), "invoice_number": invoice_number},
+        dedupe_key=f"billing-duplicate:{payment_id}",
+    )

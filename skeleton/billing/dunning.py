@@ -79,7 +79,7 @@ def derived_level(billing_account: Any, *, now: datetime) -> AccessLevel:
 
     if billing_account.access_override_until and billing_account.access_override_until > now:
         return AccessLevel.ACTIVE
-    if Invoice.objects.filter(status=Invoice.Status.UNCOLLECTIBLE).exists():
+    if Invoice.objects.filter(status__in=(Invoice.Status.UNCOLLECTIBLE, Invoice.Status.REFUNDED)).exists():
         return AccessLevel.SUSPENDED
     invoice = _oldest_overdue(now)
     if invoice is None:

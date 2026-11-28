@@ -812,10 +812,11 @@ def register_core_specs():
         "sk_system.appinstallation": ("app_label",),
         # What the flow lifecycle events carry (docs/flows.md); form data is never an event field.
         "sk_flows.flowinstance": ("flow_key", "flow_version", "status", "outcome", "subject_table", "subject_sysid"),
-        # What the billing events carry (#396); contact data of the account never.
+        # What the billing events carry (#396, #885); contact data of the account never.
         "sk_billing.invoice": ("number", "status", "currency", "total"),
         "sk_billing.subscription": ("status",),
         "sk_billing.billingaccount": ("access_state",),
+        "sk_billing.payment": ("invoice", "status", "provider", "amount", "currency"),
     }
     for key, (label, description, scope, sensitive) in definitions.items():
         register(

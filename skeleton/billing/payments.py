@@ -162,8 +162,10 @@ def _payment_for(invoice: Any, provider_account: Any, status: PaymentStatus) -> 
 
 def apply_status(provider_account: Any, status: PaymentStatus, *, now: datetime | None = None) -> str:
     """Apply the provider's answer for one payment of the current organization; returns an outcome code."""
+    from skeleton.notifications import platform_alerts
+
     from . import dunning, notices
-    from .models import Invoice
+    from .models import Invoice, Payment
 
     now = engine._now(now)
     parsed = parse_invoice_reference(status.invoice_reference)
@@ -173,12 +175,19 @@ def apply_status(provider_account: Any, status: PaymentStatus, *, now: datetime 
     if invoice is None:
         return "unknown_invoice"
     owed = invoice.total - invoice.amount_paid
-    if status.currency != invoice.currency or (status.status == PaymentState.SUCCEEDED and status.amount != owed):
-        if invoice.status != Invoice.Status.PAID:
-            logger.warning("billing.payment_mismatch", extra={"invoice": str(invoice.pk), "code": "amount_mismatch"})
-            return "amount_mismatch"
+    if status.currency != invoice.currency:
+        logger.warning("billing.payment_mismatch", extra={"invoice": str(invoice.pk), "code": "amount_mismatch"})
+        return "amount_mismatch"
+    if status.status == PaymentState.SUCCEEDED and status.amount != owed and invoice.status != Invoice.Status.PAID:
+        logger.warning("billing.payment_mismatch", extra={"invoice": str(invoice.pk), "code": "amount_mismatch"})
+        return "amount_mismatch"
     payment = _payment_for(invoice, provider_account, status)
-    if payment.status == status.status.value:
+    refunded = status.refunded_amount if status.refunded_amount > 0 else status.amount
+    partial_refund = status.status == PaymentState.REFUNDED and 0 < refunded < invoice.total
+    escalating_refund = (
+        status.status == PaymentState.REFUNDED and invoice.status == Invoice.Status.PAID and not partial_refund
+    )
+    if payment.status == status.status.value and not escalating_refund:
         return "unchanged"
     payment.status = status.status.value
     payment.failure_code = status.failure_code[:64]
@@ -187,13 +196,61 @@ def apply_status(provider_account: Any, status: PaymentStatus, *, now: datetime 
         payment.succeeded_at = now
         fields.add("succeeded_at")
     payment.save(update_fields=fields)
-    if status.status == PaymentState.SUCCEEDED and invoice.status in (
-        Invoice.Status.OPEN,
-        Invoice.Status.UNCOLLECTIBLE,
-    ):
-        _remember_method(invoice.account, provider_account, status)
-        engine.settle_invoice(invoice, now=now)
-        return "paid"
+    if status.status == PaymentState.SUCCEEDED:
+        if invoice.status in (Invoice.Status.OPEN, Invoice.Status.UNCOLLECTIBLE):
+            _remember_method(invoice.account, provider_account, status)
+            engine.settle_invoice(invoice, now=now)
+            return "paid"
+        if (
+            invoice.status == Invoice.Status.PAID
+            and invoice.payments.filter(status=Payment.Status.SUCCEEDED).exclude(pk=payment.pk).exists()
+        ):
+            engine._publish(
+                "billing.payment_duplicated",
+                payment,
+                {
+                    "invoice": str(invoice.pk),
+                    "status": payment.status,
+                    "provider": provider_account.provider,
+                    "amount": payment.amount,
+                    "currency": payment.currency,
+                },
+            )
+            platform_alerts.billing_payment_duplicated(
+                organization_id=invoice.organization_id,
+                invoice_number=invoice.number,
+                payment_id=payment.pk,
+            )
+            logger.warning(
+                "billing.payment_duplicated",
+                extra={"invoice": str(invoice.pk), "payment": str(payment.pk)},
+            )
+            return "duplicate_payment"
+    if status.status == PaymentState.REFUNDED:
+        if not partial_refund and invoice.status == Invoice.Status.PAID:
+            invoice.status = Invoice.Status.REFUNDED
+            invoice.amount_paid = 0
+            invoice.save(update_fields={"status", "amount_paid"})
+            engine.forget()
+            dunning.refresh_access(now=now)
+        engine._publish(
+            "billing.payment_refunded",
+            payment,
+            {
+                "invoice": str(invoice.pk),
+                "status": payment.status,
+                "provider": provider_account.provider,
+                "amount": refunded if refunded > 0 else payment.amount,
+                "currency": payment.currency,
+            },
+        )
+        platform_alerts.billing_payment_refunded(
+            organization_id=invoice.organization_id,
+            invoice_number=invoice.number,
+            payment_id=payment.pk,
+            partial=partial_refund,
+        )
+        return "refunded_partial" if partial_refund else "refunded"
     if status.status == PaymentState.FAILED:
         notices.payment_failed(invoice, attempt=invoice.attempt_count)
         dunning.schedule_first_retry(invoice)

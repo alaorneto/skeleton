@@ -94,3 +94,10 @@ def test_pix_pending_then_approved_pays_the_invoice(skeleton_db, settings, recor
         HTTP_X_REQUEST_ID="req-c",
     )
     assert forged.status_code == 400
+    # Chargeback revokes the paid invoice and suspends access (#885).
+    recorder.add("GET", "https://api.mercadopago.com/v1/payments/555", 200, {**payment, "status": "charged_back"})
+    assert notify(account, "555", "req-cb").status_code == 200
+    run_pending_jobs()
+    with system_context(reason="test:mp-chargeback", organization_id=scenario.a.pk):
+        refreshed = Invoice.objects.get(pk=invoice.pk)
+        assert refreshed.status == "refunded" and refreshed.account.access_state == "suspended"

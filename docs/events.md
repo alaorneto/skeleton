@@ -144,7 +144,7 @@ Os [avisos padrão da organização](notifications.md#avisos-padrão-da-organiza
 
 ## Eventos da cobrança
 
-A [cobrança](billing.md#eventos) publica `billing.invoice_finalized` e `billing.invoice_paid` sobre `sk_billing.invoice` (`number`, `status`, `currency`, `total`) e `billing.subscription_changed` sobre `sk_billing.subscription` (`status`), na transação do motor. Dados de contato da conta nunca entram no payload. Esses tipos não vão para webhooks; um emissor fiscal externo consome `billing.invoice_paid` em processo (`register_consumer`).
+A [cobrança](billing.md#eventos) publica `billing.invoice_finalized` e `billing.invoice_paid` sobre `sk_billing.invoice` (`number`, `status`, `currency`, `total`), `billing.subscription_changed` sobre `sk_billing.subscription` (`status`), `billing.access_state_changed` sobre `sk_billing.billingaccount` (`access_state`) e `billing.payment_refunded` / `billing.payment_duplicated` sobre `sk_billing.payment` (`invoice`, `status`, `provider`, `amount`, `currency`, #885), na transação do motor. Dados de contato da conta nunca entram no payload. Esses tipos não vão para webhooks; um emissor fiscal externo consome `billing.invoice_paid` em processo (`register_consumer`).
 
 ## Eventos de fluxos de processo
 

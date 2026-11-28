@@ -49,6 +49,8 @@ from .base import (
 PRODUCTION_URL = "https://api.asaas.com/v3"
 SANDBOX_URL = "https://api-sandbox.asaas.com/v3"
 _PAID = {"RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"}
+_CHARGEBACK = {"CHARGEBACK_REQUESTED", "CHARGEBACK_DISPUTE", "AWAITING_CHARGEBACK_REVERSAL"}
+_REFUNDED = {"REFUNDED", "REFUND_REQUESTED", "REFUND_IN_PROGRESS", "PARTIALLY_REFUNDED"} | _CHARGEBACK
 _METHODS = {"PIX": "pix", "BOLETO": "boleto", "CREDIT_CARD": "card"}
 
 
@@ -163,10 +165,15 @@ class AsaasProvider:
     def fetch_payment(self, account: Any, reference: str) -> PaymentStatus:
         data = self._call(account, "GET", f"/payments/{quote(reference)}")
         raw = str(data.get("status") or "")
+        refunded_amount = 0
         if raw in _PAID:
             state = PaymentState.SUCCEEDED
-        elif raw in {"REFUNDED", "REFUND_REQUESTED", "CHARGEBACK_REQUESTED"}:
+        elif raw in _REFUNDED:
             state = PaymentState.REFUNDED
+            if raw not in _CHARGEBACK and data.get("refundedValue"):
+                refunded = _minor(data.get("refundedValue"))
+                if refunded > 0:
+                    refunded_amount = refunded
         else:
             state = PaymentState.PENDING
         card = data.get("creditCard") or {}
@@ -182,6 +189,7 @@ class AsaasProvider:
             method_ref=token if state == PaymentState.SUCCEEDED else "",
             method_label=f"{str(card.get('creditCardBrand', '')).title()} •••• {number[-4:]}" if number else "",
             customer_id=str(data.get("customer") or ""),
+            refunded_amount=refunded_amount,
         )
 
     def refund(self, account: Any, reference: str, *, amount: int, idempotency_key: str) -> RefundResult:

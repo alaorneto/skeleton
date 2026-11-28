@@ -36,7 +36,7 @@ O catálogo é global (`SystemRecord`) e só a plataforma o escreve. O que perte
 | `BillingAccount` | organização | Uma por organização: razão social, email de cobrança e documento (dados pessoais, redigidos na auditoria), país, moeda, estado de acesso (`active`, `past_due`, `restricted`, `suspended`) e a versão dos termos aceita. |
 | `Subscription` | organização | O contrato recorrente: situação (`trialing`, `active`, `past_due`, `canceled`, `incomplete`), moeda e ciclo (imutáveis), período corrente, fim do trial, cancelamento no fim do período e modo de cobrança (`auto_charge` ou `send_invoice`). Uma assinatura viva por organização; as canceladas ficam como histórico. |
 | `SubscriptionItem` | organização | Uma linha precificada da assinatura (plano, app ou pacote), com quantidade, situação (`pending`, `active`, `ended`), datas e fim do trial. Preço e app são imutáveis; as linhas encerradas são o histórico que impede um segundo trial do mesmo produto. |
-| `Invoice` | organização | O valor devido. Número, moeda, subtotal, desconto, imposto, total, período e emissão são **imutáveis** depois de emitida; só o estado de cobrança muda (`open`, `paid`, `void`, `uncollectible`, valor pago e datas), sempre com a revisão. O banco confere `total = subtotal − desconto + imposto`, valor pago ≤ total e que uma fatura paga tem data e valor integral. |
+| `Invoice` | organização | O valor devido. Número, moeda, subtotal, desconto, imposto, total, período e emissão são **imutáveis** depois de emitida; só o estado de cobrança muda (`open`, `paid`, `void`, `uncollectible`, `refunded`, valor pago e datas), sempre com a revisão. O banco confere `total = subtotal − desconto + imposto`, valor pago ≤ total e que uma fatura paga tem data e valor integral. |
 | `InvoiceLine` | organização | Uma linha da fatura (`subscription`, `proration`, `overage`, `discount`, `adjustment`). **Nunca muda nem é excluída**: todas as colunas, inclusive as de exclusão lógica, são imutáveis no guard do banco. Desconto é negativo. |
 | `UsageSnapshot` | operacional | O armazenamento da organização num dia UTC, com a quebra por app; base do excedente e do relatório de uso. |
 | `Payment` | organização | Uma tentativa de pagamento: método (`card`, `pix`, `boleto`, `offline`), situação, valor na moeda da fatura, provedor e a referência dele (única por provedor). O pagamento `offline` é o registro manual da plataforma e não tem provedor. |
@@ -97,7 +97,7 @@ O motor (`skeleton/billing/engine.py`) trabalha numa organização, na transaç�
 
 ### Eventos
 
-`billing.invoice_finalized`, `billing.invoice_paid` e `billing.subscription_changed`, com número, situação, moeda e total da fatura, ou a situação da assinatura ([eventos](events.md#eventos-da-cobrança)). Não vão para webhooks.
+`billing.invoice_finalized`, `billing.invoice_paid`, `billing.subscription_changed`, `billing.access_state_changed`, `billing.payment_refunded` e `billing.payment_duplicated`, só com identificadores, códigos e valores ([eventos](events.md#eventos-da-cobrança)). Não vão para webhooks.
 
 ### Vouchers
 
@@ -187,10 +187,11 @@ O estado de acesso da organização é **derivado**, nunca digitado: da fatura e
 | nenhuma vencida | `active` | Normal |
 | vencida há menos de `SKELETON_BILLING_GRACE_DAYS` (7) dias completos | `past_due` | Acesso normal, com aviso |
 | menos de `SKELETON_BILLING_SUSPEND_AFTER_DAYS` (30) | `restricted` | Só leitura para pessoas |
-| a partir daí, ou uma fatura `uncollectible` | `suspended` | Só a cobrança, para o administrador |
+| a partir daí, ou uma fatura `uncollectible` ou `refunded` | `suspended` | Só a cobrança, para o administrador |
 
 - Um pagamento ainda compensando (`pending`, criado nos últimos `SKELETON_BILLING_PENDING_PAYMENT_HOLD_DAYS`, 3) segura o estado em `past_due`: um boleto ou Pix em trânsito não bloqueia quem pagou.
 - Uma organização `suspended` é avisada a quem tem `billing.operate` na caixa da plataforma, uma vez por dia ([alertas da plataforma](notifications.md#alertas-da-plataforma)).
+- **Estorno, chargeback e pagamento duplicado (#885).** Um estorno integral ou chargeback sobre uma fatura paga muda a fatura para `refunded` (zerando `amount_paid` e mantendo as `InvoiceLine` intactas), chama `refresh_access()` (que suspende o acesso como em `uncollectible`, respeitando `access_override_until`), publica `billing.payment_refunded` e envia o alerta de plataforma `platform.billing_payment_refunded`. Um estorno parcial é registrado no pagamento, publica `billing.payment_refunded` (com o valor estornado em `amount`) e envia o alerta `platform.billing_payment_refunded` (`partial=True`) sem suspender o acesso. Um segundo pagamento `succeeded` numa fatura já paga publica `billing.payment_duplicated` e envia o alerta `platform.billing_payment_duplicated`.
 - A prorrogação da plataforma (`access_override_until`, com motivo) mantém `active` até expirar.
 - Depois de `SKELETON_BILLING_CANCEL_AFTER_DAYS` (60), a assinatura é cancelada e as faturas vencidas viram `uncollectible`; a organização continua suspensa e **nenhum dado é apagado**. Pagar uma fatura incobrável (baixa manual da plataforma) a quita e reativa.
 - Assinaturas `auto_charge` têm novas tentativas `SKELETON_BILLING_RETRY_SCHEDULE_DAYS` dias depois do vencimento (`1,3,5`), pelos cobradores que o provedor registra (`dunning.register_collector`, [#400](https://github.com/alaorneto/skeleton/issues/400)).
