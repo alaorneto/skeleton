@@ -11,9 +11,11 @@ class ObservabilityConfig(AppConfig):
 
     def ready(self) -> None:
         from . import checks  # noqa: F401 - registers the checks
+        from .flow_metrics import register_flow_metrics_jobs
         from .sentry import configure_sentry
         from .tracing import configure_tracing
 
+        register_flow_metrics_jobs()
         # Before the WSGI handler loads the middleware: the Django instrumentation inserts its own.
         configure_tracing()
         configure_sentry()

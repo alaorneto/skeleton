@@ -17,6 +17,7 @@ import hashlib
 import hmac
 import logging
 import os
+import threading
 import time
 from collections.abc import Iterator
 from typing import Any
@@ -125,14 +126,15 @@ def queue_snapshot() -> tuple[Any, dict[tuple[str, str], int]]:
 
 
 _queue_cache: tuple[float, Any] | None = None
+_queue_lock = threading.Lock()
 
 
 def cached_queue_snapshot() -> tuple[Any, dict[tuple[str, str], int]]:
-    """``queue_snapshot()`` reused for ``SKELETON_METRICS_QUEUE_TTL_S`` seconds in this process (#275).
+    """``queue_snapshot()`` reused for ``SKELETON_METRICS_QUEUE_TTL_S`` seconds in this process (#275, #914).
 
     Each scrape of every process used to run the queue aggregates; with several Prometheus
-    servers or a short interval that was a steady load on the jobs table. A failed read is
-    never cached: the next scrape tries the database again.
+    servers or a short interval that was a steady load on the jobs table. A process lock prevents
+    concurrent scrapes from stampeding the database, and a failed read is never cached.
     """
     global _queue_cache
     ttl = float(getattr(settings, "SKELETON_METRICS_QUEUE_TTL_S", 0) or 0)
@@ -140,9 +142,14 @@ def cached_queue_snapshot() -> tuple[Any, dict[tuple[str, str], int]]:
     if ttl > 0 and _queue_cache is not None and now - _queue_cache[0] < ttl:
         cached: tuple[Any, dict[tuple[str, str], int]] = _queue_cache[1]
         return cached
-    snapshot = queue_snapshot()
-    _queue_cache = (now, snapshot) if ttl > 0 else None
-    return snapshot
+    with _queue_lock:
+        now = time.monotonic()
+        if ttl > 0 and _queue_cache is not None and now - _queue_cache[0] < ttl:
+            cached = _queue_cache[1]
+            return cached
+        snapshot = queue_snapshot()
+        _queue_cache = (now, snapshot) if ttl > 0 else None
+        return snapshot
 
 
 class QueueCollector:
@@ -233,10 +240,13 @@ def metrics_response(request: Any) -> HttpResponse:
         return HttpResponseNotAllowed(["GET", "HEAD"])
     from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+    if request.method == "HEAD":
+        # Never run database collectors for a HEAD probe whose body is discarded (#914).
+        response = HttpResponse(b"", content_type=CONTENT_TYPE_LATEST)
+        response["Cache-Control"] = "no-store"
+        return response
     response = HttpResponse(generate_latest(_Scrape()), content_type=CONTENT_TYPE_LATEST)
     response["Cache-Control"] = "no-store"
-    if request.method == "HEAD":
-        response.content = b""
     return response
 
 

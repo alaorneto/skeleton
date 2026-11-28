@@ -322,12 +322,12 @@ scrape_configs:
 | `skeleton_jobs_due`, `skeleton_jobs_oldest_due_lag_seconds`, `skeleton_jobs_dead` | — | `queue_health()`, o mesmo de `check_jobs` e de `/platform/jobs/` |
 | `skeleton_job_workers` | `state` (`live`, `stale`) | Heartbeats dos workers |
 | `skeleton_queue_metrics_up` | — | 1 quando a coleta leu a fila; 0 quando o banco falhou (o resto da coleta continua) |
-| `skeleton_flow_instances` | `flow_key`, `status` | Instâncias de fluxo por fluxo e estado, somadas em todas as organizações (#420) |
-| `skeleton_flow_tasks_open`, `skeleton_flow_tasks_overdue` | `flow_key` | Tarefas de fluxo abertas e as abertas com prazo vencido |
+| `skeleton_flow_instances` | `flow_key`, `status` | Instâncias de fluxo por fluxo registrado e estado, somadas em todas as organizações; chaves fora do registro em código entram como `other` (#420, #914) |
+| `skeleton_flow_tasks_open`, `skeleton_flow_tasks_overdue` | `flow_key` | Tarefas de fluxo abertas e as abertas com prazo vencido (`other` para chaves fora do registro) |
 | `skeleton_flow_failed_service_steps` | `flow_key` | Etapas automáticas (de serviço) com falha, à espera de repetição ou cancelamento |
-| `skeleton_flow_metrics_up` | — | 1 quando a coleta leu as tabelas de fluxo; 0 quando falhou (o resto da coleta continua) |
+| `skeleton_flow_metrics_up` | — | 1 quando havia snapshot pré-calculado das tabelas de fluxo no cache compartilhado; 0 quando ausente ou indisponível (o resto da coleta continua) |
 
-As métricas da fila são calculadas **na coleta** e cada processo reutiliza o resultado por `SKELETON_METRICS_QUEUE_TTL_S` segundos (padrão 15; uma falha de leitura nunca é guardada, #275), por consultas agregadas de leitura num `system_context` sem organização (as tabelas de jobs são globais). O worker não mantém contadores. Cada coleta faz algumas consultas agregadas sobre `Job` e `WorkerHeartbeat`; um intervalo de 15 a 60 s basta. Veja [jobs](jobs.md#métricas-da-fila).
+As métricas da fila são calculadas **na coleta** e cada processo reutiliza o resultado por `SKELETON_METRICS_QUEUE_TTL_S` segundos (padrão 15; serializado por lock por processo, sem guardar falhas, #275, #914), por consultas agregadas de leitura num `system_context` sem organização (as tabelas de jobs são globais). O worker não mantém contadores. Requisições `HEAD /metrics` respondem sem disparar coletores (#914). Cada coleta `GET` faz apenas as consultas agregadas constantes sobre `Job` e `WorkerHeartbeat`; um intervalo de 15 a 60 s basta. Veja [jobs](jobs.md#métricas-da-fila).
 
 **Gunicorn com vários workers (modo multiprocess).** Cada processo tem o próprio histograma de requests. Para somá-los, defina `PROMETHEUS_MULTIPROC_DIR` com um diretório privado e vazio, gravável pelo usuário do web, **antes** de o gunicorn iniciar, e esvazie-o a cada início do serviço:
 
@@ -339,7 +339,7 @@ gunicorn config.wsgi:application --workers 3 --timeout 120 --no-control-socket
 
 O check de deploy `skeleton.W034` avisa quando as métricas estão ligadas fora de `DEBUG` sem a variável, e `skeleton.E034` reprova uma variável que não aponta para um diretório gravável; com um processo só atendendo o site, silencie o aviso com `SILENCED_SYSTEM_CHECKS = ["skeleton.W034"]` (#275). Com a variável, a coleta lê os arquivos de todos os processos (`MultiProcessCollector`) e as métricas da fila continuam vindo do banco. Só há histogramas por processo, sem gauges, então não é preciso o hook `child_exit`. Sem a variável, cada scrape vê apenas o processo que o atendeu. Em systemd, use `RuntimeDirectory=skeleton-metrics`, que o recria vazio a cada início. O worker de jobs não expõe métricas.
 
-As métricas de fluxo seguem o mesmo cache. As tabelas de fluxo são de tenant (RLS vale também no contexto de sistema), então a coleta abre um `system_context` por organização ativa, até 2.000, e soma os resultados; o único rótulo é a chave do fluxo, declarada em código. As falhas de etapas automáticas são lidas do banco, não contadas no worker.
+As métricas de fluxo são calculadas **fora do scrape** pelos jobs periódicos `observability.flow_snapshot_org` (um por organização ativa, a cada 5 minutos, no `system_context` da organização) e `observability.flow_snapshot` (global, soma os totais no cache compartilhado), e lidas em O(1) sem consultas SQL durante o `GET /metrics` (#914). O único rótulo é a chave de fluxo declarada em código (`skeleton.flows.registry`); chaves desconhecidas ou autoradas por organizações são agrupadas em `other`. As falhas de etapas automáticas são lidas do banco, não contadas no worker.
 
 Fora do escopo: dashboards, alertas e métricas por organização.
 
@@ -353,7 +353,7 @@ Instale o extra `[otel]` (SDK, exportador OTLP/HTTP e as instrumentações ofici
 | `OTEL_SERVICE_NAME` | Nome do serviço; padrão `skeleton`. Use nomes diferentes para web e worker |
 | `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_SAMPLER_ARG` | Amostragem, por exemplo `parentbased_traceidratio` e `0.1` |
 | `OTEL_EXPORTER_OTLP_HEADERS` | Cabeçalhos do coletor. Podem conter credencial: entregue por secret do ambiente, nunca no repositório |
-| `OTEL_PYTHON_DJANGO_EXCLUDED_URLS` | Rotas sem span; padrão `health/live/,health/ready/,metrics` |
+| `OTEL_PYTHON_DJANGO_EXCLUDED_URLS` | Rotas sem span; padrão ancorado para `/health/live/`, `/health/ready/` e `/metrics` (mantendo `/api/v1/platform/metrics/` rastreado, #914) |
 | `OTEL_RESOURCE_ATTRIBUTES` | Atributos do recurso, como `deployment.environment=prod` |
 
 Essas variáveis são lidas pelo SDK direto do ambiente, por isso não fazem parte do catálogo da instância. O núcleo instala a instrumentação em `AppConfig.ready()`, antes de o handler WSGI carregar os middlewares. Com `gunicorn --preload`, o `BatchSpanProcessor` é recriado em cada worker depois do fork.

@@ -133,3 +133,27 @@ def test_check_warns_when_an_endpoint_is_set_without_the_extra(monkeypatch):
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT")
     monkeypatch.setattr(checks, "installed", lambda distributions: False)
     assert checks.tracing_problems() == []
+
+
+def test_default_excluded_urls_excludes_probes_and_metrics_but_traces_platform_api(subtests):
+    """#914: anchored DEFAULT_EXCLUDED_URLS excludes /metrics but keeps /api/v1/platform/metrics/ traced."""
+    from django.test import RequestFactory
+    from opentelemetry.util.http import parse_excluded_urls
+
+    excluded = parse_excluded_urls(otel.DEFAULT_EXCLUDED_URLS)
+    factory = RequestFactory()
+    for path, should_exclude in (
+        ("/metrics", True),
+        ("/metrics/", True),
+        ("/metrics?format=prometheus", True),
+        ("/health/live/", True),
+        ("/health/ready/", True),
+        ("/api/v1/platform/metrics/", False),
+        ("/api/v1/platform/metrics/?from=2026-01-01", False),
+        ("/o/org-slug/metrics/", False),
+        ("/api/v1/health/live/", False),
+    ):
+        with subtests.test(path=path):
+            url = factory.get(path).build_absolute_uri("?")
+            assert excluded.url_disabled(url) is should_exclude
+            assert excluded.url_disabled(path) is should_exclude

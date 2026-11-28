@@ -231,3 +231,88 @@ def test_multiprocess_scrape_sums_two_processes(tmp_path):
         if sample.name == "skeleton_http_request_duration_seconds_count"
     }
     assert found == {"skeleton_http_request_duration_seconds_count": 2.0}
+
+
+def test_head_metrics_does_not_invoke_collectors(settings, monkeypatch):
+    """#914: HEAD /metrics returns headers immediately without running database collectors."""
+    from django.test import RequestFactory
+
+    settings.SKELETON_METRICS_TOKEN = TOKEN
+    called = []
+    monkeypatch.setattr(metrics, "queue_snapshot", lambda: called.append("queue"))
+    request = RequestFactory().head("/metrics", HTTP_AUTHORIZATION=f"Bearer {TOKEN}")
+    response = metrics.metrics_response(request)
+    assert response.status_code == 200 and response.content == b""
+    assert response["Cache-Control"] == "no-store"
+    assert called == []
+
+
+def test_concurrent_queue_snapshot_runs_once_under_lock(settings, monkeypatch):
+    """#914: concurrent scrapes share one queue_snapshot() call within the TTL."""
+    import threading
+
+    settings.SKELETON_METRICS_QUEUE_TTL_S = 15
+    monkeypatch.setattr(metrics, "_queue_cache", None)
+    health = QueueHealth(due=0, oldest_due_lag_s=0.0, dead=0, live_workers=1, stale_workers=0)
+    calls = []
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_snapshot():
+        calls.append(1)
+        started.set()
+        release.wait(timeout=2)
+        return health, {}
+
+    monkeypatch.setattr(metrics, "queue_snapshot", slow_snapshot)
+    results = []
+
+    def worker():
+        results.append(metrics.cached_queue_snapshot())
+
+    first = threading.Thread(target=worker)
+    second = threading.Thread(target=worker)
+    first.start()
+    assert started.wait(timeout=2)
+    second.start()
+    release.set()
+    first.join(timeout=2)
+    second.join(timeout=2)
+    assert len(calls) == 1 and len(results) == 2
+
+
+def test_flow_collector_groups_unknown_keys_into_other(settings, monkeypatch):
+    """#914: unregistered flow keys collapse to 'other' and missing snapshots report up=0."""
+    from django.core.cache import cache
+
+    from skeleton.observability import flow_metrics
+
+    settings.SKELETON_METRICS_QUEUE_TTL_S = 0
+    cache.clear()
+    flow_metrics.clear_flow_cache()
+    families = list(flow_metrics.FlowCollector().collect())
+    assert [family.name for family in families] == ["skeleton_flow_metrics_up"]
+    assert families[0].samples[0].value == 0
+
+    monkeypatch.setattr(flow_metrics, "_registered_flow_keys", lambda: frozenset({"notes.review"}))
+    cache.set(
+        flow_metrics.FLOW_SNAPSHOT_CACHE_KEY,
+        {
+            "instances": [["notes.review", "running", 2], ["tenant.custom_secret", "running", 4]],
+            "open": [["notes.review", 1], ["tenant.custom_secret", 3]],
+            "overdue": [["tenant.custom_secret", 1]],
+            "failed_steps": [],
+        },
+        timeout=60,
+    )
+    found = {
+        (sample.name, tuple(sorted(sample.labels.items()))): sample.value
+        for family in flow_metrics.FlowCollector().collect()
+        for sample in family.samples
+    }
+    assert found[("skeleton_flow_metrics_up", ())] == 1
+    assert found[("skeleton_flow_instances", (("flow_key", "notes.review"), ("status", "running")))] == 2
+    assert found[("skeleton_flow_instances", (("flow_key", "other"), ("status", "running")))] == 4
+    assert found[("skeleton_flow_tasks_open", (("flow_key", "other"),))] == 3
+    assert found[("skeleton_flow_tasks_overdue", (("flow_key", "other"),))] == 1
+    assert not any("tenant.custom_secret" in str(labels) for _, labels in found)
