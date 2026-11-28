@@ -383,11 +383,17 @@ def reconcile(*, now: datetime | None = None) -> int:
         Payment.objects.filter(status="pending", created_at__lte=now - RECONCILE_AFTER)
         .exclude(provider="")
         .exclude(provider_reference="")
-        .values_list("provider", "provider_reference")
+        .values_list("provider", "provider_reference", "invoice__account__provider_account_id")
     )
     done = 0
-    for code, reference in pending:
-        provider_account = ProviderAccount.objects.filter(provider=code, enabled=True).order_by("-is_default").first()
+    for code, reference, account_id in pending:
+        provider_account = None
+        if account_id:
+            provider_account = ProviderAccount.objects.filter(pk=account_id, provider=code, enabled=True).first()
+        if provider_account is None:
+            provider_account = (
+                ProviderAccount.objects.filter(provider=code, enabled=True).order_by("-is_default").first()
+            )
         if provider_account is None:
             continue
         try:

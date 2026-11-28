@@ -200,8 +200,11 @@ class MercadoPagoProvider:
         data_id = str((query or {}).get("data.id") or ((event.get("data") or {}).get("id")) or "")
         if data_id.isalnum():
             data_id = data_id.lower()
+        raw_secret = account.secret("webhook_secret")
+        if not raw_secret:
+            raise WebhookRejected("missing_secret")
         manifest = f"id:{data_id};request-id:{headers.get('x-request-id', '')};ts:{timestamp};"
-        expected = hmac.new(account.secret("webhook_secret").encode(), manifest.encode(), hashlib.sha256).hexdigest()
+        expected = hmac.new(raw_secret.encode(), manifest.encode(), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(expected, signature):
             raise WebhookRejected("invalid_signature")
         kind = str(event.get("type") or (query or {}).get("type") or "")

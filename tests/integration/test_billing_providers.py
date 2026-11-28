@@ -149,6 +149,43 @@ def test_a_lost_webhook_is_reconciled(billing):
     assert invoice_status(scenario, invoice) == "paid"
 
 
+def test_reconcile_uses_billing_account_provider_account_over_default(billing):
+    """#886: reconcile queries the billing account's own ProviderAccount when multiple exist."""
+    from skeleton.billing.models import BillingAccount, Payment, ProviderAccount
+
+    scenario, provider, default_account, invoice = billing
+    with system_context(reason="test:providers-second-account"):
+        live_account = ProviderAccount(
+            provider="fake",
+            label="Fake Live",
+            mode=ProviderAccount.Mode.LIVE,
+            currencies=["BRL"],
+            is_default=False,
+        )
+        live_account.set_secrets(api_key="sk_live_fake", webhook_secret="whsec_live_fake")
+        live_account.save()
+
+    seen_accounts = []
+    original_fetch = provider.fetch_payment
+
+    def tracking_fetch(acc, ref):
+        seen_accounts.append(acc.pk)
+        return original_fetch(acc, ref)
+
+    provider.fetch_payment = tracking_fetch
+    with in_a(scenario):
+        BillingAccount.objects.update(provider_account=live_account)
+        attempt = payments.create_checkout(invoice, return_url="https://app.example.test/back")
+        status = original_fetch(live_account, attempt.reference)
+        payments.apply_status(live_account, status)
+        assert Payment.objects.get().status == "pending"
+    provider.pay(attempt.reference)
+    with in_a(scenario):
+        assert payments.reconcile(now=datetime.now(UTC) + timedelta(hours=1)) == 1
+    assert seen_accounts == [live_account.pk]
+    assert invoice_status(scenario, invoice) == "paid"
+
+
 def test_auto_charge_is_idempotent_and_a_decline_schedules_the_retry(billing):
     from skeleton.billing.models import BillingAccount, Invoice, Subscription
 

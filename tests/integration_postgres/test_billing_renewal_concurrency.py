@@ -110,3 +110,40 @@ def test_concurrent_plan_changes_allow_at_most_one_pending_upgrade(skeleton_db, 
         engine.settle_invoice(open_inv, now=MAR1 + timedelta(days=10))
         assert base_items.filter(status="active").count() == 1
         assert base_items.filter(status="pending").count() == 0
+
+
+@pytest.mark.needs_example_app
+def test_concurrent_duplicate_webhooks_return_200_and_record_one_event(skeleton_db, settings):
+    """#886: two concurrent deliveries of the same webhook both return 200 and record one ProviderEvent."""
+    from cryptography.fernet import Fernet
+    from django.test import Client
+    from django.urls import reverse
+
+    from skeleton.billing.models import ProviderEvent
+    from skeleton.tenancy.context import system_context
+    from skeleton.testing.billing import FakeProvider, use_fake_provider
+
+    disposable_database_pair()
+    assert connection.vendor == "postgresql"
+    settings.BILLING_ENCRYPTION_KEYS = [Fernet.generate_key().decode()]
+    settings.SKELETON_BILLING_ENABLED = True
+    with use_fake_provider() as (_provider, account):
+        url = reverse("billing_webhooks:receive", kwargs={"provider": "fake", "account_id": account.pk})
+        body, signature = FakeProvider.webhook("pay_race_1", event_id="evt_race_1")
+        barrier = Barrier(2)
+
+        def deliver(_):
+            connections.close_all()
+            try:
+                client = Client()
+                barrier.wait(10)
+                response = client.post(url, body, content_type="application/json", HTTP_X_FAKE_SIGNATURE=signature)
+                return response.status_code
+            finally:
+                connections.close_all()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            statuses = list(pool.map(deliver, range(2), timeout=60))
+        assert statuses == [200, 200]
+        with system_context(reason="test:webhook-race-read"):
+            assert ProviderEvent.objects.filter(provider_account=account, event_id="evt_race_1").count() == 1

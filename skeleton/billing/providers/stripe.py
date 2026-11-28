@@ -210,7 +210,10 @@ class StripeProvider:
             raise WebhookRejected("missing_signature")
         if abs(now.timestamp() - timestamp) > TOLERANCE_SECONDS:
             raise WebhookRejected("stale_timestamp")
-        secret = account.secret("webhook_secret").encode()
+        raw_secret = account.secret("webhook_secret")
+        if not raw_secret:
+            raise WebhookRejected("missing_secret")
+        secret = raw_secret.encode()
         expected = hmac.new(secret, f"{timestamp}.".encode() + body, hashlib.sha256).hexdigest()
         if not any(hmac.compare_digest(expected, candidate) for candidate in signatures):
             raise WebhookRejected("invalid_signature")
@@ -219,6 +222,9 @@ class StripeProvider:
             obj = event["data"]["object"]
         except (ValueError, KeyError, TypeError):
             raise WebhookRejected("invalid_body") from None
+        event_id = str(event.get("id") or "")
+        if not event_id:
+            raise WebhookRejected("missing_event_id")
         kind = str(event.get("type") or "")
         reference = None
         if kind.startswith("payment_intent."):
@@ -227,7 +233,7 @@ class StripeProvider:
             reference = str(obj.get("payment_intent") or obj.get("id") or "") or None
         elif kind.startswith("charge."):
             reference = str(obj.get("payment_intent") or "") or None
-        return VerifiedNotification(event_id=str(event.get("id") or ""), payment_reference=reference, kind=kind)
+        return VerifiedNotification(event_id=event_id, payment_reference=reference, kind=kind)
 
 
 class StripeError(ProviderError):

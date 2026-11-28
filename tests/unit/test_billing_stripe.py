@@ -153,3 +153,21 @@ def test_refund(recorder):  # noqa: F811
     recorder.add("POST", "https://api.stripe.com/v1/refunds", 200, {"id": "re_1", "status": "succeeded"})
     assert STRIPE.refund(Account(), "pi_1", amount=100, idempotency_key="refund:1").status == PaymentState.REFUNDED
     assert recorder.form() == {"payment_intent": "pi_1", "amount": "100"}
+
+
+def test_webhook_rejects_empty_secret_and_empty_event_id():
+    """#886: empty webhook_secret and empty event id are rejected."""
+    import hashlib
+    import hmac
+
+    empty_secret_account = Account(webhook_secret="")
+    empty_sig = hmac.new(b"", b"1767225600." + BODY, hashlib.sha256).hexdigest()
+    with pytest.raises(WebhookRejected) as err:
+        STRIPE.verify_webhook(empty_secret_account, {"stripe-signature": f"t=1767225600,v1={empty_sig}"}, BODY, now=AT)
+    assert err.value.code == "missing_secret"
+
+    no_id_body = b'{"id":"","type":"payment_intent.succeeded","data":{"object":{"id":"pi_1"}}}'
+    valid_sig = hmac.new(b"whsec_test_vector", b"1767225600." + no_id_body, hashlib.sha256).hexdigest()
+    with pytest.raises(WebhookRejected) as id_err:
+        STRIPE.verify_webhook(Account(), {"stripe-signature": f"t=1767225600,v1={valid_sig}"}, no_id_body, now=AT)
+    assert id_err.value.code == "missing_event_id"

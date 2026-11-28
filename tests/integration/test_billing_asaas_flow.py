@@ -97,3 +97,69 @@ def test_asaas_charge_is_paid_by_a_token_webhook_after_the_fetch(skeleton_db, se
     with system_context(reason="test:asaas-chargeback", organization_id=scenario.a.pk):
         refreshed = Invoice.objects.get(pk=invoice.pk)
         assert refreshed.status == "refunded" and refreshed.account.access_state == "suspended"
+
+
+def test_asaas_auto_charge_retry_after_network_drop_does_not_double_charge(skeleton_db, settings, recorder):  # noqa: F811
+    """#886: retry after a dropped response reuses the CONFIRMED charge and settles the invoice once."""
+    from skeleton.billing.models import BillingAccount, Invoice, Price, Product, ProviderAccount, Subscription
+    from skeleton.billing.providers import http as provider_http
+    from skeleton.billing.providers.base import ProviderError
+
+    settings.BILLING_ENCRYPTION_KEYS = [Fernet.generate_key().decode()]
+    scenario = build_service_scenario(Note, slug="billing-asaas-retry")
+    settings.SKELETON_BILLING_ENABLED = True
+    with system_context(reason="test:asaas-retry-catalog"):
+        plan = Product(code="plan-retry", kind="base_plan", name="Plano")
+        plan.save()
+        price = Price(product=plan, currency="BRL", unit_amount=4990)
+        price.save()
+        account = ProviderAccount(provider="asaas", label="Asaas retry", is_default=True)
+        account.set_secrets(api_key="$aact_retry", webhook_secret=TOKEN)
+        account.save()
+
+    with system_context(reason="test:asaas-retry-start", organization_id=scenario.a.pk):
+        engine.start_subscription(price, now=MAR1)
+        Subscription.objects.update(collection="auto_charge")
+        BillingAccount.objects.update(
+            legal_name="Empresa",
+            tax_id="12.345.678/0001-99",
+            provider_account=account,
+            provider_customer_id="cus_retry",
+            payment_method_ref="tok_saved",
+        )
+        invoice = Invoice.objects.get()
+
+    created_charges: list[dict] = []
+    original_call = provider_http.call
+
+    def simulated_asaas(method, url, **kwargs):
+        if method == "GET" and "/payments?externalReference=" in url:
+            return 200, {"data": list(created_charges)}
+        if method == "POST" and url.endswith("/payments"):
+            body = kwargs["json_body"]
+            created_charges.append(
+                {
+                    "id": "pay_once",
+                    "status": "CONFIRMED",
+                    "billingType": "CREDIT_CARD",
+                    "value": body["value"],
+                    "externalReference": body["externalReference"],
+                }
+            )
+            raise ProviderError("timeout", retryable=True)
+        if method == "GET" and url.endswith("/payments/pay_once"):
+            return 200, created_charges[0]
+        return original_call(method, url, **kwargs)
+
+    provider_http.call = simulated_asaas
+    try:
+        with system_context(reason="test:asaas-retry-1", organization_id=scenario.a.pk):
+            with pytest.raises(ProviderError) as err:
+                payments.collect(Invoice.objects.get(pk=invoice.pk), now=MAR1)
+            assert err.value.retryable is True
+        with system_context(reason="test:asaas-retry-2", organization_id=scenario.a.pk):
+            assert payments.collect(Invoice.objects.get(pk=invoice.pk), now=MAR1) == "paid"
+            assert Invoice.objects.get(pk=invoice.pk).status == "paid"
+    finally:
+        provider_http.call = original_call
+    assert len(created_charges) == 1

@@ -98,3 +98,47 @@ def test_brl_only_and_tax_id_required(recorder):  # noqa: F811
         ASAAS.ensure_customer(account(), CustomerData(ORG, "Empresa", "", "", "BR"))
     assert missing.value.code == "tax_id_required"
     assert ASAAS.currencies(account()) == frozenset({"BRL"})
+
+
+def test_charge_saved_method_reuses_confirmed_charge_and_normalizes_reference(recorder):  # noqa: F811
+    """#886: retry after dropped response finds CONFIRMED charge by attempt reference without double-charging."""
+    recorder.add(
+        "GET",
+        f"{SANDBOX_URL}/payments?externalReference=",
+        200,
+        {"data": [{"id": "pay_confirmed", "status": "CONFIRMED", "billingType": "CREDIT_CARD"}]},
+    )
+    result = ASAAS.charge_saved_method(
+        account(), INVOICE, customer_id="cus_1", method_ref="tok_1", idempotency_key="collect:inv:0"
+    )
+    assert (result.reference, result.status) == ("pay_confirmed", PaymentState.SUCCEEDED)
+    assert [method for method, *_ in recorder.sent] == ["GET"]
+
+    recorder.add(
+        "GET",
+        f"{SANDBOX_URL}/payments/pay_confirmed",
+        200,
+        {
+            "id": "pay_confirmed",
+            "status": "CONFIRMED",
+            "value": 49.9,
+            "billingType": "CREDIT_CARD",
+            "externalReference": f"{ORG}:{INV}:abcdef0123456789",
+        },
+    )
+    fetched = ASAAS.fetch_payment(account(), "pay_confirmed")
+    assert fetched.invoice_reference == f"{ORG}:{INV}"
+
+
+def test_webhook_fallback_event_id_distinguishes_transitions():
+    """#886: distinct transitions without payload id produce distinct event_ids."""
+    first = (
+        b'{"event":"PAYMENT_UPDATED","dateCreated":"2026-03-01 10:00:00","payment":{"id":"pay_3","status":"PENDING"}}'
+    )
+    second = (
+        b'{"event":"PAYMENT_UPDATED","dateCreated":"2026-03-01 10:05:00","payment":{"id":"pay_3","status":"RECEIVED"}}'
+    )
+    headers = {"asaas-access-token": "asaas-webhook-token-123"}
+    note1 = ASAAS.verify_webhook(account(), headers, first, now=AT)
+    note2 = ASAAS.verify_webhook(account(), headers, second, now=AT)
+    assert note1.event_id != note2.event_id
