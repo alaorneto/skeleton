@@ -51,3 +51,62 @@ def test_concurrent_renewals_issue_one_invoice(skeleton_db, settings):
     assert results.count(None) == workers - 1 and "2026-000002" in results
     with system_context(reason="test:billing-renewal-read", organization_id=scenario.a.pk):
         assert Invoice.objects.filter(period_start=APR1).count() == 1
+
+
+@pytest.mark.needs_example_app
+def test_concurrent_plan_changes_allow_at_most_one_pending_upgrade(skeleton_db, settings):
+    """#883: two concurrent upgrades serialize on the subscription and only one succeeds."""
+    from datetime import timedelta
+
+    from examples.notes.models import Note
+    from skeleton.billing import engine
+    from skeleton.billing.models import Invoice, Price, Product, SubscriptionItem
+    from skeleton.tenancy.context import system_context
+    from skeleton.testing.service_api import build_service_scenario
+
+    disposable_database_pair()
+    assert connection.vendor == "postgresql"
+    scenario = build_service_scenario(Note, slug="billing-upgrade-race")
+    settings.SKELETON_BILLING_ENABLED = True
+    with system_context(reason="test:billing-upgrade-catalog"):
+        basic = Product(code="basic-race", kind="base_plan", name="Básico")
+        pro = Product(code="pro-race", kind="base_plan", name="Pro")
+        ent = Product(code="ent-race", kind="base_plan", name="Enterprise")
+        for product in (basic, pro, ent):
+            product.save()
+        basic_p = Price(product=basic, currency="BRL", unit_amount=10000)
+        pro_p = Price(product=pro, currency="BRL", unit_amount=20000)
+        ent_p = Price(product=ent, currency="BRL", unit_amount=30000)
+        for price in (basic_p, pro_p, ent_p):
+            price.save()
+    with system_context(reason="test:billing-upgrade-start", organization_id=scenario.a.pk):
+        engine.start_subscription(basic_p, now=MAR1)
+        engine.settle_invoice(Invoice.objects.get(), now=MAR1)
+
+    barrier = Barrier(2)
+    targets = [pro_p, ent_p]
+
+    def upgrade(price):
+        connections.close_all()
+        try:
+            with system_context(reason="test:billing-upgrade", organization_id=scenario.a.pk):
+                barrier.wait(10)
+                try:
+                    engine.change_plan(price, now=MAR1 + timedelta(days=10))
+                    return "ok"
+                except engine.PlanChangePending:
+                    return "pending"
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(upgrade, targets, timeout=60))
+    assert sorted(results) == ["ok", "pending"]
+    with system_context(reason="test:billing-upgrade-verify", organization_id=scenario.a.pk):
+        base_items = SubscriptionItem.objects.filter(price__product__kind="base_plan")
+        assert base_items.filter(status="active").count() == 1
+        assert base_items.filter(status="pending").count() == 1
+        open_inv = Invoice.objects.get(status="open")
+        engine.settle_invoice(open_inv, now=MAR1 + timedelta(days=10))
+        assert base_items.filter(status="active").count() == 1
+        assert base_items.filter(status="pending").count() == 0

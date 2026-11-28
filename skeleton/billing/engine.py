@@ -146,6 +146,28 @@ def _invalid(field: str, message: str, code: str) -> ValidationError:
     return ValidationError({field: ValidationError(message, code=code)})
 
 
+class SubscriptionNotActive(ValidationError):
+    """Raised when an incomplete subscription cannot accept item or plan changes (#883)."""
+
+
+class PlanChangePending(ValidationError):
+    """Raised when a base-plan change is already pending payment (#883)."""
+
+
+def _require_active(subscription: Any) -> None:
+    from .models import Subscription
+
+    if subscription.status == Subscription.Status.INCOMPLETE:
+        raise SubscriptionNotActive(
+            {
+                "subscription": ValidationError(
+                    gettext("A assinatura inicial precisa estar paga antes de alterar itens ou plano."),
+                    code="subscription_not_active",
+                )
+            }
+        )
+
+
 def _publish(code: str, record: Any, data: dict[str, Any]) -> None:
     from skeleton.events.services import publish_event
 
@@ -343,7 +365,7 @@ def issue_invoice(
 
 def settle_invoice(invoice: Any, *, now: datetime | None = None) -> Any:
     """Mark ``invoice`` paid and turn the items it charged into rights; idempotent."""
-    from .models import Invoice, Subscription, SubscriptionItem
+    from .models import Invoice, InvoiceLine, Subscription, SubscriptionItem
 
     now = _now(now)
     invoice = Invoice.objects.select_for_update().get(pk=invoice.pk)
@@ -368,7 +390,13 @@ def settle_invoice(invoice: Any, *, now: datetime | None = None) -> Any:
     subscription = invoice.subscription
     if subscription is not None:
         subscription = Subscription.objects.select_for_update().get(pk=subscription.pk)
-        if subscription.status == Subscription.Status.INCOMPLETE:
+        if (
+            subscription.status == Subscription.Status.INCOMPLETE
+            and invoice.lines.filter(kind=InvoiceLine.Kind.SUBSCRIPTION).exists()
+            and not subscription.invoices.filter(
+                status__in=(Invoice.Status.OPEN, Invoice.Status.UNCOLLECTIBLE)
+            ).exists()
+        ):
             subscription.status = Subscription.Status.ACTIVE
             fields = {"status"}
             if now > subscription.current_period_start:
@@ -463,6 +491,10 @@ def start_subscription(price: Any, *, now: datetime | None = None, quantity: int
 
     now = _now(now)
     _require_price(price)
+    if type(quantity) is not int or quantity < 1:
+        raise _invalid("quantity", gettext("Use uma quantidade inteira positiva."), "invalid_quantity")
+    if price.product.kind == Product.Kind.BASE_PLAN and quantity != 1:
+        raise _invalid("quantity", gettext("O plano base tem quantidade fixa igual a 1."), "invalid_quantity")
     billing_account = ensure_account(currency=price.currency)
     if price.currency != billing_account.currency:
         raise _invalid("price", gettext("O preço está em outra moeda que a da conta."), "currency_mismatch")
@@ -554,6 +586,7 @@ def add_item(price: Any, *, now: datetime | None = None, quantity: int = 1) -> A
     subscription = current_subscription(lock=True)
     if subscription is None:
         return start_subscription(price, now=now, quantity=quantity).items.get()
+    _require_active(subscription)
     _require_cycle(subscription, price)
     if product.kind == Product.Kind.APP:
         if product.app_label in included_apps(subscription, now=now):
@@ -628,7 +661,20 @@ def change_plan(price: Any, *, now: datetime | None = None) -> Any:
     subscription = current_subscription(lock=True)
     if subscription is None:
         return start_subscription(price, now=now)
+    _require_active(subscription)
     _require_cycle(subscription, price)
+    if subscription.items.filter(
+        status=SubscriptionItem.Status.PENDING,
+        price__product__kind=Product.Kind.BASE_PLAN,
+    ).exists():
+        raise PlanChangePending(
+            {
+                "price": ValidationError(
+                    gettext("Já existe uma troca de plano aguardando pagamento."),
+                    code="plan_change_pending",
+                )
+            }
+        )
     current = [item for item in live_items(subscription, now=now) if item.price.product.kind == Product.Kind.BASE_PLAN]
     old = current[0] if current else None
     if old is not None and old.price_id == price.pk:
