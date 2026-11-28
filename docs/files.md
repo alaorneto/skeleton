@@ -1,47 +1,45 @@
 # Arquivos e anexos
 
-O núcleo guarda arquivos num **armazenamento privado** (`skeleton/files`, label `sk_files`), nunca público: os bytes só saem por uma view autorizada.
+O núcleo armazena arquivos exclusivamente em **armazenamento privado** (`skeleton/files`, label `sk_files`), sem URLs públicas diretas: os bytes só são entregues por views que validam a autorização a cada requisição.
 
 ## Armazenamento privado
 
-`STORAGES["skeleton_files"]` é configurado em `skeleton/conf/base.py` e nos perfis:
+`STORAGES["skeleton_files"]` é configurado em `skeleton/conf/base.py` e nos perfis de ambiente:
 
 | Variável | Efeito |
 |---|---|
-| `SKELETON_FILES_BACKEND=local` (padrão) | `FileSystemStorage` em `SKELETON_FILES_ROOT` (padrão `var/files` do projeto), sem `base_url` |
-| `SKELETON_FILES_BACKEND=s3` | `storages.backends.s3.S3Storage` com `default_acl=private`, URLs assinadas de no máximo 60 s e sem sobrescrita. Exige o extra opcional `django-skeleton[s3]` (`django-storages`, `boto3`) e `SKELETON_FILES_S3_BUCKET` (com `SKELETON_FILES_S3_REGION`/`SKELETON_FILES_S3_ENDPOINT` opcionais) |
-| `SKELETON_UPLOAD_MAX_BYTES` | Limite de todo corpo multipart, da API e das páginas (padrão 10 MB), aplicado pelo upload handler `skeleton.common.uploads.BoundedUploadHandler` antes de gravar em memória ou disco (#242); o upload de pacotes da plataforma usa `SKELETON_PACKAGE_MAX_BYTES` |
-| `SKELETON_FILES_ORG_QUOTA_BYTES` | Cota padrão: soma máxima dos anexos vivos de uma organização; vazio é ilimitado. Acima dela, 409 `quota_exceeded`. A plataforma pode sobrescrevê-la por organização (veja [Cota por organização](#cota-por-organização)) |
+| `SKELETON_FILES_BACKEND=local` (padrão) | Usa `FileSystemStorage` em `SKELETON_FILES_ROOT` (padrão `var/files` do projeto), sem `base_url` |
+| `SKELETON_FILES_BACKEND=s3` | Usa `storages.backends.s3.S3Storage` com `default_acl=private`, URLs pré-assinadas de no máximo 60 s e sem sobrescrita. Exige o extra opcional `django-skeleton[s3]` (`django-storages` e `boto3`) e `SKELETON_FILES_S3_BUCKET` (com `SKELETON_FILES_S3_REGION` e `SKELETON_FILES_S3_ENDPOINT` opcionais) |
+| `SKELETON_UPLOAD_MAX_BYTES` | Limite máximo de qualquer corpo multipart na API e nas páginas (padrão 10 MB), aplicado pelo upload handler `skeleton.common.uploads.BoundedUploadHandler` antes de gravar em memória ou disco. O upload de pacotes da plataforma usa `SKELETON_PACKAGE_MAX_BYTES` |
+| `SKELETON_FILES_ORG_QUOTA_BYTES` | Cota padrão para a soma de anexos vivos de uma organização (vazio significa ilimitado). Acima desse limite, o envio responde 409 `quota_exceeded`. A plataforma pode sobrescrever esse valor por organização (veja [Cota por organização](#cota-por-organização)) |
 
-`skeleton/files/storage.py` oferece `put_stream`, `open_object`, `delete`, `presigned_url` e `list_prefix`. As chaves são sempre `org/<organização>/<anexo>`, dois UUIDs: o nome de arquivo do usuário nunca entra na chave, então não atravessa diretórios, não colide e não vaza numa URL. `put_stream` grava a chave exata, recusa objeto existente e interrompe acima do limite.
+O módulo `skeleton/files/storage.py` expõe `put_stream`, `open_object`, `delete`, `presigned_url` e `list_prefix`. As chaves seguem sempre o padrão `org/<organização>/<anexo>`, usando dois UUIDs: o nome original enviado pelo usuário nunca entra na chave, evitando travessia de diretórios, colisões ou vazamento de informação em URLs. `put_stream` grava na chave exata, recusa sobrescrever objetos existentes e interrompe a gravação caso o tamanho exceda o limite.
 
-`put_stream` mede e limita o tamanho na leitura (`read()`), que todo backend usa: o local lê por `File.chunks()` e o S3 do django-storages lê direto por `read()`, sem nunca chamar `chunks()`. O tamanho gravado, o digest e a reserva de cota vêm dos bytes lidos, nunca do `Content-Length` do cliente, e o arquivo acima do limite é recusado (`ObjectTooLarge`, 413) sem deixar objeto. Um storage de teste que salva como o S3 (`tests/support.py`, `ReadBasedStorage`) cobre esse caminho (#225).
+A medição e a limitação de tamanho em `put_stream` acontecem durante a leitura (`read()`), caminho comum a todos os backends — o armazenamento local lê via `File.chunks()`, enquanto o S3 do `django-storages` lê diretamente por `read()`, sem chamar `chunks()`. Tamanho gravado, hash e reserva de cota são calculados exclusivamente a partir dos bytes lidos, nunca pelo cabeçalho `Content-Length` enviado pelo cliente; arquivos acima do limite são recusados (`ObjectTooLarge`, 413) sem deixar objeto gravado. Um storage de teste que grava como o S3 (`tests/support.py`, `ReadBasedStorage`) exercita esse caminho.
 
-O check de deploy `skeleton.E024` (`manage.py check --deploy`) reprova armazenamento ausente, local sem `location`, dentro de `STATIC_ROOT` ou com `base_url`, e S3 com ACL pública, URL sem assinatura ou domínio público.
+O check de deploy `skeleton.E024` (`manage.py check --deploy`) reprova armazenamento ausente, backend local sem `location`, dentro de `STATIC_ROOT` ou com `base_url`, bem como backend S3 com ACL pública, URL sem assinatura ou domínio público.
 
-**Marca pública do endereço da organização (#484).** É uma das duas saídas de bytes do armazenamento privado sem autenticação (a outra é a marca da instância, abaixo). Com o endereço próprio ligado pelo administrador ([privacidade](privacy.md#endereço-próprio-da-organização)), `/site/logo/` serve o logo **só no host da organização** e só pela chave gravada no índice `OrganizationSite` por `sync_site`; a chave tem de estar sob `org/<uuid da organização do host>/branding/`, o tipo é provado de novo pelo conteúdo (`LOGO_TYPES`), e a resposta leva `Cache-Control: public, max-age=300`, `nosniff` e CSP `sandbox`. No domínio principal a rota é 404; o logo das páginas `/o/<org>/` continua o de membros (`/o/<org>/settings/logo/`). O ícone da organização (#485) segue as mesmas regras: chave viva para o job de órfãos (`files.orphans` não apaga o `icon_key` atual e apaga o substituído depois do prazo de carência, como o logo), público só por `/site/icon/` no host da organização e só pela chave do índice, só PNG. `/favicon.ico` redireciona para ele no host da organização e para o favicon padrão em qualquer outro host. Nenhum outro arquivo de `skeleton/files` fica alcançável assim.
+**Marca pública do endereço da organização.** É uma das duas exceções em que bytes do armazenamento privado saem sem autenticação (a outra é a marca da instância, abaixo). Quando o administrador ativa o endereço próprio da organização ([privacidade](privacy.md#endereço-próprio-da-organização)), `/site/logo/` serve o logo **exclusivamente no host da organização**, usando apenas a chave registrada no índice `OrganizationSite` por `sync_site`. A chave precisa estar sob `org/<uuid da organização do host>/branding/`, o tipo do arquivo é validado novamente pelo conteúdo (`LOGO_TYPES`), e a resposta inclui `Cache-Control: public, max-age=300`, `nosniff` e CSP `sandbox`. No domínio principal, a rota retorna 404; nas páginas autenticadas `/o/<org>/`, o logo continua sendo servido por `/o/<org>/settings/logo/`.
 
-**Marca da instância (#596, #597).** O logo, o logo para o modo escuro e o ícone da instância ([aparência](appearance.md#imagens)) ficam sob `platform/branding/<uuid4>`, a única forma de chave fora de `org/<organização>/` que `skeleton/files/storage.py` aceita (em `KEY` e em `list_prefix`). Eles são públicos por decisão do administrador da plataforma: `/brand/logo/`, `/brand/logo-dark/` e `/brand/icon/` servem, sem autenticação e em qualquer host, só as três chaves da linha única `InstanceBrand`, com o tipo provado de novo pelo conteúdo e os mesmos cabeçalhos da marca do endereço da organização (`public, max-age=300`, `nosniff`, CSP `sandbox`). Não há parâmetro de caminho; uma chave `platform/branding/…` nunca é servida pelas rotas de organização (`open_site_image` exige o prefixo da organização). Os órfãos desse prefixo saem pelo job global `appearance.orphans`, não por `files.orphans`.
+O ícone da organização segue as mesmas regras: é chave viva para `files.orphans` (que preserva o `icon_key` atual e remove o anterior após o prazo de carência, assim como o logo), fica acessível publicamente apenas por `/site/icon/` no host da organização e pela chave do índice, aceitando somente PNG. `/favicon.ico` redireciona para esse ícone no host da organização e para o favicon padrão nos demais hosts. Nenhum outro arquivo de `skeleton/files` fica exposto dessa forma.
+
+**Marca da instância.** O logo, o logo para modo escuro e o ícone da instância ([aparência](appearance.md#imagens)) ficam sob `platform/branding/<uuid4>`, único formato de chave fora de `org/<organização>/` aceito por `skeleton/files/storage.py` (em `KEY` e `list_prefix`). Como são públicos por decisão do administrador da plataforma, `/brand/logo/`, `/brand/logo-dark/` e `/brand/icon/` servem, sem autenticação e em qualquer host, apenas as três chaves da linha única `InstanceBrand`, revalidando o tipo pelo conteúdo e enviando os mesmos cabeçalhos (`public, max-age=300`, `nosniff`, CSP `sandbox`). Não há parâmetro de caminho, e chaves `platform/branding/…` nunca são servidas pelas rotas de organização (`open_site_image` exige o prefixo da organização). Objetos órfãos desse prefixo são limpos pelo job global `appearance.orphans`, não por `files.orphans`.
 
 ## Locais de armazenamento da plataforma
 
-Uma instância de produto guarda os arquivos de cada organização num **local de armazenamento** próprio, um bucket cobrado por GB à parte, escolhido pela plataforma e nunca visível para a organização ([#704](https://github.com/alaorneto/skeleton/issues/704), [#705](https://github.com/alaorneto/skeleton/issues/705), [#706](https://github.com/alaorneto/skeleton/issues/706); [configurações geridas pela plataforma](managed-settings.md)).
+Em uma instância de produto, os arquivos de cada organização podem ser direcionados para um **local de armazenamento** dedicado — como um bucket S3 cobrado por GB à parte — escolhido pela plataforma e invisível para a organização ([#704](https://github.com/alaorneto/skeleton/issues/704), [#705](https://github.com/alaorneto/skeleton/issues/705), [#706](https://github.com/alaorneto/skeleton/issues/706); [configurações geridas pela plataforma](managed-settings.md)).
 
-**Catálogo (`StorageLocation`, `SystemRecord` global).** Em `/platform/storage/`, o administrador da plataforma cadastra, testa, edita e desativa locais: S3 compatível (`bucket_name`, `region_name`, `endpoint_url` só `https://`, sem credencial na URL, `addressing_style`, `key_prefix` e a credencial `access_key_id`/`secret_access_key`) ou, só nos perfis de desenvolvimento e teste (`SKELETON_FILES_DIRECTORY_LOCATIONS`), um subdiretório de `SKELETON_FILES_LOCATIONS_ROOT`. A chave secreta é cifrada com o keyring `FILES_STORAGE_ENCRYPTION_KEYS` (sem ele, salvar um local S3 é recusado; uma chave inválida reprova a partida com `skeleton.E026`), sai `[REDACTED]` na auditoria (`access_key_id` e `secret_access_key` são `sensitive_fields`) e nunca é exibida; editar com o campo vazio mantém a gravada. Um local pode ser o **padrão** das organizações novas (no máximo um). "Testar conexão" faz um `head_bucket` com timeout de 10 s (ou grava e apaga um arquivo no diretório) e responde só sucesso ou um erro genérico, sem a resposta do servidor. Os backends S3 são sempre privados (`default_acl=private`, URLs assinadas de no máximo 60 s, sem domínio público), e o `key_prefix` entra pelo `location` do backend: as chaves lógicas continuam iguais.
-
-**Por organização (`OrganizationStorage`).** Uma linha global liga a organização a um local; sem ela, vale o armazenamento da instância. `skeleton/files/storage.py` resolve o backend pela chave: `storage_for_key("org/<uuid>/...")` usa o local da organização (`storage_for_organization`), e `platform/...` sempre o da instância (`private_storage()`, que fica só para essas chaves, para o setup e para as organizações sem local). `put_stream`, `open_object`, `delete`, `presigned_url`, `list_prefix` e o job de órfãos passam por ela, então anexos, logo, ícone e os arquivos de exportação e importação CSV de uma organização ficam no local dela. A resolução fica em cache por processo por 60 s (vários nós não compartilham memória) e é esquecida no processo que grava uma atribuição ou um local. `X-Accel-Redirect` e `X-Sendfile` só valem para o armazenamento local da instância; um objeto de outro local é entregue por URL assinada ou em stream.
-
-**Trocar o local.** Na página da organização (`/platform/organizations/<id>/`, linha "Local de armazenamento"), `assign_storage` troca o local só enquanto a organização não tem arquivos: um anexo que não foi expurgado, uso contado em `StorageUsage` ou qualquer objeto sob os prefixos dela recusam com `storage_in_use`. Os arquivos nunca são movidos entre locais. Desativar um local em uso também é recusado.
-
-**Na criação.** `create_organization(..., storage_location=...)` recebe o local escolhido no formulário de nova organização da plataforma; sem escolha, o local padrão ativo; sem padrão, o armazenamento da instância. Um local inativo recusa a criação inteira.
-
-**Receita de cobrança por GB.** O espaço vem do [plano base](billing.md#cotas): `Price.included_storage_bytes` é o espaço pré-definido, e `storage_overage="bill"` com `overage_unit_bytes=1073741824` (1 GiB) e `overage_unit_amount` (o valor por GB adicional) cobra o excesso; um produto do tipo `storage_pack` vende pacotes de espaço. A [cota da plataforma](#cota-por-organização) (`StorageQuota`) continua sendo o teto manual.
+- **Catálogo (`StorageLocation`, `SystemRecord` global).** Em `/platform/storage/`, o administrador da plataforma cadastra, testa, edita e desativa locais: backends S3 compatíveis (`bucket_name`, `region_name`, `endpoint_url` apenas `https://` e sem credenciais na URL, `addressing_style`, `key_prefix`, `access_key_id` e `secret_access_key`) ou, exclusivamente nos perfis de desenvolvimento e teste (`SKELETON_FILES_DIRECTORY_LOCATIONS`), subdiretórios sob `SKELETON_FILES_LOCATIONS_ROOT`. A chave secreta é cifrada com o keyring `FILES_STORAGE_ENCRYPTION_KEYS` (salvar um local S3 sem esse keyring é recusado, e uma chave inválida reprova a partida com `skeleton.E026`), aparece como `[REDACTED]` na auditoria (`access_key_id` e `secret_access_key` são `sensitive_fields`) e nunca é exibida; ao editar, deixar o campo vazio mantém a chave gravada. No máximo um local pode ser marcado como **padrão** para novas organizações. A ação "Testar conexão" executa um `head_bucket` com timeout de 10 s (ou grava e remove um arquivo no diretório) e informa apenas sucesso ou erro genérico, sem expor a resposta do servidor. Todos os backends S3 são sempre privados (`default_acl=private`, URLs assinadas de no máximo 60 s, sem domínio público), e `key_prefix` entra como `location` do backend, preservando as chaves lógicas.
+- **Atribuição por organização (`OrganizationStorage`).** Uma linha global associa a organização a um local; na ausência dela, vale o armazenamento padrão da instância. `skeleton/files/storage.py` resolve o backend a partir da chave: `storage_for_key("org/<uuid>/...")` seleciona o local da organização (`storage_for_organization`), enquanto `platform/...` usa sempre o armazenamento da instância (`private_storage()`, usado também no setup e em organizações sem local atribuído). Como `put_stream`, `open_object`, `delete`, `presigned_url`, `list_prefix` e `files.orphans` passam por essa resolução, anexos, logo, ícone e arquivos de exportação e importação CSV da organização ficam todos no local atribuído. O mapeamento fica em cache por processo por 60 s (nós distintos não compartilham memória) e é invalidado no processo que grava um local ou uma atribuição. `X-Accel-Redirect` e `X-Sendfile` aplicam-se apenas ao armazenamento local da instância; objetos de outros locais saem por URL pré-assinada ou em stream.
+- **Troca e desativação de local.** Na página da organização (`/platform/organizations/<id>/`, linha "Local de armazenamento"), `assign_storage` permite trocar o local apenas enquanto a organização não possui arquivos: qualquer anexo ainda não expurgado, uso registrado em `StorageUsage` ou objeto remanescente sob os prefixos da organização recusa a troca com `storage_in_use`. Arquivos nunca são migrados automaticamente entre locais, e desativar um local em uso também é recusado.
+- **Na criação da organização.** `create_organization(..., storage_location=...)` recebe o local escolhido no formulário da plataforma; se omitido, usa o local padrão ativo ou, na falta dele, o armazenamento da instância. Informar um local inativo recusa a criação por completo.
+- **Cobrança por GB.** O espaço incluído vem do [plano base](billing.md#cotas): `Price.included_storage_bytes` define a franquia, e `storage_overage="bill"` com `overage_unit_bytes=1073741824` (1 GiB) e `overage_unit_amount` (valor por GB adicional) cobra o excedente; produtos do tipo `storage_pack` vendem pacotes extras de espaço. A [cota da plataforma](#cota-por-organização) (`StorageQuota`) continua atuando como teto manual.
 
 ## Anexos
 
-`sk_files.Attachment` (`OrganizationRecord`, auditado) guarda os metadados de um arquivo anexado a um registro: `target_table` (FK PROTECT ao catálogo), `target_sysid`, `filename`, `content_type`, `size`, `sha256`, `storage_key` (sensível, redigido na auditoria e nunca devolvido), `state` (`pending`, `available`, `quarantined`, `rejected`), `scanned_at` e `scan_result_code`. Os bytes ficam no armazenamento privado.
+`sk_files.Attachment` (`OrganizationRecord`, auditado) registra os metadados de cada arquivo anexado a um registro: `target_table` (FK `PROTECT` para o catálogo), `target_sysid`, `filename`, `content_type`, `size`, `sha256`, `storage_key` (campo sensível, redigido na auditoria e nunca devolvido), `state` (`pending`, `available`, `quarantined`, `rejected`), `scanned_at` e `scan_result_code`. Os bytes permanecem no armazenamento privado.
 
-Uma tabela opta por anexos no `TableSpec`:
+Para habilitar anexos em uma tabela, declare `AttachmentPolicy` no `TableSpec`:
 
 ```python
 from skeleton.system.registry import AttachmentPolicy, TableSpec
@@ -53,82 +51,93 @@ TableSpec(..., attachments=AttachmentPolicy(max_bytes=5 * 1024 * 1024, types=("a
 |---|---|
 | Tabela sem opt-in | 404 |
 | Tabela que não é exposta nem [derivada](access-control.md#tabelas-derivadas) | 404 |
-| Alvo de outra organização, inexistente, excluído ou não legível | 404 (um alvo excluído esconde os anexos) |
-| Listar | exige leitura do alvo |
-| Enviar, remover, restaurar | exigem update do alvo; quem só lê recebe 403 |
-| Tipo pelo conteúdo fora da política, ou extensão incoerente | 400 |
-| Acima de `max_bytes` ou de `SKELETON_UPLOAD_MAX_BYTES` | 413 |
-| Remover e restaurar | exigem `If-Match` (428 sem ele, 412 com revisão antiga) |
+| Alvo de outra organização, inexistente, excluído ou não legível | 404 (um alvo excluído oculta seus anexos) |
+| Listar anexos | Exige permissão de leitura no alvo |
+| Enviar, remover ou restaurar anexo | Exigem permissão de `update` no alvo; quem só lê recebe 403 |
+| Tipo detectado pelo conteúdo fora da política, ou extensão incompatível | 400 |
+| Tamanho acima de `max_bytes` ou de `SKELETON_UPLOAD_MAX_BYTES` | 413 |
+| Remover e restaurar | Exigem `If-Match` (428 sem o cabeçalho, 412 com revisão antiga) |
 
-Uma [tabela derivada](access-control.md#tabelas-derivadas) (#563) aceita anexos com a mesma política: a autorização é a do registro âncora, com a ação mapeada (ler e baixar pedem `read`; enviar e remover, `update`). A app usa o `FileService` e mostra os anexos nas próprias páginas: as rotas genéricas de envio e remoção e o painel da página de registro continuam só para tabelas expostas. A rota de download aceita os dois tipos de tabela e reautoriza a cada pedido, de modo que revogar a concessão na âncora corta o download seguinte. O expurgo `files.purge` trata o anexo de um filho como qualquer outro, e um filho selado com anexos congelados recusa anexo novo.
+Uma [tabela derivada](access-control.md#tabelas-derivadas) também aceita anexos com a mesma política: a autorização vem do registro âncora com a ação mapeada (ler e baixar exigem `read`; enviar e remover exigem `update`). Nesses casos, a app usa `FileService` e exibe os anexos em suas próprias páginas, pois as rotas genéricas de envio e remoção e o painel da página de registro aplicam-se apenas a tabelas expostas. A rota de download atende ambos os tipos e reautoriza a cada pedido, de modo que revogar a concessão na âncora bloqueia imediatamente o próximo download. O expurgo (`files.purge`) trata anexos de tabelas derivadas como quaisquer outros, e filhos selados com anexos congelados recusam novos envios.
 
-O tipo é detectado pelos primeiros bytes (PDF, PNG, JPEG, GIF, WebP, ZIP/DOCX/XLSX e texto UTF-8 para `.txt`/`.csv`), numa tabela de assinaturas no código, e precisa coincidir com a extensão; o `Content-Type` enviado pelo cliente é ignorado. A tabela própria substituiu a dependência `filetype` prevista no plano: reconhece só os tipos que uma política pode permitir e não acrescenta pacote aos locks. HTML e SVG nunca são aceitos.
+O tipo MIME é identificado pelos primeiros bytes do arquivo (PDF, PNG, JPEG, GIF, WebP, ZIP, DOCX, XLSX e texto UTF-8 para `.txt` e `.csv`) por meio de uma tabela de assinaturas mantida em código e precisa coincidir com a extensão; o `Content-Type` informado pelo cliente é ignorado. Essa tabela própria evita dependências externas nos locks e reconhece apenas os tipos suportados pelas políticas. HTML e SVG nunca são aceitos.
 
-Sem antivírus configurado, o anexo nasce `available`; com ele, nasce `pending` (veja [Antivírus](#antivírus)). Se a gravação da linha falhar, o objeto já gravado é apagado. Remover é exclusão lógica: os bytes ficam, para que restaurar funcione, e só o expurgo do epic de LGPD os removerá.
+Sem antivírus configurado, o anexo nasce `available`; com antivírus, nasce `pending` (veja [Antivírus](#antivírus)). Se a gravação no banco falhar após o upload, o objeto gravado no storage é removido. Remover um anexo faz apenas exclusão lógica — os bytes são mantidos para permitir restauração até o expurgo previsto na retenção.
 
 | Superfície | Rota |
 |---|---|
-| API | `GET/POST /api/v1/o/<org>/tables/<table_key>/records/<sysid>/attachments/` (multipart, campo `file`), `DELETE .../attachments/<id>/`, `POST .../attachments/<id>/restore/` |
-| HTML | Painel "Anexos" no detalhe do registro, com envio (`multipart/form-data`) e remoção por formulário. Um envio sem arquivo, acima do limite ou além da cota volta ao registro com a mensagem ("Selecione um arquivo.", "O arquivo excede o limite de 10 MB.", cota atingida), sem página de erro; a política da tabela é conferida antes (#473) |
+| API | `GET` e `POST /api/v1/o/<org>/tables/<table_key>/records/<sysid>/attachments/` (multipart, campo `file`), `DELETE .../attachments/<id>/`, `POST .../attachments/<id>/restore/` |
+| HTML | Painel "Anexos" na página de detalhe do registro, com envio (`multipart/form-data`) e remoção via formulário. Envios sem arquivo, acima do limite ou além da cota retornam à página do registro com a mensagem apropriada ("Selecione um arquivo.", "O arquivo excede o limite de 10 MB." ou aviso de cota atingida), sem página de erro; a política da tabela é verificada antes |
 
 ### Anexos de registro selado (#529)
 
-Num registro selado ([modelo de dados](data-model.md#registros-selados-526)) cuja tabela declara `SealPolicy(attachments="frozen")` (o padrão), upload, remoção e restauração de anexo respondem 409 `record_sealed` nas páginas, na API e no `FileService` (`Conflict("record_sealed")`); o download continua permitido. Os anexos vivos (`sysid`, `sha256`, `size`, `filename`, em ordem de `sysid`) entram no resumo do selo, e `verify` acusa um anexo trocado depois. A operação trava a linha do registro antes de conferir o selo, então um selo concorrente ou espera o anexo (e o inclui) ou vem antes e o recusa. Como um anexo de selado congelado não pode ser excluído, o expurgo (`files.purge`) nunca o alcança. Com `attachments="open"`, os anexos seguem livres e ficam fora do resumo. A cota de armazenamento não muda.
+Em um registro selado ([modelo de dados](data-model.md#registros-selados-526)) cuja tabela declara `SealPolicy(attachments="frozen")` (padrão), envio, remoção e restauração de anexos são recusados com 409 `record_sealed` nas páginas e na API, e com `Conflict("record_sealed")` no `FileService`; o download continua permitido. Os anexos vivos (`sysid`, `sha256`, `size` e `filename`, ordenados por `sysid`) compõem o resumo do selo, de modo que `verify` detecta qualquer alteração posterior.
+
+A operação trava a linha do registro antes de verificar o selo: um selo concorrente ou aguarda o anexo (incluindo-o) ou conclui antes e recusa o envio. Como anexos congelados não podem ser excluídos, `files.purge` nunca os remove. Com `attachments="open"`, os anexos seguem livres e ficam fora do resumo do selo. A cota de armazenamento não é alterada por essa regra.
 
 ## Download
 
-Arquivos só saem por `/o/<org>/tables/<table_key>/<sysid>/attachments/<id>/download/`, que autoriza **a cada pedido**: leitura do alvo, anexo vivo e no estado `available`. Inexistente, excluído, `pending`, `quarantined`, `rejected` e não autorizado respondem 404, e a revogação vale no pedido seguinte. Não há URL pública.
+Anexos só são baixados por `/o/<org>/tables/<table_key>/<sysid>/attachments/<id>/download/`, que revalida a autorização **a cada pedido**: exige leitura do alvo, anexo vivo e estado `available`. Anexos inexistentes, excluídos, `pending`, `quarantined`, `rejected` ou sem permissão respondem 404, e qualquer revogação de acesso passa a valer na requisição seguinte. Não há URL pública.
 
-O middleware tenant recusa respostas em streaming dentro do contexto do banco. A view devolve uma `DetachedFileResponse` (`skeleton/common/responses.py`) só com valores prontos (chave, nome e tipo). Depois que a transação comita e os contextos terminam, o middleware a transforma na resposta real, que lê os bytes do armazenamento **sem nenhuma consulta ao ORM**.
+Como o middleware de tenant recusa respostas em streaming enquanto a transação e o contexto de banco estão abertos, a view devolve uma `DetachedFileResponse` (`skeleton/common/responses.py`) contendo apenas os valores já resolvidos (chave, nome e tipo). Somente após o commit da transação e o encerramento dos contextos o middleware converte esse objeto na resposta final, lendo os bytes do storage **sem executar nenhuma consulta ao ORM**.
 
 | Entrega | Configuração |
 |---|---|
-| Streaming pelo Django (padrão) | `FileResponse` lendo do armazenamento local |
+| Streaming pelo Django (padrão) | `FileResponse` lendo diretamente do armazenamento local |
 | Nginx | `SKELETON_FILES_ACCEL=nginx` e `SKELETON_FILES_ACCEL_PREFIX` (padrão `/_protected/`): resposta vazia com `X-Accel-Redirect: <prefixo>/<chave>` |
-| Apache/lighttpd | `SKELETON_FILES_ACCEL=sendfile`: `X-Sendfile` com o caminho local |
-| S3 | Redirecionamento para URL pré-assinada de no máximo 60 s, com `Content-Disposition: attachment` forçado |
+| Apache ou lighttpd | `SKELETON_FILES_ACCEL=sendfile`: envia `X-Sendfile` com o caminho local |
+| S3 | Redirecionamento para URL pré-assinada de no máximo 60 s, forçando `Content-Disposition: attachment` |
 
-Toda resposta leva `Content-Disposition: attachment` (nome em RFC 5987), `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox`, `Cache-Control: no-store` e `Referrer-Policy: no-referrer`. Nada é servido inline, nem imagens nesta fase; um tipo fora da lista segura (HTML, SVG) sai como `application/octet-stream`.
+Toda resposta de download inclui `Content-Disposition: attachment` (nome codificado segundo a RFC 5987), `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox`, `Cache-Control: no-store` e `Referrer-Policy: no-referrer`. Nenhum anexo é servido inline (nem imagens); tipos fora da lista segura (como HTML ou SVG) saem como `application/octet-stream`.
 
 ### Download pelo portal (#534)
 
-Uma pessoa externa baixa um anexo só pelo [portal](portal.md), em `/portal/<org>/files/<attachment_id>/`, e só quando a tabela declara em código `AttachmentPolicy(..., external_reader=função)`: a função recebe o registro alvo vivo e a pessoa e devolve se ela pode ler. Sem a função, nenhum anexo da tabela sai pelo portal. Anexo excluído, expurgado, pendente, em quarentena, de outra organização ou negado pela função responde 404, como no download de membro; a view reautoriza a cada requisição e serve os bytes depois da transação. O portal não faz upload, remoção nem restauração (só `GET`). `FileService().external_download_url(actor=..., attachment_id=...)` (`allow_external=True`) dá o endereço a uma view de portal da app. Como o download de membro, o do portal não grava auditoria nem log próprio.
+Pessoas externas baixam anexos exclusivamente pelo [portal](portal.md), na rota `/portal/<org>/files/<attachment_id>/`, e somente quando a tabela declara `AttachmentPolicy(..., external_reader=função)` em código. Essa função recebe o registro-alvo vivo e a pessoa externa e decide se ela pode lê-lo; sem `external_reader`, nenhum anexo da tabela é exposto no portal.
+
+Anexos excluídos, expurgados, pendentes, em quarentena, de outra organização ou recusados pela função respondem 404, seguindo o mesmo padrão do download de membros. A view reautoriza a cada requisição e entrega os bytes apenas após a transação. O portal permite somente `GET` (não há upload, remoção nem restauração). Para montar o endereço em views de portal, a app usa `FileService().external_download_url(actor=..., attachment_id=...)` (`allow_external=True`). Assim como o download de membros, o download pelo portal não grava auditoria nem log próprio.
 
 ## Cota por organização
 
-O contador fica em `StorageUsage` ([tabela operacional](data-model.md#tabelas-operacionais-adr), uma linha por organização, RLS tenant) e a exceção da plataforma em `StorageQuota` (`SystemRecord` global, auditado, campo `quota_organization`). A cota efetiva é a `StorageQuota` da organização (`quota_bytes` vazio significa ilimitada); sem ela, a franquia da assinatura (ou o teto de excedente, num plano que cobra o excesso) quando a [cobrança](billing.md#cotas) está ligada; e, sem nenhuma das duas, `SKELETON_FILES_ORG_QUOTA_BYTES`.
+O uso atual fica registrado em `StorageUsage` ([tabela operacional](data-model.md#tabelas-operacionais-adr), uma linha por organização com RLS de tenant), e eventuais exceções definidas pela plataforma ficam em `StorageQuota` (`SystemRecord` global, auditado, campo `quota_organization`). A cota efetiva é resolvida na seguinte ordem:
 
-- **Reserva sob lock:** o upload grava os bytes, trava a linha da organização e, em seguida, a de `StorageUsage` (`SELECT ... FOR UPDATE`, sempre nessa ordem), e só então soma o tamanho, na mesma transação da linha `Attachment`. Dois uploads concorrentes que juntos passam da cota se serializam nesses locks, e o segundo recebe 409 `quota_exceeded` com os bytes apagados. Antes de ler o arquivo, uma checagem sem lock recusa o que já não cabe.
-- **Liberação e restauração:** remover (exclusão lógica) devolve o tamanho; restaurar reserva de novo e responde 409 acima da cota (API e serviço).
-- **Recontagem:** o job periódico `files.quota_recount` (diário, por organização) refaz o contador a partir dos anexos vivos e grava `recounted_at`, corrigindo qualquer divergência.
-- **Plataforma:** o detalhe da organização em `/platform/organizations/<id>/` mostra o uso, a cota e a última recontagem, e o formulário "Armazenamento" (`POST .../storage/`, autenticação recente, CAS pela revisão) escolhe entre o padrão da instância, um limite próprio em MiB ou ilimitada. A plataforma vê só a soma, nunca os anexos.
+1. `StorageQuota` da organização (`quota_bytes` vazio significa ilimitado);
+2. franquia da assinatura (ou teto de excedente, em planos que cobram uso adicional) quando a [cobrança](billing.md#cotas) está habilitada;
+3. `SKELETON_FILES_ORG_QUOTA_BYTES` como padrão da instância.
 
-Cobrança fica fora do escopo.
+- **Reserva sob lock.** Após gravar os bytes, o upload bloqueia primeiro a linha da organização e depois a de `StorageUsage` (`SELECT ... FOR UPDATE`, sempre nessa ordem) para somar o tamanho na mesma transação em que grava `Attachment`. Uploads concorrentes que juntos ultrapassariam a cota são serializados por esses locks, e o segundo recebe 409 `quota_exceeded` com os bytes apagados. Uma verificação prévia sem lock já recusa arquivos que visivelmente não cabem antes mesmo da leitura.
+- **Liberação e restauração.** A exclusão lógica devolve o espaço ocupado; restaurar um anexo reserva o espaço novamente e retorna 409 caso ultrapasse a cota (na API e no serviço).
+- **Recontagem.** O job periódico `files.quota_recount` (diário, por organização) recalcula o contador a partir dos anexos vivos e atualiza `recounted_at`, corrigindo eventuais divergências.
+- **Gestão pela plataforma.** A página da organização em `/platform/organizations/<id>/` exibe uso, cota efetiva e data da última recontagem. O formulário "Armazenamento" (`POST .../storage/`, exigindo autenticação recente e CAS pela revisão) permite escolher entre o padrão da instância, um limite próprio em MiB ou uso ilimitado. A plataforma vê apenas o total consolidado, nunca os anexos em si.
+
+A cobrança em si fica fora do escopo deste subsistema (veja [cobrança](billing.md#cotas)).
+
 ## Antivírus
 
-`SKELETON_FILES_SCANNER` escolhe o scanner: `none` (padrão, o anexo nasce `available`) ou `clamav`, que fala o protocolo `INSTREAM` do `clamd` em `SKELETON_FILES_CLAMAV_ADDRESS` (`tcp://clamav:3310` ou `unix:///run/clamav/clamd.ctl`).
+A variável `SKELETON_FILES_SCANNER` define o scanner de arquivos: `none` (padrão, no qual o anexo nasce `available`) ou `clamav`, que se comunica via protocolo `INSTREAM` com o `clamd` indicado em `SKELETON_FILES_CLAMAV_ADDRESS` (`tcp://clamav:3310` ou `unix:///run/clamav/clamd.ctl`).
 
-Com scanner, o upload nasce `pending` e enfileira o job `files.scan` na mesma transação. O job lê os bytes do armazenamento privado e envia ao `clamd`:
+Com o scanner ativo, o anexo nasce `pending` e enfileira o job `files.scan` na mesma transação. O job lê os bytes do armazenamento privado e os envia ao `clamd`:
 
-| Resposta | Estado |
+| Resposta | Estado resultante |
 |---|---|
 | `stream: OK` | `available`, `scan_result_code=clean` |
-| `stream: <assinatura> FOUND` (o EICAR, por exemplo) | `quarantined`, `scan_result_code=infected:<assinatura>` |
-| `clamd` fora do ar, timeout ou resposta sem veredito | o job falha e é retentado com backoff, até 10 vezes; o anexo continua `pending` |
+| `stream: <assinatura> FOUND` (como o teste EICAR) | `quarantined`, `scan_result_code=infected:<assinatura>` |
+| `clamd` indisponível, timeout ou resposta sem veredito | O job falha e é retentado com backoff até 10 vezes; o anexo permanece `pending` |
 
-O download exige `available`, então um arquivo `pending` ou `quarantined` nunca sai (404). Um anexo que esgota as tentativas continua `pending` (fechado) até uma nova verificação: o job periódico `files.rescan_pending`, de hora em hora e por organização, reenfileira até 500 anexos `pending` há mais de uma hora que não têm verificação em andamento, e quando o antivírus volta eles são decididos sem intervenção (#277). Com `SKELETON_FILES_SCANNER=none`, os pendentes continuam fechados e o job de verificação termina `skipped`, sem falhar, até o scanner voltar.
+Como o download exige `available`, arquivos `pending` ou `quarantined` nunca são entregues (404). Um anexo que esgota as tentativas permanece `pending` (falha fechada) até ser verificado novamente: o job periódico `files.rescan_pending`, executado de hora em hora por organização, reenfileira até 500 anexos em estado `pending` há mais de uma hora sem verificação em andamento, permitindo que sejam processados automaticamente assim que o antivírus voltar. Se `SKELETON_FILES_SCANNER=none`, os anexos pendentes continuam bloqueados e o job termina `skipped`, sem falhar, até o scanner ser reativado.
 
 ## Objetos órfãos
 
-O upload grava os bytes antes de a linha comitar. Um rollback ou uma queda entre as duas etapas deixa um objeto sem metadado. O job periódico `files.orphans` (a cada 6 horas, por organização) lista `org/<organização>/` no armazenamento e apaga só os objetos **sem nenhuma linha `Attachment`** e mais antigos que o prazo de carência (`SKELETON_FILES_ORPHAN_GRACE_SECONDS`, padrão 1 hora, para não pegar um upload em andamento). O job também lista `org/<organização>/branding/`, onde fica o logo da organização ([#168](https://github.com/alaorneto/skeleton/issues/168)): o logo atual (`OrganizationSettings.logo_key`) é mantido, e um objeto de logo substituído ou abandonado por rollback sai depois da carência. A troca e a remoção pela tela já apagam o objeto anterior depois do commit. O logo não conta na cota de anexos. Objetos de linhas vivas ou excluídas logicamente nunca são apagados: restaurar continua funcionando, e o expurgo de anexos excluídos é do epic de LGPD.
+Como o upload grava os bytes antes do commit da linha no banco, um rollback ou queda entre as duas etapas pode deixar um objeto sem metadado correspondente. O job periódico `files.orphans` (a cada 6 horas, por organização) lista `org/<organização>/` no armazenamento e remove apenas objetos **sem nenhuma linha `Attachment`** cuja idade exceda o prazo de carência (`SKELETON_FILES_ORPHAN_GRACE_SECONDS`, padrão 1 hora, para não interferir em uploads em andamento). Objetos ligados a linhas vivas ou excluídas logicamente nunca são removidos por esse job, preservando a capacidade de restauração.
+
+O mesmo job também inspeciona `org/<organização>/branding/`, onde fica o logo da organização ([#168](https://github.com/alaorneto/skeleton/issues/168)): o logo ativo (`OrganizationSettings.logo_key`) é preservado, enquanto arquivos substituídos ou deixados por rollback são removidos após a carência (a troca e a remoção pela tela já apagam o objeto anterior depois do commit). O logo não consome a cota de anexos.
 
 ## Expurgo de anexos excluídos
 
-Um anexo excluído mantém os bytes durante `SKELETON_FILES_DELETED_RETENTION_DAYS` (padrão 90 dias), para que a restauração funcione ([#192](https://github.com/alaorneto/skeleton/issues/192)). Depois disso, o job diário `files.purge`, que roda por organização, apaga o objeto do storage e marca o anexo como `purged`.
+Um anexo excluído logicamente mantém seus bytes armazenados por `SKELETON_FILES_DELETED_RETENTION_DAYS` (padrão 90 dias) para permitir restauração ([#192](https://github.com/alaorneto/skeleton/issues/192)). Passado esse prazo, o job diário `files.purge`, executado por organização, remove o objeto do storage e marca o anexo como `purged`.
 
-- A linha fica como tombstone, com os metadados e a auditoria. Restaurar um anexo `purged` é recusado com 400.
-- Anexos vivos, ou excluídos dentro do prazo, nunca são tocados.
-- Cada linha é travada antes, então uma restauração concorrente ou vence, e o anexo volta e é pulado, ou espera e encontra o anexo já expurgado.
-- Os bytes saem depois do commit. Se a exclusão falhar, a rodada seguinte tenta de novo.
+- A linha permanece como *tombstone*, preservando metadados e histórico de auditoria. Tentar restaurar um anexo `purged` é recusado com 400.
+- Anexos vivos ou excluídos dentro do prazo de retenção nunca são tocados.
+- Cada linha é travada antes do expurgo: uma restauração concorrente ou vence antes (restaurando o anexo, que passa a ser pulado) ou aguarda e já o encontra marcado como `purged`.
+- Os bytes são removidos do storage após o commit; se a exclusão física falhar, a próxima rodada tenta novamente.
 
-É a única remoção física de conteúdo de anexo, uma exceção nominal do `AGENTS.md`.
+Essa é a única remoção física de conteúdo de anexos no sistema, prevista como exceção nominal no `AGENTS.md`.

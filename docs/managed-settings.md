@@ -1,57 +1,64 @@
 # Configurações geridas pela plataforma
 
-Numa instância que vende um produto, a plataforma define valores que a organização cliente não pode trocar: a marca do produto, a ativação das apps do nível, parâmetros de app provisionados por ela e o local onde ficam os arquivos. É o [epic #700](https://github.com/alaorneto/skeleton/issues/700): travas ([#701](https://github.com/alaorneto/skeleton/issues/701)), campos de app geridos pela plataforma ([#702](https://github.com/alaorneto/skeleton/issues/702)), a política das organizações novas ([#703](https://github.com/alaorneto/skeleton/issues/703)) e o armazenamento por organização ([#704](https://github.com/alaorneto/skeleton/issues/704), [#705](https://github.com/alaorneto/skeleton/issues/705), [#706](https://github.com/alaorneto/skeleton/issues/706); [arquivos](files.md#locais-de-armazenamento-da-plataforma)).
+Em uma instância que vende um produto, a plataforma pode fixar configurações que a organização cliente não deve alterar — como a marca do produto, a ativação das apps do nível contratado, parâmetros específicos de apps e o local onde os arquivos são armazenados. Esse conjunto corresponde ao [epic #700](https://github.com/alaorneto/skeleton/issues/700): travas de configuração ([#701](https://github.com/alaorneto/skeleton/issues/701)), campos de app geridos pela plataforma ([#702](https://github.com/alaorneto/skeleton/issues/702)), política das organizações novas ([#703](https://github.com/alaorneto/skeleton/issues/703)) e locais de armazenamento por organização ([#704](https://github.com/alaorneto/skeleton/issues/704), [#705](https://github.com/alaorneto/skeleton/issues/705), [#706](https://github.com/alaorneto/skeleton/issues/706); veja [arquivos](files.md#locais-de-armazenamento-da-plataforma)).
 
 ## Travas
 
-O administrador da plataforma trava uma configuração de uma organização com um valor e um motivo, em `/platform/organizations/<id>/settings/`. Travar grava o valor na organização, pelo mesmo caminho de gravação e com os mesmos validadores do serviço dela, e, enquanto a trava existir, toda escrita de uma pessoa da organização que mudaria o valor é recusada com `setting_locked`: pela tela, pela API REST e pela API de serviços. Destravar devolve a escolha à organização e mantém o valor gravado.
+Em `/platform/organizations/<id>/settings/`, o administrador da plataforma pode travar uma configuração específica de uma organização informando o valor e o motivo.
+
+Ao aplicar a trava, o valor é gravado na organização pelo mesmo caminho e com os mesmos validadores do serviço dela. Enquanto a trava permanecer ativa, qualquer tentativa de um usuário da organização de alterar esse valor é recusada com `setting_locked` — na interface web, na API REST e na API de serviços. Destravar devolve a autonomia à organização, mantendo o valor gravado.
 
 | Chave | O que trava |
 |---|---|
-| `organization.display_name`, `default_language`, `default_timezone`, `brand_color`, `business_hours`, `holidays`, `site_enabled` | Os campos de `OrganizationSettings` |
-| `organization.logo`, `organization.icon` | A imagem atual: trocar e remover ficam recusados |
-| `admission.discoverable`, `join_requests_enabled`, `join_links_enabled`, `signup_via_link_enabled`, `domain_join_enabled` | A política de admissão |
-| `apps.<app_label>.enabled` | A ativação da app (verdadeiro: a organização não a desliga; falso: não a liga). Uma biblioteca first-party (#792) não tem trava: segue as apps que a usam |
-| `notifications.<tipo>.enabled` | Um aviso de organização ou de app não obrigatório: ligado ou desligado para todos os membros ([notificações](notifications.md#configuração-da-organização)) |
-| `notifications.<tipo>.text` | O texto do aviso: trocar e restaurar ficam recusados |
-| `apps.<app_label>.<campo>` | Um campo de configuração da app gerido pela organização |
+| `organization.display_name`, `default_language`, `default_timezone`, `brand_color`, `business_hours`, `holidays`, `site_enabled` | Campos de `OrganizationSettings` |
+| `organization.logo`, `organization.icon` | A imagem atual: troca e remoção ficam bloqueadas |
+| `admission.discoverable`, `join_requests_enabled`, `join_links_enabled`, `signup_via_link_enabled`, `domain_join_enabled` | Política de admissão da organização |
+| `apps.<app_label>.enabled` | Ativação da app (verdadeiro impede desligar; falso impede ligar). Bibliotecas first-party não possuem trava, pois acompanham as apps que as utilizam. |
+| `notifications.<tipo>.enabled` | Aviso não obrigatório de organização ou de app: ligado ou desligado para todos os membros ([notificações](notifications.md#configuração-da-organização)) |
+| `notifications.<tipo>.text` | Texto do aviso: edição e restauração ficam bloqueadas |
+| `apps.<app_label>.<campo>` | Campo de configuração da app gerido pela organização |
 
-O registro é por provedores (`skeleton.tenancy.setting_locks.register_setting_provider`): o pacote de organizações registra `organization.*` e `admission.*`, e o sistema registra `apps.*` a partir dos manifestos instalados no momento. Uma trava é uma linha global `OrganizationSettingLock` por organização e chave; destravar é exclusão lógica e travar de novo restaura a mesma linha, com auditoria das operações.
+As chaves traváveis são registradas por provedores via `skeleton.tenancy.setting_locks.register_setting_provider`: o pacote de organizações registra `organization.*` e `admission.*`, enquanto o sistema registra `apps.*` a partir dos manifestos instalados. Cada trava corresponde a uma linha global `OrganizationSettingLock` por organização e chave. Destravar aplica exclusão lógica, e travar novamente restaura a mesma linha, sempre com registro em auditoria.
 
-**O que não é restringido.** A trava vale para as pessoas da organização. Infraestrutura e plataforma, em `system_context` (a cobrança ativando uma app contratada, a própria trava, a política das organizações novas), continuam podendo mudar o valor.
+**O que não é restringido.** A trava vale apenas para pessoas da organização. Infraestrutura e plataforma operando em `system_context` — como a cobrança ativando uma app contratada, a própria alteração da trava ou a política das organizações novas — continuam podendo atualizar o valor.
 
-**O que a organização vê.** O campo travado aparece desabilitado com "Definido pela plataforma." e o valor travado; um POST forjado com outro valor recebe `setting_locked` (409 na tela) e nada é gravado. Os botões de trocar e remover um logo ou ícone travado somem. `OrganizationSettingsInfo.locked_fields` (API de serviços, desde 0.6.0) traz os campos travados das configurações, e `ApplicationState.locked_fields` e o `locked_fields` de `GET /api/v1/o/<org>/apps/<app>/configuration/` os da app (inclusive os campos geridos pela plataforma).
+**O que a organização vê.** Na interface, o campo travado aparece desabilitado com o valor fixado e o aviso `"Definido pela plataforma."`, e os botões de trocar ou remover logos e ícones travados deixam de aparecer. Um POST forjado enviando outro valor recebe `setting_locked` (status 409 na tela) sem gravar nada.
+
+Nas APIs, os campos travados são informados em:
+- `OrganizationSettingsInfo.locked_fields` na API de serviços (desde 0.6.0), para configurações da organização;
+- `ApplicationState.locked_fields` e o campo `locked_fields` de `GET /api/v1/o/<org>/apps/<app>/configuration/`, para configurações de app (incluindo campos geridos pela plataforma).
 
 ## Campos de app geridos pela plataforma
 
-Um campo de configuração de um manifesto versão 2 pode declarar `"managed_by": "platform"` (o padrão é `"organization"`); o piso de core é `PLATFORM_MANAGED_CONFIG_CORE_MINIMUM` (0.6.0), conferido no build e no `package doctor`. Esse campo:
+Um campo de configuração em um manifesto versão 2 pode declarar `"managed_by": "platform"` (o padrão é `"organization"`). O piso de core exigido é `PLATFORM_MANAGED_CONFIG_CORE_MINIMUM` (0.6.0), verificado no build e no `package doctor`.
 
-- nunca é editável pela organização: a tela de configuração da app o mostra só para leitura, um valor ausente mantém o gravado e um diferente é recusado com `setting_locked`;
-- é gravado pelo administrador da plataforma por organização, em `/platform/organizations/<id>/apps/<app_label>/configuration/` (`configure_application_by_platform`, com CAS pela revisão de `AppInstallation`; sem a app ativa, a linha nasce desativada com os padrões);
-- continua sendo lido pela app por `ApplicationService().my_configuration(...)`.
+Um campo com essa declaração segue três regras:
+- nunca pode ser editado pela organização: a tela de configuração da app o exibe em modo somente leitura, omitir o campo na escrita preserva o valor atual e enviar um valor diferente retorna `setting_locked`;
+- é gravado por organização pelo administrador da plataforma em `/platform/organizations/<id>/apps/<app_label>/configuration/` (`configure_application_by_platform`, com CAS pela revisão de `AppInstallation`; se a app ainda não estiver ativa, a linha nasce desativada com os valores padrão);
+- continua acessível à app normalmente via `ApplicationService().my_configuration(...)`.
 
-Campos secretos continuam proibidos no manifesto, geridos por quem for.
+Campos secretos continuam proibidos no manifesto, independentemente de quem os gerencia.
 
 ## Política das organizações novas
 
-Em `/platform/organizations/policy/`, o administrador da plataforma define, por chave travável ou campo de app gerido pela plataforma, uma regra que toda organização criada depois recebe:
+Em `/platform/organizations/policy/`, o administrador da plataforma define, para qualquer chave travável ou campo de app gerido pela plataforma, uma regra aplicada automaticamente a toda organização criada a partir daquele momento:
 
 | Regra | Efeito |
 |---|---|
-| **Valor inicial** (`default`) | A organização nasce com o valor; pode mudá-lo, a menos que a regra trave |
-| **Informado na criação** (`required`) | O formulário de nova organização (`/platform/organizations/new/`) pede o valor; sem ele, nada é criado |
-| **Travar** (opção de qualquer regra, com motivo obrigatório) | A organização nasce com a trava, com o motivo da regra |
+| **Valor inicial** (`default`) | A organização nasce com esse valor e pode alterá-lo depois, a menos que a regra também ative a trava |
+| **Informado na criação** (`required`) | O formulário de nova organização (`/platform/organizations/new/`) exige o valor; sem ele, a organização não é criada |
+| **Travar** (opção de qualquer regra, com motivo obrigatório) | A organização já nasce com a trava aplicada e com o motivo da regra |
 
-As regras são aplicadas por `create_organization(..., settings={chave: valor})` na mesma transação da criação, antes de `organization_created`: um valor ausente ou inválido desfaz a criação inteira. Uma regra cuja chave sumiu (uma app desinstalada) é ignorada, com o evento `provisioning.rule_skipped`, e aparece marcada na página. Um campo de app gerido pela plataforma já é da plataforma: travar não acrescenta nada a ele.
+As regras são aplicadas por `create_organization(..., settings={chave: valor})` dentro da mesma transação de criação, antes do evento `organization_created`: um valor ausente ou inválido desfaz toda a operação. Se a chave de uma regra deixar de existir (por exemplo, após desinstalar uma app), ela é ignorada com o evento `provisioning.rule_skipped` e aparece sinalizada na tela. Para campos de app já geridos pela plataforma, marcar a opção de travar não altera nada.
 
-**Aplicar às existentes.** Uma regra de valor inicial pode ser aplicada às organizações ativas: o botão enfileira um job `tenancy.apply_provisioning_rule` por organização, cada um na própria transação e no contexto de sistema daquela organização. Uma organização em que a chave já está travada fica como está. Regras exigidas na criação não se aplicam às existentes.
+**Aplicar às existentes.** Regras de valor inicial podem ser aplicadas retroativamente às organizações ativas: o botão enfileira um job `tenancy.apply_provisioning_rule` por organização, executado em sua própria transação e no contexto de sistema daquela organização. Organizações que já tenham a chave travada não são alteradas. Regras do tipo "Informado na criação" não se aplicam a organizações existentes.
 
 ## Locais de armazenamento
 
-O local de armazenamento de cada organização é escolhido pela plataforma na criação e trocado só por ela, sem que a organização veja qual é. O catálogo, a resolução por organização e a criação estão em [arquivos](files.md#locais-de-armazenamento-da-plataforma).
+O local de armazenamento de cada organização é escolhido pela plataforma na criação e só pode ser trocado por ela, sem ficar visível para a organização. Veja o catálogo, a resolução por organização e as regras de criação em [arquivos](files.md#locais-de-armazenamento-da-plataforma).
 
 ## Segurança
 
-- A trava é conferida no servidor em todos os caminhos de escrita; o cliente não escolhe se um campo está travado.
-- `system_context(reason="platform:setting-lock")` está na lista fechada `PLATFORM_ADMIN_REASONS` e só é aberto a partir da requisição do administrador da plataforma (e pelos jobs de aplicação da política), uma organização por transação.
-- As tabelas `OrganizationSettingLock` e `OrganizationProvisioningRule` são globais, com infraestrutura congelada e auditoria por trigger. Os campos traváveis não são segredos.
+- A verificação das travas ocorre no servidor em todos os caminhos de escrita; o cliente nunca controla se um campo está travado.
+- `system_context(reason="platform:setting-lock")` integra a lista fechada `PLATFORM_ADMIN_REASONS` e só pode ser aberto na requisição do administrador da plataforma (ou pelos jobs de aplicação da política), sempre uma organização por transação.
+- `OrganizationSettingLock` e `OrganizationProvisioningRule` são tabelas globais com infraestrutura congelada e auditoria por trigger. Nenhum campo travável armazena segredos.

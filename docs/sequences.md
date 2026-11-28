@@ -1,8 +1,10 @@
 # Sequências
 
-Um código comercial como `AT-2026-0042` não é o `sysid` do registro ([conceitos](concepts.md#identificadores-uuid-chave-primária-e-código-comercial)): ele tem regra de negócio, é por organização e muitas vezes recomeça a cada ano. O núcleo oferece sequências **sem lacunas** em `skeleton/sequences` (label `sk_sequences`), parte do epic #89.
+Um código comercial como `AT-2026-0042` não deve ser confundido com o `sysid` do registro ([conceitos](concepts.md#identificadores-uuid-chave-primária-e-código-comercial)): ele segue regra de negócio, pertence à organização e frequentemente recomeça a cada período. O núcleo oferece sequências **sem lacunas** em `skeleton/sequences` (label `sk_sequences`).
 
 ## Declarar
+
+Cada sequência é registrada em código durante a inicialização da app (`ready()`), usando `skeleton.sequences.registry`, que é superfície pública do núcleo; a geração de números ocorre sempre pelo `SequenceService`:
 
 ```python
 # apps.py da app
@@ -15,20 +17,18 @@ def ready(self):
     )
 ```
 
-`skeleton.sequences.registry` é superfície pública do núcleo para registrar em `ready()`; numerar é sempre pelo `SequenceService`.
-
 | Campo | Valores |
 |---|---|
-| `key` | `app_label.nome`, até 100 caracteres |
-| `period` | `year` (recomeça a cada ano, padrão), `month` (a cada mês) ou `none` (nunca); calendário em UTC |
-| `template` | `str.format` com `{number}` obrigatório e, opcionalmente, `{year}`, `{month}` e `{period}` |
-| `owner_app` | A app que pode numerar com a sequência pela API de serviços; sem ele, nenhum chamador numera pelo serviço (#272) |
+| `key` | `app_label.nome`, com até 100 caracteres |
+| `period` | `year` (reinicia a cada ano, padrão), `month` (a cada mês) ou `none` (nunca reinicia); calendário em UTC |
+| `template` | Formato `str.format` com `{number}` obrigatório e, opcionalmente, `{year}`, `{month}` e `{period}` |
+| `owner_app` | App autorizada a numerar com essa sequência pela API de serviços; sem `owner_app`, nenhum chamador consegue numerar pelo serviço |
 
-O check `skeleton.E028` reprova chave mal formada, período desconhecido, modelo sem `{number}` ou com campo desconhecido, e declaração duplicada diferente.
+O check `skeleton.E028` reprova chave mal formada, período desconhecido, template sem `{number}` ou com marcador desconhecido, além de declarações duplicadas com especificações diferentes.
 
 ## Numerar
 
-Apps usam `SequenceService` de `skeleton.service_api.sequences` ([API de serviços](service-api.md#sequenceservice)):
+Apps geram números por meio do `SequenceService` em `skeleton.service_api.sequences` ([API de serviços](service-api.md#sequenceservice)):
 
 ```python
 from skeleton.service_api.sequences import SequenceService
@@ -37,26 +37,24 @@ number = SequenceService().next_number(actor=request.user, key="tickets.number")
 ticket.code = number.formatted  # "AT-2026-0042"; number.number == 42, number.period == "2026"
 ```
 
-No [portal](portal.md#superfícies-do-núcleo-para-os-recursos-da-própria-app-741) (#741), a app numera com a própria sequência de dentro de um método `allow_external`, com a pessoa externa como `actor`; o contador é auditado com ela e `source="http:portal"`, e um rollback da requisição devolve o número. Fora de um método assim, `Forbidden("external_not_allowed")`.
+No [portal](portal.md#superfícies-do-núcleo-para-os-recursos-da-própria-app-741), a app pode numerar com a própria sequência dentro de um método `allow_external`, passando a pessoa externa como `actor`: o contador é auditado com essa pessoa e `source="http:portal"`, e um rollback da requisição devolve o número. Fora de um método `allow_external`, a chamada responde `Forbidden("external_not_allowed")`.
 
-A função interna do núcleo é `skeleton.sequences.services.next_number(key, *, at=None)`. As duas exigem contexto tenant; `at` (com fuso, padrão agora) escolhe o período.
+A função interna do núcleo é `skeleton.sequences.services.next_number(key, *, at=None)`. Tanto o serviço quanto a função interna exigem contexto de tenant; o parâmetro opcional `at` (com fuso horário, padrão agora) determina o período usado.
 
-Um consumidor de evento ou um job por organização numera com `actor=None` dentro do `system_context` da organização (desde 0.2.0, #577). A regra da app dona não muda: o código que chama tem de ser da app que declarou a sequência, e o número sai da organização do contexto, na transação do consumidor, sem lacunas. Um `system_context` sem organização responde `ContextRequired`. O padrão está em [eventos](events.md#reagir-numerando-e-abrindo-um-título).
+Um consumidor de evento ou um job por organização pode numerar passando `actor=None` dentro do `system_context` da organização (desde a versão 0.2.0). A regra de propriedade não muda: o código chamador precisa pertencer à app dona da sequência, e o número sai da organização do contexto, na transação do consumidor e sem lacunas. Um `system_context` sem organização responde `ContextRequired`. Veja um exemplo em [eventos](events.md#reagir-numerando-e-abrindo-um-título).
 
 ## Garantias
 
-A primeira numeração de um período serializa na linha da organização com `FOR NO KEY UPDATE`, que não conflita com as inserções já feitas pela transação (#239).
+- **Sem lacunas.** O contador de `(organização, chave, período)` é uma linha `SequenceCounter` bloqueada com `SELECT … FOR UPDATE` e incrementada **na transação do chamador**. Se a escrita de negócio sofrer rollback, o incremento é desfeito junto e a próxima alocação reutiliza o mesmo número.
+- **Sem duplicatas.** Alocações concorrentes na mesma sequência e período aguardam o bloqueio e recebem números consecutivos. A criação inicial do contador de um período serializa na linha da organização com `FOR NO KEY UPDATE` (que não conflita com inserções já realizadas na transação), impedindo que duas transações criem o mesmo contador.
+- **Isolamento.** Cada organização e período mantém seu próprio contador protegido por RLS de tenant: a organização B nunca visualiza nem avança o contador da organização A.
+- **Auditoria.** `SequenceCounter` é um `OrganizationRecord` com a infraestrutura padrão, registrando um evento de auditoria a cada incremento na mesma transação.
 
-- **Sem lacunas:** o contador de `(organização, chave, período)` é uma linha `SequenceCounter` bloqueada com `SELECT … FOR UPDATE` e incrementada **na transação do chamador**. Se a escrita do negócio é desfeita, o incremento também é, e a próxima alocação reutiliza o número.
-- **Sem duplicatas:** alocações concorrentes da mesma sequência e período esperam o bloqueio e recebem números consecutivos. A primeira criação do contador é serializada no bloqueio da organização, de modo que duas transações nunca criam o mesmo contador.
-- **Isolamento:** cada organização e período tem seu contador, protegido por RLS tenant; a organização B não vê nem avança o contador de A.
-- **Auditoria:** `SequenceCounter` é um `OrganizationRecord` com a infraestrutura padrão: cada incremento gera um evento de auditoria na mesma transação.
-
-**Custo:** as escritas que numeram com a mesma sequência e período na mesma organização são serializadas até o commit. Mantenha curtas as transações que numeram. Não há tela nem API para editar ou reiniciar um contador.
+**Custo operacional.** Como escritas que numeram na mesma sequência e período dentro de uma organização ficam serializadas até o commit, mantenha essas transações curtas. Não há tela nem API para editar ou reiniciar contadores.
 
 ## Campos preenchidos pelo gateway (#156)
 
-Uma tabela de negócio exposta pode declarar que um campo vem de uma sequência:
+Uma tabela de negócio exposta pode declarar que um de seus campos é preenchido automaticamente por uma sequência:
 
 ```python
 TableSpec(
@@ -68,6 +66,6 @@ TableSpec(
 )
 ```
 
-- A criação genérica (`/o/<org>/tables/<tabela>/new/` e `POST /api/v1/o/<org>/tables/<tabela>/records/`) preenche o campo com `next_number(...).formatted`, depois da autorização e da validação dos campos enviados e na mesma transação do registro. Uma criação recusada, inclusive pela validação do modelo ao salvar, desfaz o incremento e não consome número.
-- O campo não aparece no formulário de criação e não é gravável: enviá-lo na criação ou na alteração responde 400, como qualquer campo fora de `write_fields`. Ele aparece só para leitura no detalhe e na API.
-- O check `skeleton.E028` reprova campo inexistente, campo que está em `write_fields` e sequência não declarada.
+- Na criação genérica (`/o/<org>/tables/<tabela>/new/` e `POST /api/v1/o/<org>/tables/<tabela>/records/`), o gateway preenche o campo com `next_number(...).formatted` após a autorização e validação dos campos enviados, na mesma transação do registro. Qualquer recusa — inclusive na validação do modelo ao salvar — desfaz o incremento sem consumir número.
+- O campo não aparece no formulário de criação e não pode ser gravado manualmente: enviá-lo na criação ou na edição retorna 400, como qualquer campo fora de `write_fields`. Ele fica disponível apenas para leitura na página de detalhe e na API.
+- O check `skeleton.E028` reprova campo inexistente, campo listado em `write_fields` ou referência a sequência não declarada.

@@ -1,39 +1,39 @@
 # Exportação e importação CSV
 
-O núcleo exporta e importa registros de tabelas de negócio expostas (`TableSpec(expose_api=True)`) em CSV, por job e só com o que a pessoa pode ler ou escrever. O código fica em `skeleton/transfer` ([#182](https://github.com/alaorneto/skeleton/issues/182), [#183](https://github.com/alaorneto/skeleton/issues/183)).
+O núcleo permite exportar e importar registros de tabelas de negócio expostas (`TableSpec(expose_api=True)`) em formato CSV. O processamento ocorre em segundo plano por meio de jobs e respeita estritamente o que o solicitante tem permissão para ler ou gravar. O subsistema fica em `skeleton/transfer` ([#182](https://github.com/alaorneto/skeleton/issues/182), [#183](https://github.com/alaorneto/skeleton/issues/183)).
 
 ## Formato
 
-- UTF-8 com BOM e `;` como separador, para o Excel em pt-BR abrir sem o assistente. A importação também aceita `,`, detectado pela linha de cabeçalho.
-- O cabeçalho traz os nomes dos campos: os campos de sistema (`sysid`, `revision`, `created_at`, …) seguidos dos `read_fields` da tabela, menos os `sensitive_fields`.
-- Datas e horas em ISO 8601, decimais com ponto, booleanos `true`/`false` e vazio para nulo.
-- **Injeção de fórmulas:** uma célula de texto que começa com `=`, `+`, `-`, `@`, tab ou retorno de carro ganha um apóstrofo na frente, para a planilha não avaliar a fórmula. Números, datas e booleanos nunca recebem o prefixo. A importação remove o apóstrofo que a exportação acrescentou.
+- Codificação UTF-8 com BOM e separador `;`, permitindo abertura direta no Excel em português sem assistente de importação. Na importação, `,` também é aceito e detectado automaticamente pela linha de cabeçalho.
+- O cabeçalho lista os nomes dos campos: campos de sistema (`sysid`, `revision`, `created_at`, …) seguidos dos `read_fields` da tabela, excluindo `sensitive_fields`.
+- Datas e horas seguem o padrão ISO 8601, decimais usam ponto, booleanos usam `true` ou `false`, e valores nulos saem vazios.
+- **Proteção contra injeção de fórmulas.** Células de texto que começam com `=`, `+`, `-`, `@`, tabulação ou retorno de carro recebem um apóstrofo inicial para impedir que planilhas avaliem fórmulas. Números, datas e booleanos nunca recebem esse prefixo. Na importação, o apóstrofo adicionado pela exportação é removido automaticamente.
 
 ## Exportação
 
-1. Na lista de registros, **Exportar CSV** leva os filtros da tela.
-2. O pedido confere, ainda na requisição, que a pessoa lê a tabela e que os filtros são os da lista (`filter_records`). Filtro por campo sensível é recusado.
-3. O job `transfer.export` roda como a própria pessoa, no contexto dela. Uma revogação entre o pedido e o job faz a exportação falhar fechada.
-4. As linhas saem de `authorized_queryset` com os mesmos filtros e da projeção de `records_data`. Uma referência que a pessoa não lê sai vazia, como na API.
-5. Acima de `SKELETON_EXPORT_MAX_ROWS` (padrão 100.000), o job falha com `too_many_rows` e não deixa arquivo parcial.
-6. Quando o arquivo fica pronto, o job de sistema `transfer.notify` manda a notificação `transfer.ready`. Ele é separado porque o fan-out nunca notifica o ator da própria ação.
+1. Na listagem de registros, a ação **Exportar CSV** aproveita os filtros ativos na tela.
+2. Ainda durante a requisição, o sistema verifica se a pessoa lê a tabela e valida os filtros com a mesma regra da lista (`filter_records`). Filtros sobre campos sensíveis são recusados.
+3. O job `transfer.export` executa como a própria pessoa, no contexto dela. Se o acesso for revogado entre o pedido e a execução do job, a exportação falha fechada.
+4. As linhas são lidas via `authorized_queryset` com os mesmos filtros e projetadas por `records_data`. Referências que a pessoa não pode ler saem vazias, como na API.
+5. Se o resultado ultrapassar `SKELETON_EXPORT_MAX_ROWS` (padrão 100 000 linhas), o job falha com `too_many_rows` sem deixar arquivo parcial.
+6. Assim que o arquivo fica pronto, o job de sistema `transfer.notify` envia a notificação `transfer.ready` — um job separado porque o fan-out nunca notifica o ator da própria ação.
 
-O arquivo fica no storage privado em `org/<organização>/transfers/<uuid>`. Só quem pediu vê o pedido em `/o/<org>/transfers/` e baixa o arquivo; para qualquer outra pessoa, inclusive o administrador, a resposta é 404. Cada download relê a permissão de leitura da tabela, e o arquivo sai sempre como anexo, com `nosniff`, `sandbox` e `no-store`.
+O arquivo gerado é salvo no armazenamento privado em `org/<organização>/transfers/<uuid>`. Apenas quem solicitou consegue ver o pedido em `/o/<org>/transfers/` e baixar o arquivo; para qualquer outra pessoa — inclusive o administrador —, a rota responde 404. Cada download revalida a permissão de leitura da tabela e entrega o arquivo sempre como anexo, com `nosniff`, `sandbox` e `no-store`.
 
-A auditoria filtrada usa o mesmo pipeline: veja [auditoria](audit-soft-delete.md#exportação-csv).
+A exportação filtrada de eventos de auditoria utiliza o mesmo pipeline: veja [auditoria](audit-soft-delete.md#exportação-csv).
 
 ## Importação
 
-1. Na lista de registros, **Importar CSV** abre o envio. Só quem pode criar na tabela entra.
-2. O arquivo precisa estar em UTF-8 e dentro de `SKELETON_UPLOAD_MAX_BYTES`. Ele fica no storage privado, e o job `transfer.import_preview` roda como a pessoa.
-3. **Prévia:** cada linha passa pelo mesmo caminho de escrita do gateway (`create_record`/`update_record`), com `write_fields`, autorização e sequências. Tudo roda dentro de um savepoint que é sempre desfeito, então a prévia não grava nada nem deixa auditoria. O resultado traz o número de linhas, o número de erros e, quando há erros, um relatório CSV com `linha;coluna;mensagem`.
-4. **Colunas:** valem só `sysid`, `revision` e os `write_fields` da tabela, sem os campos de sequência. Qualquer outra coluna, como `owner`, recusa o arquivo inteiro.
-5. **Linhas:** uma linha sem `sysid` cria um registro. Uma linha com `sysid` atualiza o registro e precisa da `revision` que a pessoa exportou. Uma revisão diferente é erro daquela linha, nunca sobrescrita. Uma linha que altera coluna congelada de um registro selado (#527) é erro daquela linha, com a coluna `record_sealed` no relatório, e o job termina normalmente.
-6. **Confirmação:** só uma prévia sem erros pode ser aplicada. O job `transfer.import_apply` repete o processamento numa transação que só é mantida se todas as linhas passarem. Basta uma linha falhar, por exemplo porque o registro mudou depois da prévia, para nada ser gravado.
-7. **Limite:** acima de `SKELETON_IMPORT_MAX_ROWS` (padrão 10.000), a importação falha.
+1. Na listagem de registros, a ação **Importar CSV** abre o envio, acessível apenas a quem tem permissão para criar registros na tabela.
+2. O arquivo precisa estar em UTF-8 e respeitar `SKELETON_UPLOAD_MAX_BYTES`. Após o envio, é gravado no armazenamento privado e o job `transfer.import_preview` executa como a pessoa.
+3. **Prévia.** Cada linha percorre o mesmo caminho de escrita do gateway (`create_record` e `update_record`), aplicando `write_fields`, autorização e sequências. Tudo executa dentro de um savepoint sempre desfeito ao final, garantindo que a prévia não grave dados nem gere auditoria. O resumo informa total de linhas, quantidade de erros e, havendo falhas, disponibiliza um relatório CSV no formato `linha;coluna;mensagem`.
+4. **Colunas aceitas.** Apenas `sysid`, `revision` e os `write_fields` da tabela são permitidos (excluindo campos preenchidos por sequência). Qualquer outra coluna, como `owner`, invalida o arquivo inteiro.
+5. **Criação e atualização.** Linhas sem `sysid` criam novos registros; linhas com `sysid` atualizam registros existentes e exigem a `revision` correspondente ao que foi exportado. Uma revisão divergente gera erro naquela linha sem sobrescrever dados. Da mesma forma, tentar alterar uma coluna congelada de um registro selado gera erro na linha, identificado pela coluna `record_sealed` no relatório, enquanto o job conclui normalmente.
+6. **Aplicação.** Apenas prévias sem erros podem ser aplicadas. O job `transfer.import_apply` reprocessa o arquivo em uma única transação atômica: basta uma linha falhar — por exemplo, se algum registro tiver sido alterado após a prévia — para que nada seja gravado.
+7. **Limite de linhas.** Arquivos acima de `SKELETON_IMPORT_MAX_ROWS` (padrão 10 000 linhas) fazem a importação falhar.
 
-Os dois jobs têm uma tentativa só, porque reprocessar um arquivo que a pessoa já avaliou mudaria o que ela viu. Quando cada etapa termina, `transfer.notify` avisa a pessoa.
+Tanto `transfer.import_preview` quanto `transfer.import_apply` têm tentativa única, evitando reprocessar um arquivo de forma divergente do que a pessoa revisou. Ao final de cada etapa, `transfer.notify` avisa o solicitante.
 
 ## Retenção
 
-`TransferJob` é estado de pipeline (`OperationalRecord`): não tem revisão, soft delete nem auditoria por linha. O job diário `transfer.retention` é o único caminho que apaga a linha e os arquivos, depois de `SKELETON_TRANSFER_RETENTION_DAYS` (padrão 7). O `files.orphans` mantém os objetos referenciados por uma transferência e remove os que um rollback deixou para trás.
+`TransferJob` guarda o estado do pipeline como `OperationalRecord` (sem revisão, exclusão lógica nem auditoria por linha). O job diário `transfer.retention` é o único caminho que apaga os registros e seus arquivos no armazenamento após `SKELETON_TRANSFER_RETENTION_DAYS` (padrão 7 dias). O job `files.orphans` preserva os arquivos referenciados por transferências ativas e remove apenas objetos deixados por eventuais rollbacks.

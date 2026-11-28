@@ -1,10 +1,18 @@
 # Livro contábil como app first-party, separado da cobrança da plataforma
 
 ## Context
-Apps que mexem com dinheiro (atendimentos pagos, despesas, repasses) precisam de partidas dobradas, títulos a pagar e a receber, baixas e recorrência. Colocar isso no núcleo violaria "sem regra de negócio em `skeleton`"; deixar cada app fazer o seu produziria livros incompatíveis. A cobrança da plataforma (`skeleton/billing`) é outra coisa: ela cobra as organizações, não é a contabilidade delas.
+Apps que movimentam valores financeiros — como atendimentos pagos, despesas e repasses — precisam de lançamentos em partidas dobradas, títulos a pagar e a receber, baixas e recorrências. Incluir essa lógica no núcleo violaria o princípio de não colocar regras de negócio em `skeleton`; por outro lado, deixar cada app construir sua própria contabilidade produziria livros incompatíveis entre si.
+
+A cobrança da plataforma (`skeleton/billing`) cumpre outro papel: ela gerencia assinaturas e faturas cobradas das organizações, e não a contabilidade interna de cada organização.
 
 ## Decision
-O livro é uma app first-party em `skeleton/contrib/ledger`, opt-in, na versão do núcleo, que nunca importa `skeleton.billing` (o dinheiro foi para `skeleton.common.money`, #541). `Book` é `SecuredRecord` e carrega a autorização; as demais tabelas são da organização e escritas só pelos serviços. Um livro tem uma moeda e um regime (caixa ou competência), imutáveis, e uma organização pode ter vários livros.
+O livro contábil é implementado como app first-party opt-in em `skeleton/contrib/ledger`, acompanhando a versão do núcleo, sem jamais importar `skeleton.billing` (os tipos e utilitários monetários vivem em `skeleton.common.money`). `Book` é um `SecuredRecord` que concentra a autorização; as demais tabelas pertencem à organização e são escritas exclusivamente pelos serviços da app. Cada livro possui moeda e regime (caixa ou competência) imutáveis, e uma organização pode manter múltiplos livros.
 
 ## Consequences
-Outras apps falam com o livro só pela API de serviços dele. Um lançamento nasce, é numerado sem lacunas e é selado na mesma transação (#544); corrige-se por estorno, nunca por edição, e os relatórios só leem partidas seladas (#548). Uma app lança pelas regras que registra em código, e a autorização vem do registro de origem dela, não do livro (#545): quem atende não precisa ler a contabilidade. Saldos são calculados das partidas a cada consulta, com número fixo de consultas, em vez de materializados; se o volume pedir, um saldo materializado entra depois sem mudar o contrato. Os eventos de domínio do livro ficaram de fora desta versão: a API de eventos do núcleo só publica sobre tabelas expostas e legíveis pelo ator, e títulos e lançamentos ficam fora do gateway. Multimoeda no mesmo livro, impostos, SPED e conciliação bancária ficam de fora. Remover a app preserva os dados (schema retido pelo snapshot do wheel).
+Outras apps interagem com o livro exclusivamente por meio da sua API de serviços:
+
+- **Integridade dos lançamentos:** todo lançamento nasce, recebe numeração sem lacunas e é selado na mesma transação. Correções ocorrem apenas por estorno, nunca por edição, e os relatórios consideram exclusivamente partidas seladas.
+- **Autorização pela origem:** apps lançam por regras declaradas em código, com autorização derivada do registro de origem em vez do livro — assim, quem registra um atendimento não precisa ter acesso de leitura à contabilidade.
+- **Saldos calculados sob demanda:** os saldos são calculados diretamente a partir das partidas a cada consulta, com número fixo de queries, evitando saldos materializados. Se o volume exigir no futuro, saldos materializados podem ser introduzidos sem alterar o contrato.
+- **Limites desta versão:** eventos de domínio do livro ficaram de fora porque a API de eventos do núcleo publica apenas sobre tabelas expostas e legíveis pelo ator, enquanto títulos e lançamentos permanecem fora do gateway. Multimoeda em um mesmo livro, impostos, SPED e conciliação bancária também não fazem parte do escopo.
+- **Preservação de dados:** remover a app preserva os dados no banco, pois o schema é retido pelo snapshot do wheel.

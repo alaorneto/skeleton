@@ -1,54 +1,65 @@
 # Guia dos conceitos
 
-Este guia é a porta de entrada para a documentação técnica. Ele explica o vocabulário usado pelo skeleton; os documentos ligados em cada seção descrevem os contratos e os procedimentos completos.
+Este guia é a porta de entrada para a documentação técnica. Ele apresenta o vocabulário do `django-skeleton` e como as peças se relacionam; os guias ligados ao fim de cada bloco trazem os contratos e procedimentos completos.
 
-Pense em um exemplo: Ana trabalha na Clínica Norte e no Laboratório Sul. Ela tem **uma conta**, mas participa de **duas organizações**. Uma anotação da Clínica Norte não pode aparecer no Laboratório Sul. Mesmo dentro da clínica, Helena só pode ler essa anotação se as regras de acesso permitirem. Esses são problemas diferentes: identificar a pessoa, separar organizações e autorizar uma operação.
+Imagine este cenário: Ana trabalha na Clínica Norte e no Laboratório Sul. Ela tem **uma única conta**, mas participa de **duas organizações**. Uma anotação da Clínica Norte não pode aparecer no Laboratório Sul e, mesmo dentro da clínica, Helena só pode lê-la se as regras de acesso permitirem.
+
+Esse exemplo separa os três problemas centrais que o núcleo resolve de forma independente: **identificar a pessoa**, **isolar cada organização** e **autorizar cada operação**.
 
 ## Identidade e organizações
 
 ### Conta, perfil e organização
 
-**Identidade global** é a representação de uma pessoa no sistema inteiro. `User` guarda sua conta e os controles de autenticação; `UserProfile` guarda preferências como nome de exibição, idioma e fuso horário. Entrar em outra organização não cria uma segunda conta.
+**Identidade global** representa a pessoa no sistema inteiro. O modelo `User` guarda credenciais e controles de autenticação; `UserProfile` guarda preferências pessoais como nome de exibição, idioma e fuso horário. Participar de uma nova organização não cria uma segunda conta.
 
-**Idioma e fuso** de cada resposta e de cada email seguem esta ordem ([#170](https://github.com/alaorneto/skeleton/issues/170)):
+O **idioma e o fuso horário** de cada resposta e de cada email seguem esta precedência:
 
-1. o perfil da pessoa;
-2. o padrão da organização atual, definido pelo administrador em `/o/<org>/settings/`;
-3. o padrão da instância (`SKELETON_DEFAULT_LANGUAGE` e `SKELETON_DEFAULT_TIMEZONE`).
+1. Preferência do perfil da pessoa.
+2. Padrão da organização atual, configurado pelo administrador em `/o/<org>/settings/`.
+3. Padrão da instância (`SKELETON_DEFAULT_LANGUAGE` e `SKELETON_DEFAULT_TIMEZONE`).
 
-Um valor em branco passa para o próximo nível. Antes do login, só o `Accept-Language` do navegador escolhe, entre os idiomas de `LANGUAGES`. A organização vem sempre do contexto aberto pelo middleware de tenant, nunca de header ou parâmetro. O núcleo entrega só pt-BR; outro idioma entra quando o projeto derivado acrescenta o catálogo dele.
+Se um nível estiver em branco, vale o seguinte. Antes do login, usa-se apenas o cabeçalho `Accept-Language` do navegador, limitado aos idiomas de `LANGUAGES`. A organização ativa vem sempre do contexto aberto pelo middleware de tenant, nunca de cabeçalho ou parâmetro livre. O núcleo entrega apenas `pt-BR`; outros idiomas entram pelo catálogo do projeto derivado.
 
-**Organização** (`Organization`) é a unidade à qual os dados de negócio pertencem: por exemplo, uma clínica, empresa ou equipe. A palavra inglesa **tenant** significa essa organização no contexto de isolamento de dados. **Multi-tenancy** significa que uma instalação atende várias organizações sem misturar seus dados.
+**Organização** (`Organization`) é a unidade dona dos dados de negócio — uma clínica, empresa ou equipe. No contexto de isolamento de dados, chamamos essa organização de **tenant**. **Multi-tenancy** significa atender várias organizações na mesma instalação sem misturar os dados de uma com os de outra.
 
-**Vínculo** (`Membership`) liga uma conta a uma organização. Ter uma conta não significa pertencer a todas as organizações. Ana pode ter um papel de administradora na clínica e um papel de membro no laboratório. Um vínculo desativado deixa de permitir acesso, mas sua história continua armazenada.
+**Vínculo** (`Membership`) conecta uma conta a uma organização. Ter conta no sistema não significa pertencer a todas as organizações: Ana pode ser administradora na Clínica Norte e membro comum no Laboratório Sul. Um vínculo desativado encerra o acesso imediatamente, mas mantém seu histórico preservado.
 
 ### Endereço da organização
 
-O **domínio base** (`SKELETON_ORGANIZATION_BASE_DOMAIN`, como `skeleton.com`) dá a cada organização que ligar o endereço próprio um **host de organização** `acme.skeleton.com`; um **domínio próprio** comprovado por DNS (`portal.cliente.com.br`) também pode ser um. O **host da plataforma** é o domínio principal, que continua como sempre. O **site** é a organização vista pelo seu host, e o índice global `OrganizationSite` guarda só a marca pública dela. No host de organização vale o **escopo de site**: as URLs saem **limpas** (`/tables/x/`) em vez de **canônicas** (`/o/<uuid>/tables/x/`), e só aquela organização aparece. O host restringe o que é alcançável, nunca concede acesso. Veja [endereços de organização](organization-sites.md).
+Quando o **domínio base** (`SKELETON_ORGANIZATION_BASE_DOMAIN`, como `skeleton.com`) está configurado, cada organização pode ativar um **host de organização** próprio — seja um subdomínio (`acme.skeleton.com`) ou um **domínio próprio** comprovado por DNS (`portal.cliente.com.br`). O **host da plataforma** continua sendo o domínio principal.
+
+O **site** é a organização acessada pelo seu host, cujo índice global `OrganizationSite` guarda apenas os dados públicos de marca. Nesse host vale o **escopo de site**: as URLs ficam **limpas** (`/tables/x/`) em vez de **canônicas** (`/o/<uuid>/tables/x/`), e somente aquela organização fica visível. O host apenas restringe o que pode ser acessado — nunca concede permissão. Veja [endereços de organização](organization-sites.md).
 
 ### Plataforma e administração da organização
 
-A **plataforma** é a instalação inteira do sistema. Seu administrador usa a área `/platform/` (identidades, organizações, aplicativos instalados, catálogo e auditoria global) incluindo as atualizações da plataforma e dos aplicativos; o viewer de negócio fica no catálogo/tabelas de `/o/<org>/`. Acesso de plataforma exige flags Django, conta ativa e MFA quando configurado, sem conceder automaticamente vínculo/autorização tenant. Quem é administrador da plataforma é decidido por um único predicado, `is_platform_admin` (`skeleton/accounts/platform.py`): conta autenticada, ativa, não excluída, com `is_staff` **e** `is_superuser`. Só uma das flags ("Parcial") não concede nada. A plataforma nunca fica sem administrador: rebaixar, desativar ou remover o último administrador ativo é recusado com 409. De uma organização, a plataforma vê só o número de membros ativos e os emails de quem a administra, e pode designar ou substituir esse administrador por um serviço auditado ([controle de acesso](access-control.md#designação-de-administrador-pela-plataforma)); designar não dá à própria plataforma acesso aos dados da organização.
+A **plataforma** é a instalação inteira. Seu administrador opera em `/platform/` — gerindo identidades, organizações, apps instaladas, catálogo de tabelas, auditoria global e atualizações — enquanto os dados de negócio ficam em `/o/<org>/`.
 
-Dois **papéis limitados de plataforma** (#34), em `PlatformRoleAssignment`, não dão administração: o **auditor de plataforma** lê a auditoria global e o catálogo de tabelas, e o **operador de releases** cuida só de `/platform/updates/`. Nenhum deles vê identidades ou organizações, edita o catálogo ou entra em `/o/<org>/` sem vínculo. Só o administrador concede e revoga, e a revogação vale na requisição seguinte ([controle de acesso](access-control.md#papéis-limitados-de-plataforma)).
+O status de administrador da plataforma é decidido por um único predicado, `is_platform_admin` (`skeleton/accounts/platform.py`): conta autenticada, ativa, não excluída e com `is_staff` **e** `is_superuser` (ter apenas uma dessas flags não concede nada), além de MFA quando exigido. A plataforma nunca fica sem administrador: rebaixar, desativar ou remover o último administrador ativo retorna `409`.
 
-O **administrador de organização** tem o papel empresarial `organization_admin` dentro de uma organização. Ele gerencia seus vínculos, permissões e configuração das apps, mas não instala código nem recebe automaticamente `is_staff` ou `is_superuser`.
+Mesmo o administrador da plataforma não acessa os dados internos de uma organização sem vínculo. Sobre cada organização, ele vê apenas a contagem de membros ativos e os emails dos administradores, podendo designar ou substituir um administrador por serviço auditado ([controle de acesso](access-control.md#designação-de-administrador-pela-plataforma)).
 
-Parte dessa gestão pode ser delegada sem conceder administração plena. O **gestor de pessoas** (`people_manager`) administra membros e convites; o **gestor de apps** (`app_manager`) recebe a capacidade de gerir apps. Esses perfis são papéis internos com **capacidades** declaradas em código; um papel criado pela organização nunca carrega capacidade. Veja [capacidades e papéis internos](access-control.md#capacidades-e-papéis-internos).
+Existem também dois **papéis limitados de plataforma** (`PlatformRoleAssignment`), que não concedem administração geral:
+
+- **Auditor de plataforma:** lê a auditoria global e o catálogo de tabelas, sem editar o catálogo nem ver identidades ou organizações.
+- **Operador de releases:** opera apenas `/platform/updates/`.
+
+Somente o administrador da plataforma concede ou revoga esses papéis, e a revogação passa a valer na requisição seguinte ([controle de acesso](access-control.md#papéis-limitados-de-plataforma)).
+
+Dentro de uma organização, o **administrador de organização** tem o papel `organization_admin`: gerencia vínculos, permissões e parâmetros das apps daquela organização, mas não instala código nem recebe `is_staff`/`is_superuser`. Parte dessa rotina pode ser delegada por papéis internos com **capacidades** definidas em código — o **gestor de pessoas** (`people_manager`) administra membros e convites e o **gestor de apps** (`app_manager`) configura apps. Papéis criados pela organização nunca carregam capacidades internas ([capacidades e papéis internos](access-control.md#capacidades-e-papéis-internos)).
+
+Essa separação evita escalonamento indevido: administrar uma clínica não dá acesso às demais nem ao servidor, e ser superusuário Django não dispensa vínculo nem autorização nas rotas de uma organização.
 
 ### Ingresso numa organização
 
-Uma conta global só entra numa organização por um destes caminhos, cada um escolhido pela organização ou pela plataforma:
+Uma conta global só passa a participar de uma organização por um destes caminhos:
 
-- **Convite** por email, de uso único (já existente).
-- **Pedido com aprovação**: a organização aceita pedidos (e, se quiser, aparece em `/join/`); quem administra pessoas aprova ou recusa (#26).
-- **Link de ingresso**: multiuso, com validade, limite de usos e entrada direta ou com aprovação; pode abrir o cadastro (#27).
-- **Domínio verificado**: quem confirma um email de um domínio que a organização provou controlar por DNS entra direto ou cria um pedido (#28).
-- **SSO ou LDAP** configurado pela plataforma para aquela organização, com JIT, aprovação, papel e domínios decididos pela própria organização (#29–#33).
+- **Convite por email:** uso único, enviado por quem gerencia pessoas.
+- **Pedido com aprovação:** a organização habilita pedidos (e opcionalmente aparece no diretório `/join/`); um gestor aprova ou recusa.
+- **Link de ingresso:** multiuso, com validade, limite de usos e entrada direta ou sob aprovação; pode liberar o cadastro de novas contas.
+- **Domínio verificado:** quem confirma um email de um domínio comprovado por DNS pela organização entra direto ou abre um pedido.
+- **SSO ou LDAP:** configurado pela plataforma para a organização, que decide provisionamento JIT, aprovação, papel padrão e domínios aceitos.
 
-Admissões automáticas (link, domínio, SSO, sincronização) nunca reativam um vínculo anterior: quem saiu ou foi removido sempre volta por um pedido decidido por uma pessoa. Sair é livre, menos para o último administrador (#25).
-
-A distinção importa: conceder administração de uma clínica não pode conceder administração das outras clínicas ou permissão para atualizar o servidor. E ser superusuário Django não elimina os requisitos de vínculo e autorização nas rotas organizacionais.
+Admissões automáticas (link, domínio, SSO ou sincronização) nunca reativam um vínculo encerrado anteriormente: quem saiu ou foi removido sempre depende de aprovação humana para retornar. Sair de uma organização é livre, exceto para o último administrador ativo.
 
 Veja [modelo de dados](data-model.md) e [controle de acesso](access-control.md).
 
@@ -56,35 +67,39 @@ Veja [modelo de dados](data-model.md) e [controle de acesso](access-control.md).
 
 ### Pessoa externa e portal
 
-Uma **pessoa externa** (um cliente, por exemplo) acessa o que uma app da organização expõe para ela sem ser membro: não ocupa assento, não aparece nas listas de membros e não tem nenhum poder de membro. O vínculo dela é um **acesso externo** (`ExternalAccess`), separado do vínculo de membro, criado só por **convite** e aceito com o email verificado da conta. Ela usa o **portal** (`/portal/<org>/`), onde o contexto é **externo**: as políticas de acesso, as capacidades e o gateway de registros negam, e só os serviços marcados para uso externo respondem, autorizando pela ligação que a app mantém entre a pessoa e os registros dela ([portal](portal.md)).
+Uma **pessoa externa** (como um cliente ou paciente) acessa recursos específicos que uma app expõe para ela, sem se tornar membro da organização: não consome vaga no limite de membros, não aparece nas listas internas e não tem poderes de membro.
+
+Seu vínculo é um **acesso externo** (`ExternalAccess`), criado exclusivamente por convite e aceito com email verificado. Ela navega pelo **portal** (`/portal/<org>/`), que abre um **contexto externo**: políticas de membro, capacidades e o gateway genérico de registros negam acesso por padrão, e somente métodos de serviço marcados para uso externo respondem, autorizando pela relação que a app mantém entre aquela pessoa e os registros dela ([portal](portal.md)).
 
 ### Entidade, modelo, tabela e registro
 
-Uma **entidade** é um conceito que precisa ser persistido, como uma anotação. Um **modelo Django** é a classe Python que descreve seus campos e comportamento. Uma **tabela** é a estrutura física no banco. Um **registro**, ou linha, é uma ocorrência: a anotação escrita por Ana.
+- **Entidade:** um conceito de negócio persistido, como uma anotação.
+- **Modelo Django:** a classe Python que define campos e regras da entidade.
+- **Tabela:** a estrutura física no PostgreSQL.
+- **Registro (ou linha):** uma ocorrência concreta, como a anotação criada por Ana.
+- **Coluna:** o campo físico na tabela (o nome em Python pode diferir do SQL, como o campo `organization` gravado na coluna `organization_id`).
 
-Uma **coluna** é um campo armazenado na tabela. O nome Python e o nome SQL podem diferir: o campo de relação `organization` normalmente usa a coluna `organization_id`.
-
-O **ORM** é a camada Django que traduz consultas e operações sobre modelos em SQL. Usar o ORM não autoriza uma operação por si só: a consulta também precisa respeitar organização, permissões e exclusão lógica.
+O **ORM** traduz operações em modelos para SQL, mas não autoriza nada sozinho: toda consulta precisa respeitar organização, permissões e exclusão lógica.
 
 ### Identificadores: UUID, chave primária e código comercial
 
-A **chave primária** (**PK**, de *primary key*) identifica uma linha de forma única na tabela. Nas entidades próprias do skeleton, ela é `sysid`, um **UUID** gerado no servidor. O UUID permanece o mesmo ao editar, excluir logicamente ou restaurar um registro.
+A **chave primária** (**PK**, de *primary key*) identifica cada linha de forma única. Nas tabelas próprias do skeleton, ela é sempre `sysid`, um **UUID** gerado no servidor que nunca muda — nem em edição, exclusão lógica ou restauração.
 
-Um código comercial, como o número de atendimento `AT-2026-0042`, é outra coisa. Pode obedecer a regras do negócio e fica em um campo separado. Não deve substituir `sysid`. As [sequências](sequences.md) do núcleo geram esses códigos por organização e período, sem lacunas.
+Um **código comercial** (como `AT-2026-0042`) segue regras de negócio, vive em um campo separado e não substitui `sysid`. O subsistema de [sequências](sequences.md) gera códigos numéricos sem lacunas por organização e período.
 
-O UUID não é senha nem prova de autorização. Conhecer o endereço de uma anotação não concede acesso a ela.
+O UUID não é segredo nem prova de permissão: conhecer a URL de um registro não autoriza lê-lo ou alterá-lo.
 
-Uma **chave estrangeira** (**FK**, de *foreign key*) representa uma relação com outro registro. Relações próprias usam UUID e `PROTECT`, em vez de apagamento automático em cascata. Para relações organizacionais, as duas pontas também precisam pertencer à mesma organização.
+Uma **chave estrangeira** (**FK**, de *foreign key*) liga dois registros. Relações entre entidades próprias usam UUID e `PROTECT` (em vez de exclusão em cascata), e em tabelas organizacionais ambas as pontas precisam pertencer à mesma organização.
 
 ### Bases abstratas
 
-Uma **classe abstrata** fornece campos e regras às classes filhas, mas não cria uma tabela própria. Portanto, o skeleton não possui uma tabela universal que armazene todos os objetos:
+Uma **classe abstrata** fornece campos e comportamentos às subclasses sem criar tabela própria. O skeleton não possui uma supertabela universal:
 
-- `SystemRecord`: metadados comuns, UUID, revisão, exclusão lógica e controles de persistência; usada por entidades globais próprias.
-- `OrganizationRecord`: acrescenta uma organização obrigatória e imutável; usada por dados e vínculos organizacionais.
-- `SecuredRecord`: acrescenta proprietário e visibilidade; é a base usual de negócio com autorização por registro.
+- `SystemRecord`: metadados comuns, `sysid`, revisão, exclusão lógica e guards de persistência; base das entidades globais próprias.
+- `OrganizationRecord`: acrescenta organização obrigatória e imutável; base para vínculos e dados organizacionais sem autorização individual direta.
+- `SecuredRecord`: acrescenta proprietário (`owner`) e visibilidade; é a base padrão para dados de negócio com controle de acesso por registro.
 
-Ao criar `Note(SecuredRecord)`, esses campos ficam na tabela concreta de `Note`. A escolha da base não dispensa o cadastro da especificação, a migration de infraestrutura ou os serviços de autorização.
+Ao definir `Note(SecuredRecord)`, todos os campos existem diretamente na tabela concreta de `Note`. Herdar da base correta ainda exige registrar o `TableSpec`, instalar a infraestrutura na migration e passar pelos serviços de autorização.
 
 ### Nomes que não são intercambiáveis
 
@@ -92,20 +107,22 @@ Ao criar `Note(SecuredRecord)`, esses campos ficam na tabela concreta de `Note`.
 |---|---|---|
 | ID da app | `org.skeleton.example-notes` | Identidade estável do componente, usada em dependências e pacotes |
 | Label Django da app | `example_notes` | Identidade da app no ORM e no histórico de migrations |
-| Pacote Python | `applications.notes` | Caminho de importação do código gerenciado |
-| Label do modelo / `table_key` | `example_notes.note` | Chave registrada que a API aceita para esse modelo |
-| Tabela física | `example_notes_note` | Nome SQL efetivo, obtido do modelo e da introspecção |
-| ID do registro | `sysid` | UUID de uma linha, não o nome de um tipo ou tabela |
+| Pacote Python | `applications.notes` | Caminho de importação do código |
+| Label do modelo / `table_key` | `example_notes.note` | Chave registrada que a interface e a API aceitam |
+| Tabela física | `example_notes_note` | Nome real no SQL, obtido do modelo e da introspecção |
+| ID do registro | `sysid` | UUID de uma linha específica |
 
-Alterar um label já usado em migrations não é a mesma coisa que mudar o título de uma página. A interface nunca usa um nome SQL arbitrário recebido do cliente para escolher uma tabela.
+Alterar um label já usado em migrations não é um ajuste cosmético: quebra o histórico do banco. A interface nunca aceita nomes SQL livres enviados pelo cliente para escolher uma tabela.
 
 ### Estrutura, schema e migrations
 
-A **estrutura do banco** descreve tabelas, colunas, índices e relações. No PostgreSQL, **schema** também significa um espaço de nomes que agrupa objetos: este projeto usa `skeleton`. Não confunda esse espaço de nomes com a estrutura lógica de um modelo ou o formato de um JSON.
+A **estrutura do banco** reúne tabelas, colunas, índices e relações. No PostgreSQL, **schema** também designa o espaço de nomes que agrupa esses objetos — este projeto usa o schema `skeleton` (não confunda com o formato de um JSON ou a modelagem lógica).
 
-Uma **migration** é uma mudança versionada que o executor Django aplica ao banco: criar uma tabela, acrescentar uma coluna ou transformar dados. Seu número não é a versão da app. Migrations já aplicadas precisam conservar seus nomes e conteúdo para que instalações antigas continuem atualizáveis.
+Uma **migration** é uma mudança versionada aplicada pelo Django para evoluir o schema ou transformar dados. Seu número não tem relação com a versão da app, e migrations já aplicadas não podem ser renomeadas nem reescritas sem comprometer atualizações de instalações existentes.
 
-**DDL** é SQL que muda estrutura, como `CREATE TABLE`. **DML** é SQL que opera dados, como `INSERT` e `UPDATE`. O usuário do processo web não deve poder executar DDL. O administrador visual solicita uma operação; o agente separado executa migrations com outra credencial.
+**DDL** é o SQL que altera estrutura (`CREATE TABLE`, `ALTER TABLE`); **DML** é o SQL que lê ou grava dados (`INSERT`, `UPDATE`). O processo web não executa DDL: o administrador aprova uma operação pela interface e o agente de deployment aplica as migrations com outra credencial.
+
+Já a **configuração da instância** (hosts, banco, email, cache, armazenamento e segredos) não é dado de aplicação: ela fica em um SQLite próprio da instância, com segredos cifrados por uma chave mestra separada, e variáveis de ambiente sempre têm precedência sobre ele. Essa configuração nasce no **setup** inicial (protegido por token de uso único) e depois é alterada em `/platform/instance/` pelo administrador da plataforma, com autenticação recente.
 
 Veja [modelo de dados](data-model.md), [catálogo](table-catalog.md) e [extensão](extending.md).
 
@@ -113,72 +130,73 @@ Veja [modelo de dados](data-model.md), [catálogo](table-catalog.md) e [extensã
 
 ### Autenticar não é autorizar
 
-**Autenticação** responde “quem está fazendo a requisição?”. **Autorização** responde “essa pessoa pode realizar esta operação sobre estes dados?”. Um login válido é apenas o começo da decisão.
+**Autenticação** responde *"quem está fazendo a requisição?"*. **Autorização** responde *"essa pessoa pode executar esta ação sobre estes dados?"*. Estar autenticado é apenas o primeiro passo.
 
-Um **papel** (`Role`) reúne permissões, como “membro” ou “administrador da organização”. Um **grupo** (`AccessGroup`) reúne vínculos de pessoas. Um papel pode ser atribuído diretamente ao vínculo ou por um grupo, sem usar os grupos globais de permissões do Django como atalho.
+Um **papel** (`Role`) agrupa permissões (como *membro* ou *administrador*); um **grupo** (`AccessGroup`) agrupa vínculos de pessoas. Papéis podem ser atribuídos diretamente ao vínculo ou via grupo, sem usar os grupos globais do Django como atalho.
 
-**RBAC** significa controle de acesso baseado em papéis. O skeleton combina RBAC com regras por registro:
+O skeleton combina **RBAC** (controle de acesso baseado em papéis) com regras por registro:
 
-- `TablePermission`: permite uma ação sobre um tipo de registro, como ler anotações.
+- `TablePermission`: autoriza uma ação sobre um tipo de tabela (por exemplo, ler anotações).
 - `RecordGrant`: concede uma ação sobre um registro específico a um vínculo, grupo ou papel.
-- **Proprietário** (`owner`): pessoa responsável pelo registro, ativa na mesma organização.
-- **Visibilidade**: determina quais leitores podem ver o registro; não concede escrita automaticamente.
+- **Proprietário** (`owner`): membro ativo da mesma organização responsável pelo registro.
+- **Visibilidade**: define quem pode ler o registro (privado, grupo ou organização), sem conceder escrita automaticamente.
 
-Um grant não substitui a permissão de tabela. Visibilidade de organização não publica a anotação na internet ou em outro tenant. A regra **negação por padrão** (*default deny*) significa que ausência de permissão não é tratada como permissão implícita.
+Um `RecordGrant` não dispensa `TablePermission`, e visibilidade de organização nunca expõe dados fora do tenant. Vale sempre a regra de **negação por padrão** (*default deny*): o que não foi explicitamente permitido é negado.
 
 ### Contexto da operação
 
-O **ator** (*actor*) é a identidade efetiva que realiza a operação. O **contexto** informa ator, organização, origem e ID da requisição às camadas de persistência e autorização. Em HTTP, o servidor obtém o ator da sessão e valida a organização da URL; não aceita esses valores como flags escolhidas pelo cliente.
+O **ator** (*actor*) é a identidade efetiva que executa a operação. O **contexto** carrega ator, organização, origem e identificador da requisição para as camadas de persistência e autorização. Em requisições HTTP, o servidor extrai o ator da sessão e valida a organização pela URL — nunca aceita esses dados por cabeçalho ou corpo da requisição.
 
 - `request_context`: delimita a transação de uma requisição global.
-- `tenant_context`: entra em uma organização após validar o vínculo.
-- `system_context`: contexto explícito de infraestrutura ou CLI, com motivo obrigatório; não é uma promoção de privilégio oferecida por HTTP.
+- `tenant_context`: entra em uma organização após validar o vínculo ativo.
+- `system_context`: contexto explícito de infraestrutura ou CLI, com motivo obrigatório; nunca é exposto via HTTP.
 
-No PostgreSQL, o contexto também é refletido em **GUCs**, variáveis de configuração da conexão, usando `SET LOCAL`. Elas valem apenas dentro da transação. Em jobs que percorrem organizações, é preciso abrir uma transação independente por organização; não basta trocar um atributo enquanto uma consulta anterior permanece pendente.
+No PostgreSQL, o contexto é gravado em **GUCs** (variáveis locais da sessão) via `SET LOCAL`, valendo apenas até o fim da transação. Por isso, jobs que processam várias organizações abrem uma transação independente para cada organização.
 
 ### RLS e as credenciais do banco
 
-**RLS** (*row-level security*) é a proteção PostgreSQL que filtra linhas conforme a política da tabela e o contexto da conexão. Aqui, ela ajuda a impedir que uma consulta de negócio esquecida leia ou altere outra organização.
+**RLS** (*row-level security*) é o recurso do PostgreSQL que filtra linhas automaticamente com base na política da tabela e no contexto da conexão. No skeleton, ela funciona como rede de segurança para evitar que uma consulta mal filtrada acesse outra organização.
 
-A credencial **runtime** é a usada pelo processo que atende usuários. A credencial **migrator/owner** é a usada pelo operador para estrutura e migrations. “Owner” neste contexto significa proprietário de objetos SQL, não o campo `owner` de uma anotação. **BYPASSRLS** é um privilégio PostgreSQL que ignora essas políticas; a credencial runtime não o possui.
+O banco opera com duas credenciais principais:
 
-RLS não implementa papéis, visibilidade ou exclusão lógica: as policies e os serviços Django continuam necessários. Também não é uma defesa contra quem controla o banco ou uma credencial runtime maliciosa capaz de alterar o contexto por SQL.
+- **Runtime:** usada pela aplicação que atende usuários; não possui `BYPASSRLS` nem permissão de DDL.
+- **Owner (ou migrator):** proprietária dos objetos SQL, usada apenas pelo operador ou agente para rodar migrations (não confunda com o campo `owner` de um registro).
 
-Veja [controle de acesso](access-control.md) para o algoritmo completo e [deployment](deployment.md) para provisionar as credenciais.
+A RLS não substitui papéis, visibilidade nem exclusão lógica — as policies e serviços Django continuam obrigatórios. Ela também não protege contra quem controla o banco ou executa SQL arbitrário com privilégios para alterar o contexto.
+
+Veja [controle de acesso](access-control.md) para o algoritmo completo e [deployment](deployment.md) para o provisionamento das credenciais.
 
 ## Auditoria e concorrência
 
 ### Transação, commit e rollback
 
-Uma **transação** agrupa mudanças que devem ser confirmadas juntas. **Commit** confirma essas mudanças. **Rollback** desfaz as mudanças ainda não confirmadas. Um **savepoint** permite desfazer uma parte de uma transação, sem equivaler a um novo commit independente.
+Uma **transação** agrupa operações que devem ser confirmadas juntas (**commit**) ou totalmente desfeitas em caso de erro (**rollback**). Um **savepoint** permite desfazer apenas uma etapa interna sem confirmar o restante antes do commit final.
 
-No skeleton, a alteração de um registro e seu evento de auditoria pertencem à mesma transação. Se a auditoria não puder ser gravada, a alteração também falha. Logs de segurança são outra fonte: um log escrito fora do banco pode permanecer depois de um rollback e não deve ser confundido com uma alteração confirmada.
+No skeleton, a gravação de um registro e o registro de auditoria ocorrem na mesma transação: se a auditoria falhar, a alteração também é desfeita. Logs de segurança são um canal separado — como são gravados fora do banco, podem permanecer após um rollback e não devem ser tratados como prova de alteração confirmada.
 
 ### Revisão, CAS e ETag
 
-`revision` é um contador do registro. **CAS** (*compare-and-swap*, comparar antes de trocar) significa gravar somente se a revisão que a pessoa leu ainda for a revisão atual. Se Ana e Helena leem a revisão 7, a primeira gravação cria a revisão 8; a segunda não pode sobrescrever essa mudança usando a revisão 7.
+Todo registro próprio mantém um contador `revision`. **CAS** (*compare-and-swap*) garante que uma edição só seja gravada se a revisão lida pela pessoa ainda for a atual no banco. Se Ana e Helena abrem a revisão 7, quem salvar primeiro gera a revisão 8; a segunda tentativa recebe conflito em vez de sobrescrever a edição da outra.
 
-A API representa a revisão em um **ETag**, cabeçalho HTTP que identifica a versão da representação. `If-Match` informa o ETag que o cliente pretende alterar. Receber conflito exige reler os dados e decidir o que fazer; reenviar silenciosamente com a revisão nova perderia o objetivo do controle.
+Na API REST, a revisão aparece no cabeçalho **ETag** e é reenviada pelo cliente em `If-Match`. Diante de um conflito, o cliente deve reler o registro e decidir como mesclar — reenviar silenciosamente com a revisão nova anularia a proteção.
 
-Isso é diferente da **geração de deployment**, que identifica o conjunto de software ativo, e da versão `0.2.0` de um pacote.
+Não confunda `revision` de registro com a **geração de deployment** (que identifica o conjunto de software em execução) nem com a versão semântica de um pacote (`0.2.0`).
 
 ### Exclusão lógica, tombstone e restauração
 
-**Exclusão lógica** (*soft delete*) marca `deleted_at`, sem apagar fisicamente a linha. **Tombstone** é essa marca de exclusão. As consultas usuais deixam de mostrar o registro, mas UUID, dados e história são preservados.
+**Exclusão lógica** (*soft delete*) preenche `deleted_at` sem apagar a linha fisicamente. Essa marca é chamada de **tombstone**: o registro some das consultas comuns, mas preserva UUID, dados e histórico.
 
-**Restaurar um registro** significa retirar a marca depois de verificar unicidade e referências ativas. Não cria uma cópia com novo UUID. Se o código comercial já estiver ocupado por outro registro ativo, a restauração falha em vez de sobrescrever o outro.
+**Restaurar** significa remover essa marca após validar unicidade e referências ativas — o registro volta com o mesmo UUID, sem ser duplicado. Se outro registro ativo já ocupa o mesmo código comercial, a restauração falha em vez de sobrescrevê-lo.
 
-`with_deleted()` inclui marcas de exclusão na consulta; não remove isolamento nem autorização. E desativar uma conta ou vínculo é uma transição de acesso diferente: restaurar uma identidade não deve reativar automaticamente seus antigos privilégios.
+`with_deleted()` inclui registros excluídos na consulta, mas nunca desativa isolamento de organização nem autorização. Da mesma forma, desativar uma conta ou vínculo é uma transição de acesso distinta: restaurar uma identidade não reativa automaticamente seus privilégios antigos.
 
 ### Triggers, redação e append-only
 
-Um **trigger** é uma rotina do banco acionada por uma mudança de linha. Os triggers são a fonte dos eventos de auditoria: cobrem ORM e SQL, não apenas chamadas Python a `save()`.
+Um **trigger** é uma rotina executada pelo próprio PostgreSQL sempre que uma linha muda. No skeleton, triggers geram os eventos de auditoria diretamente no banco, cobrindo tanto o ORM quanto SQL direto.
 
-**Redação** (*redaction*) significa substituir valores sensíveis por `[REDACTED]` antes de gravá-los no evento. Não significa apenas esconder um valor na tela depois de armazená-lo. Campos novos precisam de declaração e infraestrutura apropriadas; não há detecção garantida de segredos desconhecidos.
+**Redação** (*redaction*) substitui valores sensíveis por `[REDACTED]` **antes** de gravar o evento de auditoria — não se limita a esconder o campo na tela. Campos novos precisam ser declarados corretamente; o sistema não tenta adivinhar segredos não declarados.
 
-**Append-only** significa que o runtime acrescenta eventos, mas não os altera nem exclui. Isso não é **WORM** (*write once, read many*, armazenamento que impediria alteração posterior inclusive por atores privilegiados). DBA e owner de migrations continuam fronteiras privilegiadas.
-
-A **configuração da instância** (hosts, banco, email, cache, arquivos, segredos) não é dado de aplicação: fica num SQLite próprio da instância, com segredos cifrados por uma chave mestra separada, e o ambiente vence o que estiver gravado. Ela nasce no **setup** do primeiro acesso (um token de uso único protege a instância recém-instalada) e muda depois em `/platform/instance/`, só pelo administrador da plataforma e com autenticação recente.
+**Append-only** significa que a role runtime só pode inserir eventos de auditoria, nunca alterá-los ou apagá-los. Isso não equivale a armazenamento **WORM** (*write once, read many*): DBA e owner de migrations continuam sendo fronteiras privilegiadas.
 
 Veja [auditoria, concorrência e exclusão](audit-soft-delete.md) e [API](api.md).
 
@@ -186,71 +204,96 @@ Veja [auditoria, concorrência e exclusão](audit-soft-delete.md) e [API](api.md
 
 ### Especificação, manifesto e catálogo
 
-`TableSpec` é uma **especificação de tabela no código**: informa campos autorizados para leitura/escrita, sensibilidade e exposição. É uma allowlist, isto é, uma lista explícita do que é permitido. O **registry** é o registro dessas especificações durante o startup; não cria tabelas.
-
-O **catálogo físico** no banco (`TableDefinition`/`FieldDefinition`) descreve o que realmente existe. Editar sua descrição não altera estrutura nem permissões. São responsabilidades diferentes, não dois lugares alternativos para executar DDL.
-
-`manifest.json` é o **contrato canônico da app**: identidade, versão, dependências, entradas de código, configuração, arquivos e migrations. `AppManifest` é sua representação usada no runtime. “Canônico” significa que não se mantém outro manifesto manual divergente para a mesma app.
+- `TableSpec` é a **especificação no código** de cada tabela: lista explicitamente (*allowlist*) campos de leitura, escrita, sensibilidade e exposição na API. O **registry** reúne essas especificações na inicialização, sem executar DDL.
+- O **catálogo físico** no banco (`TableDefinition` e `FieldDefinition`) inventaria o que realmente existe no PostgreSQL. Alterar rótulos ou descrições no catálogo não modifica schema nem permissões.
+- `manifest.json` é o **contrato canônico da app**: declara identidade, versão, dependências, entradas de código, parâmetros, arquivos e migrations, carregado em runtime como `AppManifest`. "Canônico" significa existir uma única fonte de verdade, sem manifestos paralelos.
 
 ### API de serviços e API REST
 
-A **API de serviços** é o conjunto de classes que uma app publica em `service_api.py` para outras apps chamarem dentro do mesmo processo. Por exemplo, a agenda chama `NotificationService().notify(...)` do núcleo para avisar participantes, sem importar os modelos de notificação. A chamada roda na transação e no contexto de quem chama, e o serviço revalida a autorização. Ela devolve um **DTO** (*data transfer object*): um objeto imutável só com os campos que o contrato promete, nunca o modelo do banco.
+A **API de serviços** reúne as classes que uma app publica em `service_api.py` para outras apps chamarem dentro do mesmo processo — por exemplo, a agenda chama `NotificationService().notify(...)` do núcleo sem importar os modelos de notificação. A chamada roda na transação e no contexto do chamador, revalida autorização internamente e retorna **DTOs** imutáveis (*data transfer objects*), nunca modelos do banco.
 
-A **API REST** (`/api/v1/`) atende navegadores e clientes HTTP. As duas não competem: a REST de uma app deve ser uma camada fina sobre a API de serviços dela. Toda app é obrigada a publicar a sua; veja [API de serviços entre apps](service-api.md).
+A **API REST** (`/api/v1/`) atende navegadores e clientes HTTP. As duas trabalham em camadas: a REST de uma app deve ser uma camada fina sobre sua API de serviços. Toda app é obrigada a publicar sua API de serviços ([API de serviços entre apps](service-api.md)).
 
 ### Pacote, wheel, assinatura e publicador
 
-Um **pacote `.skapp`** é um artefato fechado e assinado que pode ser enviado ao instalador. Uma **wheel** é uma distribuição Python pronta para instalação; o wheel do core contém o namespace `skeleton`, não os arquivos de negócio e configuração do projeto derivado.
+Um **pacote `.skapp`** é um arquivo fechado e assinado entregue ao instalador. Um **wheel** é uma distribuição Python pronta para instalação; o wheel do núcleo contém apenas o pacote `skeleton`, deixando `config` e `applications` no projeto derivado.
 
-Um **hash/digest SHA-256** identifica o conteúdo de um arquivo: mudar bytes muda o digest. Uma **assinatura** associa aquele conteúdo a uma chave. O **publicador** (*publisher*) é quem controla a chave autorizada para publicar um release. O **conjunto de chaves confiáveis** (*trust store*) pertence ao operador, não ao pacote recebido.
+- **Hash/digest SHA-256:** identifica o conteúdo exato de um arquivo (qualquer byte alterado muda o hash).
+- **Assinatura:** vincula esse conteúdo à chave privada de um **publicador** (*publisher*).
+- **Trust store:** conjunto de chaves públicas confiáveis, mantido exclusivamente pelo operador (nunca vindo de dentro do pacote).
 
-Uma assinatura válida prova procedência e integridade sob essa política de confiança; não prova que código Python seja inofensivo. Apps e migrations aprovadas continuam código privilegiado. O formato não é uma sandbox.
+Uma assinatura válida comprova procedência e integridade segundo a política do operador, mas **não** garante que o código Python seja inofensivo: apps e migrations aprovadas continuam sendo código privilegiado, não executam em sandbox.
 
-Um **lock de dependências** fixa versões e hashes. Um **wheelhouse** é o diretório dos wheels disponíveis para montar um ambiente, inclusive sem buscar pacotes na rede. A instalação trabalha em ambiente novo; não faz upgrade solto das bibliotecas usadas pelos workers ativos.
+Um **lock de dependências** trava versões e hashes exatos; um **wheelhouse** guarda os wheels locais para montar o ambiente sem depender da rede. Cada instalação prepara um ambiente virtual novo, sem alterar as bibliotecas dos workers em execução.
 
 ### Versão, instalação e ativação
 
-A **versão do componente**, como `0.2.0`, identifica uma versão declarada do core ou da app. Major/minor/patch descrevem o contrato de compatibilidade; versões e intervalos são comparados por biblioteca, não como texto. `manifest_version` identifica a versão do formato do manifesto, e o número de uma migration identifica um passo de estrutura: não são o mesmo contador.
+A **versão do componente** (`0.2.0`) segue compatibilidade semântica (major/minor/patch) e é comparada por biblioteca, nunca como texto puro. Ela é independente de `manifest_version` (formato do manifesto) e da numeração das migrations.
 
-A **instalação global** diz qual código existe no deployment. `ComponentInstallation` representa seu estado confirmado. A **disponibilidade** (`AppAvailability`) é decidida pela plataforma: a app instalada serve a todas as organizações (`all`) ou só às selecionadas (`selected`, com uma `AppOrganizationGrant` por organização). A **ativação por organização** (`AppInstallation`) decide se uma organização usa a app e com qual configuração. Instalado ≠ disponível ≠ ativo: uma app indisponível fica fechada (404) mesmo que a organização a tenha ativado, a plataforma também pode **atribuir** a app a uma organização, o que a oferece e a ativa com as dependências ([limites da organização](organization-limits.md#atribuir-apps-pela-plataforma), #699), e revogar a disponibilidade não apaga a ativação nem a configuração. Os dois defaults são fechados: sem linha de disponibilidade a app é indisponível, sem `AppInstallation` está desativada, e o `default_enabled` do manifesto é obsoleto. Quem já usava uma app ativa por padrão continua com ela depois de `upgrade_app_activation` ([extensões](extending.md#default-fechado-e-upgrade-da-ativação-22)). Desativar por organização não remove código nem executa migrations.
+O ciclo de vida de uma app passa por três camadas distintas — **instalada ≠ disponível ≠ ativa**:
 
-- `installed`: componente gerenciado presente no release.
-- `project-local`: código pertencente ao projeto derivado; seu inventário não autoriza sobrescrevê-lo com um pacote coincidente.
-- `schema_retained`: código retirado, com estrutura, dados e histórico preservados; não é uma app ativa parcialmente carregada.
+1. **Instalação global** (`ComponentInstallation`): indica qual código está presente no deployment (todas as organizações compartilham o mesmo código).
+2. **Disponibilidade** (`AppAvailability`): decidida pela plataforma, que libera a app para todas as organizações (`all`) ou apenas para selecionadas (`selected`, via `AppOrganizationGrant`).
+3. **Ativação por organização** (`AppInstallation`): define se a organização usa a app e com quais parâmetros.
 
-Todas as organizações usam a mesma versão de código por deployment. Reinstalar uma app preserva registros e exige ativação explícita, em vez de ressuscitar acesso só porque o pacote voltou.
+Os dois portões começam fechados por padrão: sem disponibilidade a app retorna `404` mesmo que tenha sido ativada antes, e revogar a disponibilidade preserva a ativação e os parâmetros da organização caso ela volte a ser liberada. A plataforma também pode **atribuir** uma app diretamente a uma organização, liberando e ativando-a junto com suas dependências ([limites da organização](organization-limits.md#atribuir-apps-pela-plataforma)). O antigo campo `default_enabled` do manifesto é obsoleto; instalações anteriores migram via `upgrade_app_activation` ([extensões](extending.md#default-fechado-e-upgrade-da-ativação-22)). Desativar uma app numa organização não remove código nem roda migrations.
 
-Algumas apps genéricas vêm **dentro do wheel do núcleo** (apps first-party, em `skeleton/contrib`) e não chegam por `.skapp`. A agenda e o livro contábil são **bibliotecas**: recursos que outras apps usam pela API de serviços. Uma biblioteca é instalada com a app que depende dela, não tem disponibilidade nem ativação próprias e fica efetiva numa organização enquanto uma app efetiva ali a usa; retirá-la preserva os dados ([extensão](extending.md#apps-first-party-do-núcleo-skeletoncontrib)).
+Estados de um componente no inventário:
+
+- `installed`: componente gerenciado presente no release atual.
+- `project-local`: código pertencente ao projeto derivado, protegido contra sobrescrita por pacotes.
+- `schema_retained`: código retirado do release, mantendo tabelas, dados e histórico preservados; reinstalar exige reativação explícita em cada organização.
+
+Algumas apps genéricas são distribuídas **dentro do wheel do núcleo** (apps first-party em `skeleton/contrib`), sem pacote `.skapp`. Entre elas, a agenda e o livro contábil são **bibliotecas**: recursos consumidos por outras apps via API de serviços. Uma biblioteca entra automaticamente quando alguma app instalada depende dela, não possui disponibilidade nem ativação próprias e permanece efetiva na organização enquanto houver uma app efetiva que a utilize; retirá-la preserva os dados ([extensão](extending.md#apps-first-party-do-núcleo-skeletoncontrib)).
 
 ### Livro, lançamento e título
 
-O **livro contábil** (app first-party `skeleton_ledger`) é a contabilidade de uma organização, separada da cobrança da plataforma. Um **livro** tem uma moeda e um regime (caixa ou competência) e um **plano de contas**; uma **chave de conta** é o nome estável que uma app usa (`ledger.cash`, `acme_services.revenue`) e que a organização vincula a uma conta. Um **lançamento** é um conjunto de partidas em que débitos e créditos fecham; ele nasce numerado e **selado**, e só se corrige por **estorno**. Um **título** é um valor a receber ou a pagar, com vencimento; a **baixa** registra o recebimento ou o pagamento e gera o lançamento. Uma app lança pelas **regras** que registra, com a autorização vinda do registro dela (o atendimento), não do livro.
+O **livro contábil** (`skeleton_ledger`) cuida da contabilidade de cada organização, independente da cobrança da plataforma:
+
+- **Livro:** define moeda, regime (caixa ou competência) e **plano de contas**.
+- **Chave de conta:** nome estável usado pelas apps (como `ledger.cash` ou `acme_services.revenue`) e associado pela organização a uma conta real do plano.
+- **Lançamento:** conjunto balanceado de partidas (débitos = créditos), numerado e **selado** na criação; correções só ocorrem por **estorno**.
+- **Título:** valor a receber ou a pagar com vencimento; a **baixa** registra a quitação e gera o lançamento correspondente.
+
+Apps gravam lançamentos por meio de **regras** registradas, com autorização derivada do próprio registro de origem (por exemplo, um atendimento), e não de permissões diretas no livro.
 
 ### Produto, preço, assinatura e fatura
 
-Quando a plataforma é vendida como SaaS ([cobrança](billing.md)), a **conta de cobrança** é a organização. Um **produto** é o que se vende (plano base, app ou pacote de armazenamento) e um **preço** é uma oferta dele numa moeda e num ciclo; os termos de um preço nunca mudam, e quem já assinou mantém o preço antigo. A **assinatura** é o contrato recorrente da organização, e cada **item** dela é um preço contratado. A **fatura** é o valor devido num período, com número e valores imutáveis depois de emitida; o **pagamento** é uma tentativa de quitá-la. Disponível ≠ contratado: com a cobrança ligada, uma app paga só fica disponível para a organização que tem o direito a ela.
+Quando a plataforma é operada como SaaS ([cobrança](billing.md)), cada organização possui uma **conta de cobrança**:
+
+- **Produto:** o que é comercializado (plano base, app ou pacote de armazenamento).
+- **Preço:** oferta do produto em uma moeda e ciclo; seus termos são imutáveis para preservar contratos vigentes.
+- **Assinatura e itens:** o contrato recorrente da organização e cada preço contratado nele.
+- **Fatura e pagamento:** o valor devido no período (com número e linhas imutáveis após emissão) e cada tentativa de quitação.
+
+Com a cobrança ativa, **disponível ≠ contratado**: uma app paga só fica acessível à organização enquanto houver direito contratual válido.
 
 ### Pacote de release, fonte e caminho de atualização
 
-Um **pacote de release** é um `.skapp` de `kind: "release"`, um por release do core: leva o pacote do core, o lock e os wheels das dependências de cada **alvo** (interpretador e plataforma) e o wheel do agente. O lock e os wheels de um alvo, guardados pelo agente, são o **ambiente do publicador**. Uma **fonte** é onde o agente procura releases (`path`, `url` ou um repositório do GitHub); o **índice de releases** é o catálogo assinado que ela publica. A **linha** de uma versão é o par major.minor; o **caminho de atualização** é a lista de versões a aplicar, uma linha por vez, e cada **passo** é uma operação completa do agente. Veja o [guia de atualização](updates.md).
+Um **pacote de release** é um `.skapp` do tipo `kind: "release"` que empacota o wheel do núcleo, o lock e os wheels das dependências para cada **alvo** (Python e plataforma), além do wheel do agente. Esse conjunto de lock e wheels validado pelo agente forma o **ambiente do publicador**.
+
+Uma **fonte** é onde o agente busca releases (`path`, `url` ou repositório GitHub), lendo o **índice de releases** assinado publicado nela. A **linha** de versão corresponde ao par `major.minor`; o **caminho de atualização** calcula a sequência de versões um minor por vez, executando cada **passo** como uma operação completa do agente ([guia de atualização](updates.md)).
 
 ### Release, preparação e troca
 
-**Deployment** é a instalação operacional que atende usuários. Um **release** é um conjunto preparado de core, apps, ambiente e recursos. **Staging** é sua preparação em diretório ou imagem separado do conjunto ativo.
+- **Deployment:** a instalação operacional em produção.
+- **Release:** o conjunto imutável de núcleo, apps, ambiente virtual e recursos.
+- **Staging:** a montagem desse release em diretório ou imagem separado antes da troca.
+- **Geração:** contador que avança a cada troca bem-sucedida do release ativo.
+- **Inventário:** registro dos componentes e arquivos daquela geração.
+- **Journal:** log durável das etapas da operação, mantido fora do banco da aplicação para resistir a uma restauração do banco.
+- `DeploymentOperation`: solicitação e acompanhamento auditado da operação na interface da plataforma.
+- **Cutover:** a virada em que novos workers passam a servir o release novo. O código nunca é sobrescrito sobre processos em execução, e o agente só chama comandos provisionados pelo operador (nunca shell vindo do manifesto).
 
-A **geração** aumenta quando o conjunto ativo muda. O **inventário** descreve componentes e arquivos daquele conjunto. O **journal** é o registro durável das etapas de uma operação, mantido fora do banco da aplicação para sobreviver a uma restauração desse banco. `DeploymentOperation` é a solicitação e seu acompanhamento auditado no controle da plataforma.
-
-**Cutover**, ou troca do release ativo, é o momento em que novos workers passam a usar o novo conjunto. O agente usa comandos provisionados pelo operador, não shell informado pelo manifesto. O código não é copiado por cima de workers em execução.
-
-**Idempotência** significa reconhecer uma solicitação lógica já recebida sem executar novamente seus efeitos. Ela não elimina conflitos de geração, CAS ou diferenças entre planos. Um status “aprovado” não significa que migrations, checks e reinício já terminaram.
+**Idempotência** significa reconhecer uma solicitação repetida sem reaplicar seus efeitos, mas não elimina conflitos de geração, CAS ou planos divergentes. Uma operação com status "aprovado" indica apenas autorização registrada — não que migrations, checks e reinício já concluíram.
 
 ### Backup, rollback e recuperação
 
-**Backup** é uma cópia consistente usada em recuperação. **Restaurar um backup** recoloca dados e recursos naquele estado. Isso é diferente de restaurar uma linha excluída logicamente.
+**Backup** é uma cópia consistente usada para recuperação de desastre. **Restaurar um backup** devolve o banco e os arquivos àquele ponto no tempo — operação completamente distinta de restaurar um registro excluído logicamente.
 
-**Rollback do release** significa voltar ao software anterior; não desfaz automaticamente mudanças no banco. Se uma migration já alterou o banco, trocar apenas arquivos pode deixar código e estrutura incompatíveis.
+**Rollback do release** volta o software para a geração anterior, mas **não** desfaz alterações já aplicadas ao banco: se houve migration, trocar apenas o código pode deixar aplicação e schema incompatíveis.
 
-**Manutenção** fecha tráfego de aplicação, drena trabalho em andamento e permite a sequência de backup, migrations, checks e troca. Se houver falha, o gate permanece até provar um estado coerente. Essa é a **manutenção do deploy**, ligada e desligada só pelo agente. A manutenção planejada, fora de um deploy, é feita na infraestrutura (proxy, Coolify), que funciona mesmo com a aplicação instável ([manutenção](maintenance.md)). Depois que o tráfego reabre, restaurar um backup antigo pode perder novas escritas; exige decisão explícita de recuperação/reconciliação.
+A **manutenção do deploy** bloqueia o tráfego da aplicação e drena tarefas em andamento para executar backup, migrations, checks e troca com segurança; se algo falhar, o bloqueio permanece até que o estado seja reconciliado. Ela é controlada exclusivamente pelo agente. Já a manutenção planejada fora de um deploy é feita na borda da infraestrutura (proxy ou Coolify), que continua operando mesmo se a aplicação estiver instável ([manutenção](maintenance.md)). Após reabrir o tráfego, restaurar um backup antigo pode descartar escritas novas e exige decisão operacional explícita.
 
 Veja [extensão e publicação](extending.md) e [deployment](deployment.md).
 
@@ -258,33 +301,41 @@ Veja [extensão e publicação](extending.md) e [deployment](deployment.md).
 
 ### Sessão, CSRF e MFA
 
-Depois do login, a **sessão Django** permite reconhecer a conta nas requisições seguintes por cookie. A API do projeto usa essa sessão; um token do gov.br não vira um token público da API.
+Após o login, a **sessão Django** identifica o usuário nas requisições seguintes por cookie. A API do projeto aceita essa sessão (ou tokens próprios); um token externo do gov.br nunca se transforma em token da API.
 
-**CSRF** é a proteção contra um site externo induzir o navegador autenticado a enviar uma alteração não autorizada. Uma operação que muda estado exige a proteção apropriada, mesmo quando o usuário já está autenticado. Um GET não deve instalar software ou encerrar a sessão.
+**CSRF** protege contra sites externos que tentem induzir o navegador autenticado a disparar alterações sem consentimento. Toda mutação exige proteção CSRF, e requisições `GET` nunca alteram estado (como instalar software ou encerrar sessão).
 
-**MFA** é autenticação com mais de um fator. Ser administrador ou receber um indicador de confiança do provedor externo não dispensa a política de MFA local. `auth_version` permite invalidar sessões quando a política de acesso da identidade muda.
+**MFA** exige um segundo fator de autenticação. Ser administrador ou chegar de um provedor externo confiável não dispensa a política local de MFA. O campo `auth_version` invalida sessões anteriores sempre que a política ou as credenciais da conta mudam.
 
 ### SSO, IdP, OIDC e SAML
 
-**SSO** (*single sign-on*) é entrar em serviços usando uma identidade de um provedor. O **IdP** (*identity provider*) autentica a pessoa e fornece uma prova. Ele não decide automaticamente suas permissões dentro das organizações do skeleton.
+**SSO** (*single sign-on*) permite entrar com a identidade mantida por um **IdP** (*identity provider*), que autentica a pessoa e emite uma prova — mas não decide suas permissões dentro das organizações do skeleton.
 
-**OAuth 2.0** é um protocolo de autorização de acesso; **OIDC** (*OpenID Connect*) acrescenta a camada de identidade usada nesse login. **SAML** é outro padrão de intercâmbio de provas de identidade, baseado em XML. O skeleton reutiliza allauth e validadores de biblioteca; não implementa parsers próprios desses protocolos.
+- **OAuth 2.0 / OIDC:** OAuth trata de autorização delegada; o *OpenID Connect* adiciona a camada de identidade usada no login.
+- **SAML:** padrão corporativo de troca de provas de identidade baseado em XML.
 
-**Issuer** identifica o emissor da prova. **Subject** identifica a pessoa dentro daquele domínio de identidade. **Audience** identifica para quem a prova foi emitida. Email não substitui essa identidade estável, e coincidência de email ou CPF não autoriza ligar contas automaticamente.
+O skeleton reutiliza `django-allauth` e bibliotecas validadas, sem escrever parsers próprios desses protocolos.
 
-**Claims** são afirmações contidas na prova, como email. Elas precisam ser validadas e minimizadas antes da persistência; não são permissões de tabela ou papéis de plataforma. No perfil gov.br, o `sub` técnico é dado pessoal e não deve ser duplicado em perfil, log ou auditoria de payload.
+Na prova de identidade, **issuer** identifica o emissor, **subject** identifica a pessoa dentro daquele provedor e **audience** identifica o destinatário esperado. O email não substitui essa chave estável, e coincidência de email ou CPF nunca vincula contas automaticamente.
+
+**Claims** são atributos incluídos na prova (como email). Eles são validados e minimizados antes de qualquer gravação e nunca concedem papéis ou permissões de tabela. No perfil gov.br, o `sub` técnico é tratado como dado pessoal e não é replicado em perfil, log ou payload de auditoria.
 
 ### State, nonce e PKCE
 
-**State** vincula o retorno ao fluxo de login que o servidor iniciou e é consumido uma vez. **Nonce** vincula o ID token àquela tentativa de autenticação. **PKCE S256** vincula a troca do código ao segredo temporário criado no início do fluxo. São proteções complementares; validar só a assinatura não as substitui.
+- **State:** vincula o callback ao fluxo iniciado pelo servidor e é consumido uma única vez.
+- **Nonce:** amarra o ID token àquela tentativa específica de login.
+- **PKCE S256:** protege a troca do código de autorização com um segredo efêmero gerado no início do fluxo.
 
-**Email verificado** exige uma prova aceita pelo perfil, não apenas a presença do endereço no JSON. Quando a admissão é autorizada mas falta email gov.br, allauth pode coletar e confirmar um endereço real. Isso não cria automaticamente uma organização ou um vínculo empresarial.
+Essas proteções se complementam: verificar apenas a assinatura do token não substitui nenhuma delas.
 
-Testes locais com JWT assinado ou Keycloak real não são **homologação gov.br**. Homologar exige credenciais, URLs autorizadas, ambiente governamental e aprovação do fluxo real. HTTPS, SMTP e infraestrutura produtiva também precisam de provas próprias.
+**Email verificado** exige comprovação aceita pelo perfil, não a simples presença do campo no JSON. Quando a pessoa tem admissão autorizada mas o provedor gov.br não fornece email, o allauth pode coletar e confirmar um endereço válido — ainda sem criar organização nem vínculo automaticamente.
+
+Testes locais com JWT assinado ou Keycloak real validam o fluxo técnico, mas não equivalem à **homologação gov.br**, que exige credenciais oficiais, URLs registradas e aprovação no ambiente governamental. HTTPS, SMTP e infraestrutura de produção também exigem validação própria.
 
 Veja [autenticação e SSO](authentication-sso.md) e [testes e evidências](testing.md).
 
 ## Instância de produto
 
-Uma **instância de produto** vende um produto: cada cliente é uma organização, e os **níveis** do produto são **pacotes de apps** (`AppBundle`), conjuntos de apps que a organização recebe juntos, com o limite de membros acompanhando o que cada app acrescenta. A plataforma define a **política das organizações novas**, **trava** configurações e escolhe o **local de armazenamento** de cada cliente; o cliente pode se **cadastrar** e escolher um nível. Uma **instância central**, do mesmo dono, lê as demais pela **API de gestão**, com um token de plataforma por instância ([montar uma instância de produto](product-instances.md)).
+Uma **instância de produto** entrega um software comercializado como serviço: cada cliente é uma organização e os **níveis** do plano correspondem a **pacotes de apps** (`AppBundle`), onde o limite de membros acompanha o que cada app adiciona.
 
+A plataforma define a **política padrão das organizações novas**, **trava** configurações que não devem ser alteradas pelo cliente e escolhe o **local de armazenamento** de cada organização, enquanto o cliente pode se cadastrar e escolher seu nível. Uma **instância central** do mesmo operador pode monitorar várias instâncias remotas pela **API de gestão**, usando um token de plataforma por instância ([montar uma instância de produto](product-instances.md)).

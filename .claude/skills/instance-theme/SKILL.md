@@ -5,33 +5,33 @@ description: Criar, conferir, montar e publicar um tema da instância (pacote de
 
 # Tema da instância
 
-A norma é o `AGENTS.md` ("não sobrescreva templates do shell do núcleo"); o formato e as regras estão em [docs/appearance.md](../../../docs/appearance.md#pacote-de-tema) e o procedimento completo em [docs/themes.md](../../../docs/themes.md). Este skill é o roteiro curto. Escreva textos e comentários em português.
+A regra geral está no `AGENTS.md` (não sobrescreva templates do shell do núcleo). O formato do pacote está em [docs/appearance.md](../../../docs/appearance.md#pacote-de-tema) e o guia detalhado em [docs/themes.md](../../../docs/themes.md). Este skill reúne o roteiro operacional curto. Escreva textos e comentários em português.
 
 ## Procedimento
 
-1. **Leia** `docs/themes.md` e a seção "Pacote de tema" de `docs/appearance.md`. Confira a versão do núcleo instalada (`python -c "from skeleton.versioning import core_version; print(core_version())"`): os pacotes de tema existem a partir da versão que traz `manage.py appearance check-package`; se o comando não existir, o núcleo é antigo — pare e diga ao usuário que é preciso atualizar o núcleo, em vez de contornar.
-2. **Inventarie o sistema de design**: cor primária, cores secundárias e de estado, cinzas, tipografia (corpo e títulos, com licença), raios, sombras, regras do modo escuro, logo horizontal, logo para fundo escuro, símbolo.
-3. **Escolha `tokens.brand_color`**: o tom da marca que dá contraste AA (4,5:1) com texto branco. Se o tom oficial for claro demais, use um mais escuro da mesma família para `brand_color` e guarde o oficial como token próprio (`--<prefixo>-brand`).
-4. **Crie o diretório do pacote** no repositório do projeto (por exemplo `temas/<nome>/`) com a árvore de `docs/themes.md`: `theme.json`, `theme.css`, `images/`, `fonts/`, `LICENSES/`.
-5. **Escreva o `theme.json`** com `format: 1`, um `id` estável do projeto, `version`, `name`, `compatibility.skeleton` (faixa que inclui o núcleo instalado), `tokens`, `brand` (nome do produto e rodapé, se o produto tiver), `images`, `fonts` e `css`.
-6. **Escreva o `theme.css`** só com os tokens do contrato (`--color-*`, `--radius-*`, `--font-*`, `--shadow-*`), tokens próprios com prefixo do projeto e regras sobre as classes de componente estáveis listadas em `docs/ui-design.md`. Sem `<` (nem em comentário), sem `url(`, sem `@import`. Modo escuro por `@media (prefers-color-scheme: dark)`, nunca por `[data-color-scheme]`: o núcleo resolve essa consulta quando a pessoa força o modo claro ou escuro.
-7. **Prepare as imagens**: logo e logo escuro em SVG simples/otimizado (ou PNG/WebP), ícone PNG 512 × 512. **Fontes** em `.woff2`, direto em `fonts/`, com a licença em `LICENSES/`.
-8. **Confira**: `python manage.py appearance check-package <diretório>` até sair "Pacote válido.". Corrija pela mensagem (ela diz o arquivo e a linha); não afrouxe a regra.
-9. **Monte**: `python manage.py appearance build-package <diretório> --output <arquivo.zip>`.
-10. **Se o tema é de uma app**, ponha o diretório em `themes/<slug>/` da app (ou gere com `skeleton_startapp ... --with-theme <slug>`), use `id` `<app_id>.theme.<slug>`, declare `runtime.instance_themes` com o piso `INSTANCE_THEMES_CORE_MINIMUM` e prove na suíte da app com `skeleton.testing.appearance.assert_app_themes_valid("<app_label>")`. O tema sai com a app; não o publique também como zip.
-11. **Publique** pelo caminho que o usuário pedir: envio em `/platform/appearance/` ("Instalar pacote de tema") ou `python manage.py appearance install-package <zip>` (idempotente). Instalar não ativa: pré-visualize e ative pela tela.
-12. **Verifique no navegador** com a pré-visualização do tema e, depois de ativar, o login, uma página de organização e o modo escuro, tanto o do sistema quanto o escolhido no menu da conta (Claro e Escuro).
-13. Se o projeto já tinha cópias de templates do shell (W046 em `manage.py check`), remova-as depois de o tema estar ativo, e também context processors que só trocavam o nome do produto.
+1. **Leia a referência e confira o núcleo:** revise `docs/themes.md` e a seção *Pacote de tema* de `docs/appearance.md`. Verifique a versão instalada (`python -c "from skeleton.versioning import core_version; print(core_version())"`). Se o núcleo ainda não oferecer `manage.py appearance check-package`, interrompa e informe ao usuário que é preciso atualizar o núcleo em vez de improvisar atalhos.
+2. **Mapeie o sistema de design:** levante cor primária, cores secundárias e de estado, escala de cinzas, tipografia (corpo e títulos, conferindo licenças), raios, sombras, regras do modo escuro, logo horizontal, logo para fundo escuro e ícone.
+3. **Escolha `tokens.brand_color`:** use um tom da marca que atinja contraste AA (4,5:1) com texto branco. Se a cor oficial for clara demais, use uma variação mais escura da mesma família em `brand_color` e mantenha o tom original em um token próprio (`--<prefixo>-brand`).
+4. **Crie a estrutura do pacote:** monte o diretório (por exemplo `temas/<nome>/`) seguindo `docs/themes.md`: `theme.json`, `theme.css`, `images/`, `fonts/` e `LICENSES/`.
+5. **Preencha `theme.json`:** declare `format: 1`, `id` estável, `version`, `name`, `compatibility.skeleton` cobrindo o núcleo instalado, `tokens`, `brand` (nome do produto e rodapé, se aplicável), `images`, `fonts` e `css`.
+6. **Escreva `theme.css`:** use apenas os tokens do contrato (`--color-*`, `--radius-*`, `--font-*`, `--shadow-*`), tokens próprios com prefixo do projeto e seletores das classes estáveis listadas em `docs/ui-design.md`. Não use `<` (nem em comentários), `url(` ou `@import`. Defina o modo escuro com `@media (prefers-color-scheme: dark)` — nunca com `[data-color-scheme]`, pois o núcleo converte a media query automaticamente quando a pessoa força claro ou escuro.
+7. **Prepare imagens e fontes:** use SVG simples e otimizado (ou PNG/WebP) para os logos e PNG 512 × 512 para o ícone. Coloque as fontes `.woff2` diretamente em `fonts/` e as licenças correspondentes em `LICENSES/`.
+8. **Valide o pacote:** execute `python manage.py appearance check-package <diretório>` até obter `"Pacote válido."`. Corrija cada apontamento indicado (arquivo e linha) sem afrouxar validações.
+9. **Gere o arquivo `.zip`:** execute `python manage.py appearance build-package <diretório> --output <arquivo.zip>`.
+10. **Se o tema pertencer a uma app:** coloque o diretório em `themes/<slug>/` dentro da app (ou gere via `skeleton_startapp ... --with-theme <slug>`), use `id` no formato `<app_id>.theme.<slug>`, declare em `runtime.instance_themes` com o piso `INSTANCE_THEMES_CORE_MINIMUM` e valide na suíte com `skeleton.testing.appearance.assert_app_themes_valid("<app_label>")`. Nesse caso, o tema é distribuído com a app e não precisa de `.zip` avulso.
+11. **Publique:** envie o `.zip` em `/platform/appearance/` (*Instalar pacote de tema*) ou rode `python manage.py appearance install-package <zip>` (idempotente). Instalar não ativa automaticamente: pré-visualize e ative pela interface.
+12. **Confira no navegador:** valide a pré-visualização e, após ativar, teste o login, uma página de organização e os modos claro e escuro (tanto o do sistema quanto a seleção manual no menu da conta).
+13. **Limpe sobrescritas antigas:** se o projeto tinha cópias de templates do shell apontadas por `W046` no `manage.py check`, remova-as após ativar o tema, bem como context processors usados apenas para trocar o nome do produto.
 
 ## Pare e pergunte
 
-- A fonte da marca não tem licença que permita auto-hospedagem.
-- A cor primária não atinge AA com branco e o usuário não aceita um tom mais escuro.
-- O sistema de design pede mudança de leiaute, menu ou componente: isso não é tema.
-- O núcleo instalado não tem os comandos de pacote de tema.
+- A fonte da marca não possui licença compatível com auto-hospedagem.
+- A cor primária não alcança contraste AA com branco e o usuário não aprova um tom mais escuro.
+- O sistema de design exige alterar layout, menus ou estrutura de componentes (o que foge do escopo de tema).
+- O núcleo instalado ainda não possui os comandos de pacote de tema.
 
 ## Nunca
 
-- Sobrescrever `skeleton/web/base.html`, `error_base.html`, `platform/base.html`, `account/base_entrance.html` ou outro template do shell para aplicar a marca.
-- Editar `skeleton/web/static/` ou `frontend/` do núcleo, carregar fonte ou CSS de CDN, ou escrever cor ou nome fixos em template.
-- Desligar a validação do CSS ou do SVG, ou silenciar W046 sem motivo registrado.
+- Sobrescrever `skeleton/web/base.html`, `error_base.html`, `platform/base.html`, `account/base_entrance.html` ou qualquer template do shell para aplicar marca.
+- Editar `skeleton/web/static/` ou `frontend/` do núcleo, carregar fontes/CSS de CDN ou fixar cores e nomes diretamente em templates.
+- Desativar a validação de CSS ou SVG, ou silenciar `W046` sem justificativa registrada.
