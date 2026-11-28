@@ -30,12 +30,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # The local hooks again, for commits made without pre-commit installed (#329). The Ruff
       # hooks are skipped (the steps below run them) and commit-msg is not a pre-commit stage.
-      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
-          version: "0.12.7"
-          enable-cache: false
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements/ci-tools.txt
+      - name: Instalar ferramentas do CI com hashes
+        run: python -m pip install --require-hashes -r requirements/ci-tools.txt
       - name: Hooks do pre-commit (exceto o commit-msg)
-        run: uvx pre-commit run --all-files --hook-stage pre-commit --show-diff-on-failure
+        run: python -m pre_commit run --all-files --hook-stage pre-commit --show-diff-on-failure
         env:
           SKIP: ruff-check,ruff-format
       - uses: astral-sh/ruff-action@278981a28ce3188b1e39527901f38254bf3aac89 # v4.1.0
@@ -87,8 +90,9 @@ jobs:
         run: |
           uv pip compile --python-version 3.14 --python-platform x86_64-manylinux_2_28 --generate-hashes requirements.in -o requirements.txt
           uv pip compile --python-version 3.14 --python-platform x86_64-manylinux_2_28 --generate-hashes requirements-dev.in -o requirements-dev.txt
-          if ! git diff --exit-code -- requirements.txt requirements-dev.txt; then
-            echo "::error::requirements.txt/requirements-dev.txt não correspondem aos .in. Regenere com os comandos de 'Atualizar locks' do README.md (uv 0.12.7) e commite o diff."
+          uv pip compile --python-version 3.14 --python-platform x86_64-manylinux_2_28 --generate-hashes requirements/ci-tools.in -o requirements/ci-tools.txt
+          if ! git diff --exit-code -- requirements.txt requirements-dev.txt requirements/ci-tools.txt; then
+            echo "::error::requirements.txt/requirements-dev.txt/requirements/ci-tools.txt não correspondem aos .in. Regenere com os comandos de 'Atualizar locks' do README.md (uv 0.12.7) e commite o diff."
             exit 1
           fi
 
@@ -334,11 +338,12 @@ jobs:
           python -m skeleton.system.packages validate "$RUNNER_TEMP"/release-rehearsal/*.release.skapp             --trust-store "$RUNNER_TEMP/release-rehearsal/trust.json"
           python -m skeleton.system.packages validate-index "$RUNNER_TEMP/release-rehearsal/skeleton-index.json"             --trust-store "$RUNNER_TEMP/release-rehearsal/trust.json"
       - name: Auditar dependências travadas
-        # pip-audit isolado: nada é instalado no ambiente em que o lock foi instalado.
+        # pip-audit isolado num venv próprio com hashes (#925): nada entra no ambiente do lock.
         run: |
-          python -m pip install --target /tmp/pip-audit "pip-audit==2.9.0"
-          PYTHONPATH=/tmp/pip-audit python -m pip_audit --strict --require-hashes --disable-pip -r requirements.txt
-          PYTHONPATH=/tmp/pip-audit python -m pip_audit --strict --require-hashes --disable-pip -r requirements-dev.txt
+          python -m venv /tmp/pip-audit
+          /tmp/pip-audit/bin/python -m pip install --require-hashes -r requirements/ci-tools.txt
+          /tmp/pip-audit/bin/python -m pip_audit --strict --require-hashes --disable-pip -r requirements.txt
+          /tmp/pip-audit/bin/python -m pip_audit --strict --require-hashes --disable-pip -r requirements-dev.txt
       - name: Construir imagem
         run: docker build --tag django-skeleton:ci .
       - name: Contexto de build não vira camada

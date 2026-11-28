@@ -139,6 +139,7 @@ O workflow `.github/workflows/ci.yml` roda o lint, a verificação do CSS compil
 ```sh
 uv pip compile --python-version 3.14 --python-platform x86_64-manylinux_2_28 --generate-hashes requirements.in -o requirements.txt
 uv pip compile --python-version 3.14 --python-platform x86_64-manylinux_2_28 --generate-hashes requirements-dev.in -o requirements-dev.txt
+uv pip compile --python-version 3.14 --python-platform x86_64-manylinux_2_28 --generate-hashes requirements/ci-tools.in -o requirements/ci-tools.txt
 .venv/bin/python -m pip install --require-hashes -r requirements-dev.txt
 ```
 
