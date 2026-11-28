@@ -184,10 +184,7 @@ class ExternalAccessService(ServiceAPI):
         """
         from skeleton.tenancy import external
 
-        invitation = _invitation(invitation_id)
-        by_app = _by_app(invitation.app_label)
-        if not by_app:
-            _manager(actor)
+        invitation = _authorized_invitation(actor, invitation_id)
         _translate(
             lambda: external.revoke_invitation(
                 user=actor, invitation_id=invitation.pk, expected_revision=expected_revision, by_app=True
@@ -206,10 +203,7 @@ class ExternalAccessService(ServiceAPI):
         """
         from skeleton.tenancy import external
 
-        invitation = _invitation(invitation_id)
-        by_app = _by_app(invitation.app_label)
-        if not by_app:
-            _manager(actor)
+        invitation = _authorized_invitation(actor, invitation_id)
         return _translate(
             lambda: invitation_info(
                 external.resend_invitation(
@@ -292,11 +286,7 @@ class ExternalAccessService(ServiceAPI):
         from skeleton.tenancy import external
         from skeleton.tenancy.models import ExternalAccess
 
-        access = ExternalAccess.objects.filter(pk=as_uuid(access_id, field="access_id")).first()
-        if access is None:
-            raise NotFound()
-        if not _by_app(access.app_label):
-            _manager(actor)
+        access = _authorized_target(ExternalAccess, actor, as_uuid(access_id, field="access_id"))
         return _translate(
             lambda: access_info(
                 external.revoke_access(
@@ -328,10 +318,32 @@ class ExternalAccessService(ServiceAPI):
         return access_info(access)
 
 
-def _invitation(invitation_id: Any) -> Any:
+def _has_manager(actor: Any) -> bool:
+    try:
+        _manager(actor)
+    except Forbidden:
+        return False
+    return True
+
+
+def _authorized_target(model: Any, actor: Any, identifier: UUID) -> Any:
+    """Authorize before lookup so nonexistent and unauthorized targets answer identically (#912)."""
+    from .applications import calling_app_label
+
+    caller_app = calling_app_label()
+    if caller_app is None:
+        _manager(actor)
+        row = model.objects.filter(pk=identifier).first()
+    elif _has_manager(actor):
+        row = model.objects.filter(pk=identifier).first()
+    else:
+        row = model.objects.filter(pk=identifier, app_label=caller_app).first()
+    if row is None:
+        raise NotFound()
+    return row
+
+
+def _authorized_invitation(actor: Any, invitation_id: Any) -> Any:
     from skeleton.tenancy.models import ExternalInvitation
 
-    invitation = ExternalInvitation.objects.filter(pk=as_uuid(invitation_id, field="invitation_id")).first()
-    if invitation is None:
-        raise NotFound()
-    return invitation
+    return _authorized_target(ExternalInvitation, actor, as_uuid(invitation_id, field="invitation_id"))

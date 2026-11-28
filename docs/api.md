@@ -76,7 +76,7 @@ FKs de negócio usam UUID resolvido em queryset legível da mesma org, nunca nes
 - filtra depois da autorização e antes da paginação, então `count` só conta o que o ator lê;
 - ordena por relevância.
 
-O picker de referências aceita `q` para prefixo do rótulo e, com `pg_trgm`, similaridade por palavra inteira (`strict_word_similarity`, limiar padrão 0,5), que tolera erro de digitação numa palavra do rótulo, mas não casa pedaços de outra palavra (#180, #181).
+O picker de referências aceita `q` para prefixo do rótulo (com `%`, `_` e `\` escapados como texto literal via `ESCAPE '\'`, e a disponibilidade de `pg_trgm` em cache por processo, #912) e, com `pg_trgm`, similaridade por palavra inteira (`strict_word_similarity`, limiar padrão 0,5), que tolera erro de digitação numa palavra do rótulo, mas não casa pedaços de outra palavra (#180, #181).
 
  Ordena created_at/sysid; paginação `{count,page,page_size,results}`, tamanho 25, máximo 100; o deslocamento máximo é de 1 000 000 de linhas, e uma página além disso é 400 `invalid_pagination` (#271). Conte/count/lista/audit são autorizados antes de paginação.
 
@@ -104,7 +104,7 @@ Somente JSON é aceito na API. `SKELETON_JSON_MAX_BYTES` limita bytes efetivamen
 
 ## Concorrência e erros
 
-O GET de detalhe retorna um ETag forte `"<revision>"`, o marcador exato da versão lida. Para PATCH, DELETE e restore, copie esse valor **com as aspas** para `If-Match`; criação por POST não exige revisão prévia. O servidor usa CAS (compare-and-swap): só grava se a revisão atual ainda for a que você leu. Assim, duas alterações da mesma versão não sobrescrevem silenciosamente uma à outra. Formulários HTML enviam uma revisão escondida e respondem 409 quando ela está desatualizada; a API usa 412.
+O GET de detalhe retorna um ETag forte `"<revision>"`, o marcador exato da versão lida. Para PATCH, DELETE e restore, copie esse valor **com as aspas** para `If-Match`; criação por POST não exige revisão prévia. Todo cabeçalho `If-Match` passa pelo mesmo parser (`skeleton.api.errors.parse_revision`), que recusa `"0"` salvo nas rotas de primeira gravação (`PUT` de configuração de app e de admissão por provedor, #912). O servidor usa CAS (compare-and-swap): só grava se a revisão atual ainda for a que você leu. Assim, duas alterações da mesma versão não sobrescrevem silenciosamente uma à outra. Formulários HTML enviam uma revisão escondida e respondem 409 quando ela está desatualizada; a API usa 412.
 
 | Resultado | HTTP/code |
 |---|---|

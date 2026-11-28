@@ -66,8 +66,9 @@ class RevisionForm(forms.Form):
 
 
 def _apply_error(form, error):
-    for field, problems in error.message_dict.items():
-        form.add_error("days" if field == "expires_at" else field if field in form.fields else None, problems)
+    from skeleton.web.forms import form_error
+
+    form_error(form, error, field_map={"expires_at": "days"})
     return 400
 
 

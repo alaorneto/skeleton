@@ -14,10 +14,15 @@ class BoundaryError(APIException):
             self.detail["fields"] = fields
 
 
-def parse_revision(value, *, composite=False):
+def parse_revision(value, *, composite=False, allow_zero=False):
     if value is None:
         raise BoundaryError("revision_required", gettext("Envie If-Match com a revisão atual."), 428)
-    pattern = r'"([1-9][0-9]*)-([1-9][0-9]*)"' if composite else r'"([1-9][0-9]*)"'
+    if composite:
+        pattern = r'"([1-9][0-9]{0,18})-([1-9][0-9]{0,18})"'
+    elif allow_zero:
+        pattern = r'"(0|[1-9][0-9]{0,18})"'
+    else:
+        pattern = r'"([1-9][0-9]{0,18})"'
     match = re.fullmatch(pattern, value)
     if not match:
         raise BoundaryError("invalid_revision", gettext("If-Match inválido."))

@@ -165,3 +165,46 @@ def test_privilege_refusals_name_the_field(monkeypatch, subtests):
             with pytest.raises(database.DatabaseCheckError) as info:
                 database.validate_owner("postgres://x@h/app", runtime)
             assert (info.value.code, info.value.field) == (code, field)
+
+
+def test_django_alias_and_connect_refuse_disallowed_libpq_options(subtests):
+    """#913: django_alias and _connect enforce the same CONNECT_OPTIONS allowlist."""
+    for dsn in (
+        "postgres://u:p@h:5432/app?passfile=/etc/passwd",
+        "postgres://u:p@h:5432/app?servicefile=/etc/hosts",
+        "postgres://u:p@h:5432/app?options=-c%20search_path=public",
+    ):
+        with subtests.test(dsn=dsn):
+            with pytest.raises(database.DatabaseCheckError) as alias_err:
+                with database.django_alias("default", dsn):
+                    pass
+            assert alias_err.value.code == "disallowed_option"
+            with pytest.raises(database.DatabaseCheckError) as connect_err:
+                database._connect(dsn)
+            assert connect_err.value.code == "disallowed_option"
+    allowed = database._validated_options(database.parse("postgres://u:p@h:5432/app?sslmode=require"))
+    assert allowed == {"sslmode": "require"}
+
+
+def test_database_config_merges_options_and_enforces_search_path(subtests):
+    """#913: DATABASE_URL ?options=... is preserved while search_path=skeleton,public stays enforced."""
+    import environ
+
+    from skeleton.conf.base import database_config
+
+    for url, expected in (
+        ("postgres://u:p@h:5432/app", "-c search_path=skeleton,public"),
+        (
+            "postgres://u:p@h:5432/app?options=-c%20statement_timeout=5000",
+            "-c statement_timeout=5000 -c search_path=skeleton,public",
+        ),
+        (
+            "postgres://u:p@h:5432/app?options=-c%20search_path=skeleton,public",
+            "-c search_path=skeleton,public",
+        ),
+    ):
+        with subtests.test(url=url):
+            env = environ.Env()
+            env.ENVIRON = {"DATABASE_URL": url}
+            cfg = database_config(env, "DATABASE_URL", conn_max_age=0, pooler=False)
+            assert cfg["OPTIONS"]["options"] == expected

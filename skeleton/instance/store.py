@@ -57,8 +57,10 @@ class InstanceStore:
                 os.close(os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
             except FileExistsError:
                 pass
-        connection = sqlite3.connect(self.path, isolation_level=None)
+        connection = sqlite3.connect(self.path, isolation_level=None, timeout=5.0)
+        connection.execute("PRAGMA busy_timeout = 5000")
         connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA journal_mode = WAL")
         return connection
 
     def initialize(self) -> None:
@@ -169,8 +171,10 @@ class InstanceStore:
         with closing(self._connect(create=False)) as connection:
             try:
                 return dict(connection.execute("SELECT key, value FROM setup_state").fetchall())
-            except sqlite3.OperationalError:
-                return {}
+            except sqlite3.OperationalError as exc:
+                if "no such table" in str(exc).lower():
+                    return {}
+                raise
 
     def put_setup_state(self, key: str, value: str) -> None:
         """Progress of the first-access setup (#146); never secrets or credentials."""

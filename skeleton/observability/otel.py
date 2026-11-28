@@ -55,7 +55,12 @@ ALLOWED_ATTRIBUTES = frozenset(
     }
 )
 DB_MARKERS = ("db.system", "db.system.name")
-DEFAULT_EXCLUDED_URLS = "health/live/,health/ready/,metrics"
+# Anchored so only the exact probe/scrape endpoints are excluded, never /api/v1/platform/metrics/ (#914).
+DEFAULT_EXCLUDED_URLS = (
+    r"^(?:https?://[^/]+)?/health/live/?(?:\?.*)?$,"
+    r"^(?:https?://[^/]+)?/health/ready/?(?:\?.*)?$,"
+    r"^(?:https?://[^/]+)?/metrics/?(?:\?.*)?$"
+)
 _TYPE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.]{0,199}")
 
 

@@ -133,7 +133,9 @@ def import_request(request, organization_id, table_key):
             except PermissionDenied:
                 raise Http404 from None
             except ValidationError as exc:
-                errors, status = [message for items in exc.message_dict.values() for message in items], 400
+                from skeleton.web.forms import validation_messages
+
+                errors, status = validation_messages(exc), 400
             else:
                 messages.success(request, gettext("Arquivo recebido. A prévia aparece aqui quando estiver pronta."))
                 return redirect("transfer:list", organization_id=organization_id)

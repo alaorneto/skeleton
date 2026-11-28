@@ -49,7 +49,7 @@ Cada nó roda o `compose.yaml` como projeto próprio ([nó de app](deployment.md
 
 ## Configuração
 
-Em modo cluster (`SKELETON_INSTANCE_MODE=cluster`), a configuração vem só do ambiente, igual em todos os nós: o setup não roda, `/platform/instance/` fica só leitura e a CLI recusa gravar. Para começar, rode o setup numa cópia `standalone` apontada para o servidor de dados e exporte com `manage.py instance export-env --output instancia.env` (um arquivo 0600 com os segredos decifrados; guarde-o no cofre de segredos). Para mudar a configuração depois, mude o arquivo e rode o reinício em rolagem.
+Em modo cluster (`SKELETON_INSTANCE_MODE=cluster`), a configuração vem só do ambiente, igual em todos os nós: o setup não roda, `/platform/instance/` fica só leitura e a CLI recusa gravar. O healthcheck do container (`python -m skeleton.api.healthcheck`) também respeita o modo cluster (nunca lê o SQLite local) e usa o primeiro host concreto de `DJANGO_ALLOWED_HOSTS`, caindo para `localhost` quando só houver `*` (#913). Para começar, rode o setup numa cópia `standalone` apontada para o servidor de dados e exporte com `manage.py instance export-env --output instancia.env` (um arquivo 0600 com os segredos decifrados; guarde-o no cofre de segredos). Para mudar a configuração depois, mude o arquivo e rode o reinício em rolagem.
 
 ## Manutenção
 

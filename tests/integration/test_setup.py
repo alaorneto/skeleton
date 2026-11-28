@@ -181,8 +181,15 @@ def test_full_setup_never_keeps_the_owner_credential(setup_mode, caplog, tmp_pat
         assert owner_password not in repr(session)
         stored = store.settings()
         assert stored["database_url"][1] and os.environ["TEST_DATABASE_URL"] not in stored["database_url"][0]
-        # Every keyring once, billing's too, so turning billing on never meets E037 (#654).
-        keyrings = {"mfa_encryption_keys", "integration_encryption_keys", "billing_encryption_keys"}
+        # Every keyring once, so turning any feature on later never meets E027/E037 (#654, #913).
+        keyrings = {
+            "mfa_encryption_keys",
+            "identity_provider_encryption_keys",
+            "integration_encryption_keys",
+            "billing_encryption_keys",
+            "remote_instance_encryption_keys",
+            "files_storage_encryption_keys",
+        }
         assert {"secret_key", *keyrings} <= set(stored)
         done = post(client, "/setup/finish/", {})
     assert done.status_code == 200 and "reinicie o serviço" in done.content.decode().lower()
@@ -311,7 +318,7 @@ def test_failed_migration_is_logged_without_credentials(setup_mode, caplog, monk
         response = post(client, "/setup/schema/", {"owner_url": owner})
     assert response.status_code == 400 and "RuntimeError" in response.content.decode()
     [record] = [record for record in caplog.records if record.name == "skeleton.setup"]
-    assert record.levelno == logging.ERROR and record.exc_info and "step=schema" in record.getMessage()
+    assert record.levelno == logging.ERROR and not record.exc_info and "step=schema" in record.getMessage()
     assert owner_password not in caplog.text and owner not in caplog.text
 
 
@@ -454,7 +461,7 @@ def test_instance_step_suggests_the_host_and_fills_the_csrf_origin(setup_mode):
     assert 'name="allowed_hosts" value="testserver"' in html
     assert "checked" not in html.split('name="trust_proxy"', 1)[1].split(">", 1)[0]
     proxied = client.get("/setup/instance/", HTTP_X_FORWARDED_PROTO="https").content.decode()
-    assert "checked" in proxied.split('name="trust_proxy"', 1)[1].split(">", 1)[0]
+    assert "checked" not in proxied.split('name="trust_proxy"', 1)[1].split(">", 1)[0]
     response = post(
         client, "/setup/instance/", {"allowed_hosts": "app.example.test", "public_url": "https://app.example.test"}
     )

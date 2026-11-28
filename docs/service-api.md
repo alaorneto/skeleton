@@ -474,7 +474,7 @@ A [cobrança](billing.md) da organização. As apps leem a situação dela e con
 
 ### FlowService
 
-Opera os [fluxos de processo](flows.md) que as apps declaram com `skeleton.flows.registry`. É um serviço do núcleo (sem `app_label`), mas toda chamada exige a **app dona do fluxo** ativa na organização e responde `Unavailable` sem ela; as listas omitem o que é de apps desativadas. Métodos com `since="0.1.0"`.
+Opera os [fluxos de processo](flows.md) que as apps declaram com `skeleton.flows.registry`. É um serviço do núcleo (sem `app_label`), mas toda chamada exige a **app dona do fluxo** ativa na organização e responde `Unavailable` sem ela; as listas omitem o que é de apps desativadas. Em `instance`, `history` e `task`, a visibilidade é checada antes da disponibilidade da app, de modo que atores sem acesso recebem `NotFound` igual ao de um identificador inexistente mesmo quando a app está desativada (#912). Em `ExternalAccessService`, `revoke_invitation`, `resend_invitation` e `revoke` autorizam o chamador antes de buscar o alvo, respondendo igualmente para alvos inexistentes ou de outra app (#912). Métodos com `since="0.1.0"`.
 
 ```python
 from skeleton.service_api.flows import FlowService

@@ -21,6 +21,7 @@ deployment check warns.
 
 from __future__ import annotations
 
+import functools
 from typing import Any
 
 from django.core.exceptions import ValidationError
@@ -87,12 +88,29 @@ def apply_search(queryset: Any, spec: Any, term: Any) -> Any:
     )
 
 
-def trigram_available(using: str = "default") -> bool:
+def _escape_like(term: str) -> str:
+    """Escape LIKE metacharacters so user input matches literally under ``ESCAPE '\\'`` (#912)."""
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+@functools.lru_cache(maxsize=16)
+def _trigram_available_cached(using: str, db_name: str) -> bool:
     from django.db import connections
 
     with connections[using].cursor() as cursor:
         cursor.execute("SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm'")
         return cursor.fetchone() is not None
+
+
+def trigram_available(using: str = "default") -> bool:
+    from django.db import connections
+
+    db_name = str(connections[using].settings_dict.get("NAME") or "")
+    return _trigram_available_cached(using, db_name)
+
+
+def clear_trigram_cache() -> None:
+    _trigram_available_cached.cache_clear()
 
 
 def apply_label_search(queryset: Any, label: str | None, term: Any) -> Any:
@@ -109,12 +127,13 @@ def apply_label_search(queryset: Any, label: str | None, term: Any) -> Any:
         return queryset.none()
     model = queryset.model
     expression = label_sql(model, label)
+    escaped = _escape_like(term)
     if trigram_available(queryset.db):
         return (
             queryset.alias(
                 _sk_label=RawSQL(  # noqa: S611 - columns from model metadata of declared fields; the term is bound
-                    f"({expression} LIKE {UNACCENT}(%s) || '%%' OR {UNACCENT}(%s) <<%% {expression})",
-                    (term, term),
+                    f"({expression} LIKE {UNACCENT}(%s) || '%%' ESCAPE '\\' OR {UNACCENT}(%s) <<%% {expression})",
+                    (escaped, term),
                     output_field=BooleanField(),
                 )
             )
@@ -127,7 +146,9 @@ def apply_label_search(queryset: Any, label: str | None, term: Any) -> Any:
             .order_by("-_sk_similarity", "created_at", "sysid")
         )
     return queryset.alias(
-        _sk_label=RawSQL(f"{expression} LIKE {UNACCENT}(%s) || '%%'", (term,), output_field=BooleanField())  # noqa: S611 - columns from model metadata of declared fields; the term is bound
+        _sk_label=RawSQL(  # noqa: S611 - columns from model metadata of declared fields; the term is bound
+            f"{expression} LIKE {UNACCENT}(%s) || '%%' ESCAPE '\\'", (escaped,), output_field=BooleanField()
+        )
     ).filter(_sk_label=True)
 
 

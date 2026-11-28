@@ -347,6 +347,19 @@ def test_disabled_app_is_unavailable(scenario):
         assert call(scenario, lambda actor: service.tasks(actor=actor)).items == ()
         assert call(scenario, lambda actor: service.tasks(actor=actor, scope="all")).items == ()
         assert call(scenario, lambda actor: service.open_task_count(actor=actor)) == 0
+        # An unauthorized actor cannot distinguish existing from missing IDs even when the app is disabled (#912).
+        assert_denied_as_not_found(
+            scenario.caller(
+                lambda actor: service.instance(actor=actor, instance_id=receipt.sysid), user=scenario.denied
+            ),
+            missing=scenario.caller(
+                lambda actor: service.instance(actor=actor, instance_id=uuid4()), user=scenario.denied
+            ),
+        )
+        assert_denied_as_not_found(
+            scenario.caller(lambda actor: service.task(actor=actor, task_id=task.sysid), user=scenario.denied),
+            missing=scenario.caller(lambda actor: service.task(actor=actor, task_id=uuid4()), user=scenario.denied),
+        )
         # Disabled only in A: B keeps working.
         assert call(scenario, lambda actor: service.open_task_count(actor=actor), organization=scenario.b) == 1
     assert call(scenario, lambda actor: service.open_task_count(actor=actor)) == 1

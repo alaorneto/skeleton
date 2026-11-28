@@ -120,8 +120,9 @@ def identity_admission_update(request, organization_id, sysid):
         form.add_error(None, "As regras mudaram desde que a página foi aberta. Atualize e tente de novo.")
         return _page(request, organization_id, forms_by_id={item.sysid: form}, status=409)
     except ValidationError as exc:
-        for field, problems in exc.message_dict.items():
-            form.add_error(field if field in form.fields else None, problems)
+        from skeleton.web.forms import form_error
+
+        form_error(form, exc)
         return _page(request, organization_id, forms_by_id={item.sysid: form}, status=400)
     messages.success(request, f"Regras de {item.name} salvas.")
     return redirect("web:identity", organization_id=organization_id)

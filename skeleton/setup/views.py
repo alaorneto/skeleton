@@ -17,6 +17,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.core.cache import cache
 from django.http import Http404
+from django.http.request import split_domain_port
 from django.shortcuts import redirect, render
 from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.http import require_http_methods
@@ -24,6 +25,7 @@ from django.views.decorators.http import require_http_methods
 from skeleton.common.logging import security_event
 from skeleton.instance import crypto
 from skeleton.instance.writer import open_store, write_setting
+from skeleton.system.checks.encryption import KEYRINGS as _ENCRYPTION_KEYRINGS
 
 from . import database, forms, restart, tokens
 from .mode import COMPLETED, PRODUCTION_SETTINGS
@@ -114,14 +116,9 @@ SKIPPED = "skipped"
 logger = logging.getLogger("skeleton.setup")
 MAX_FAILURES = 5
 FAILURE_WINDOW = 15 * 60
-# Generated once by the instance step, whether or not the feature is on: turning billing on later
-# never meets an instance without its keyring (skeleton.E037, #654).
-KEYRINGS = (
-    "mfa_encryption_keys",
-    "identity_provider_encryption_keys",
-    "integration_encryption_keys",
-    "billing_encryption_keys",
-)
+# Generated once by the instance step from the same single source of truth as skeleton.E026/E027:
+# turning any feature on later never meets an instance without its keyring (#654, #913).
+KEYRINGS = tuple(setting.lower() for setting, _ in _ENCRYPTION_KEYRINGS)
 
 
 def _store():
@@ -420,12 +417,15 @@ def _step(request, name, form, *, status=200, **context):
 @setup_page
 @require_http_methods(["GET", "POST"])
 def instance(request):
+    host = request.get_host()
+    domain, _ = split_domain_port(host)
     initial = {
-        # The address the operator is using right now, without the port.
-        "allowed_hosts": request.get_host().split(":")[0],
-        "trust_proxy": "HTTP_X_FORWARDED_PROTO" in request.META,
+        # The address the operator is using right now, without the port (preserves IPv6 literals, #913).
+        "allowed_hosts": domain or host,
+        # Never pre-check trust_proxy from an untrusted request header (#913): the operator enables it explicitly.
+        "trust_proxy": False,
         # Its origin, as the public URL that links and payment providers need (W037, #654).
-        "public_url": f"{request.scheme}://{request.get_host()}",
+        "public_url": f"{request.scheme}://{host}",
     }
     initial.update(_initial("instance"))  # A stored value wins over the suggestion.
     form = forms.InstanceForm(request.POST or None, initial=initial, strict=_strict())
@@ -529,8 +529,8 @@ def schema(request):
         except database.DatabaseCheckError as error:
             _check_error(form, error, prefix="owner_")
         except Exception as error:  # noqa: BLE001 - shown without detail; the DSN never reaches a message
-            # The log keeps the traceback for the operator; no form value is passed to it (#290).
-            logger.error("setup.step_failed step=%s error_class=%s", "schema", type(error).__name__, exc_info=True)
+            # No exc_info here: owner_dsn and owner_password are live locals in this frame (#913).
+            logger.error("setup.step_failed step=%s error_class=%s", "schema", type(error).__name__)
             form.add_error(
                 None,
                 gettext("A migração falhou (%(__name__)s). Corrija e tente de novo.")
